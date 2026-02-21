@@ -4,3 +4,5 @@
 /backend/.env
 /backend/prisma/.env
 /frontend/
+/backend/db_migrations/
+/backend/prisma
