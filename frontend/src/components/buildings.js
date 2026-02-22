@@ -1,16 +1,40 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getBuildings, getTotalMeters } from '../core/data_connecter/building';
 
 const Buildings = () => {
   const [buildings, setBuildings] = useState([
-    { id: 'BLD-001', name: 'Ratchaphruek Building', totalMeter: 8, energy: 1250 },
-    { id: 'BLD-002', name: 'Engineering Center', totalMeter: 8, energy: 2150 },
-    { id: 'BLD-003', name: 'Medical Center', totalMeter: 12, energy: 1850 },
-    { id: 'BLD-004', name: 'Science Building', totalMeter: 6, energy: 950 },
-    { id: 'BLD-005', name: 'Library Complex', totalMeter: 10, energy: 1600 },
+    { id: 'BLD-001', name: 'Ratchaphruek Building', contact: 'Alice', totalMeter: 8, energy: 1250 },
+    { id: 'BLD-002', name: 'Engineering Center', contact: 'Bob', totalMeter: 8, energy: 2150 },
+    { id: 'BLD-003', name: 'Medical Center', contact: 'Carol', totalMeter: 12, energy: 1850 },
+    { id: 'BLD-004', name: 'Science Building', contact: 'Dave', totalMeter: 6, energy: 950 },
+    { id: 'BLD-005', name: 'Library Complex', contact: 'Eve', totalMeter: 10, energy: 1600 },
   ]);
 
   const [editingRow, setEditingRow] = useState(null);
   const [editData, setEditData] = useState({});
+
+  useEffect(() => {
+    const fetch = async () => {
+      try {
+        const list = await getBuildings();
+        const items = Array.isArray(list) ? list : (list?.buildings || list || []);
+        const counts = await Promise.all(items.map(async b => {
+          try { return await getTotalMeters(b.id); } catch (e) { return b.totalMeter || 0; }
+        }));
+        const normalized = items.map((b, i) => ({
+          id: b.id || b.name,
+          name: b.name,
+          contact: b.owner?.name || b.email || b.contact || '',
+          totalMeter: counts[i] ?? (b.meters ? b.meters.length : b.totalMeter || 0),
+          energy: b.energy || 0,
+        }));
+        setBuildings(normalized);
+      } catch (e) {
+        console.error('getBuildings error', e);
+      }
+    };
+    fetch();
+  }, []);
 
   const handleEdit = (index) => {
     setEditingRow(index);
@@ -63,6 +87,7 @@ const Buildings = () => {
                 <tr className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-gray-200">
                   <th className="text-left font-bold text-gray-900 py-4 px-6">ID</th>
                   <th className="text-left font-bold text-gray-900 py-4 px-6">Name</th>
+                  <th className="text-left font-bold text-gray-900 py-4 px-6">Contact</th>
                   <th className="text-left font-bold text-gray-900 py-4 px-6">Total Meter</th>
                   <th className="text-left font-bold text-gray-900 py-4 px-6">Energy (kWh)</th>
                   <th className="text-center font-bold text-gray-900 py-4 px-6">Actions</th>
@@ -84,6 +109,14 @@ const Buildings = () => {
                             type="text"
                             value={editData.name}
                             onChange={(e) => handleInputChange('name', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                          />
+                        </td>
+                        <td className="py-4 px-6">
+                          <input
+                            type="text"
+                            value={editData.contact}
+                            onChange={(e) => handleInputChange('contact', e.target.value)}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                           />
                         </td>
@@ -130,6 +163,9 @@ const Buildings = () => {
                         </td>
                         <td className="py-4 px-6 text-gray-900 font-medium">
                           {building.name}
+                        </td>
+                        <td className="py-4 px-6 text-gray-900 font-medium">
+                          {building.contact}
                         </td>
                         <td className="py-4 px-6 text-gray-700">
                           <span className="text-lg font-bold">{building.totalMeter}</span>

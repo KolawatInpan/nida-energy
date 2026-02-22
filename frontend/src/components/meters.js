@@ -1,14 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getMeters } from '../core/data_connecter/meter';
 
 const Meters = () => {
-  const [meters, setMeters] = useState([
-    { snid: 'MTR-001', buildingName: 'Ratchaphruek Building', type: 'Produce', capacity: 50, status: 'Approved' },
-    { snid: 'MTR-002', buildingName: 'Engineering Center', type: 'Consume', capacity: 100, status: 'Approved' },
-    { snid: 'MTR-003', buildingName: 'Medical Center', type: 'Battery', capacity: 150, status: 'Pending' },
-    { snid: 'MTR-004', buildingName: 'Science Building', type: 'Produce', capacity: 75, status: 'Approved' },
-    { snid: 'MTR-005', buildingName: 'Library Complex', type: 'Consume', capacity: 80, status: 'Rejected' },
-    { snid: 'MTR-006', buildingName: 'Ratchaphruek Building', type: 'Battery', capacity: 120, status: 'Pending' },
-  ]);
+  const [meters, setMeters] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMeters = async () => {
+      try {
+        const data = await getMeters();
+        const list = Array.isArray(data) ? data : (data?.meters || data || []);
+        const normalized = list.map(m => ({
+          snid: m.snid,
+          buildingName: m.buildingName || m.building?.name || m.building?.owner?.name,
+          type: m.produceMeter ? 'Produce' : m.consumeMeter ? 'Consume' : m.batMeter ? 'Battery' : (m.type || 'Unknown'),
+          capacity: m.capacity || m.kwh || '',
+          status: m.approveStatus || m.status || 'Unknown',
+          raw: m
+        }));
+        setMeters(normalized);
+      } catch (error) {
+        console.error("Error fetching meters:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMeters();
+  }, []);
 
   const [editingRow, setEditingRow] = useState(null);
   const [editData, setEditData] = useState({});
@@ -42,11 +61,11 @@ const Meters = () => {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'Approved':
+      case 'approved':
         return 'bg-green-100 text-green-700';
-      case 'Pending':
+      case 'pending':
         return 'bg-yellow-100 text-yellow-700';
-      case 'Rejected':
+      case 'rejected':
         return 'bg-red-100 text-red-700';
       default:
         return 'bg-gray-100 text-gray-700';
