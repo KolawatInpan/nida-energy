@@ -1,58 +1,74 @@
 const MeterModel = require('../models/meter.model');
+const UserModel = require('../models/user.model');
 
-async function listPendingMeters(req, res) {
+
+async function getMeters(req, res) {
   try {
-    // support query param ?pending=true (default) or ?approved=true
-    const q = req.query || {};
-    let list = [];
-    if (q.approved === 'true' || q.approved === true) {
-      list = await MeterModel.getApprovedMeters();
-    } else if (q.pending === 'false' || q.pending === false || q.approved === 'false') {
-      list = await MeterModel.getApprovedMeters();
-    } else {
-      list = await MeterModel.getPendingMeters();
-    }
-    res.json(list);
+    const meters = await MeterModel.getMeters();
+    res.json(meters);
   } catch (err) {
-    console.error('listPendingMeters error', err);
+    console.error('getMeters error', err);
     res.status(500).json({ error: err.message });
   }
 }
 
-async function createMeter(req, res) {
+async function getMetersByBuilding(req, res) {
   try {
-    const { name, buildingId, SN, capacity, dateInstalled } = req.body || {};
-    if (!name || !buildingId) return res.status(400).json({ error: 'name and buildingId required' });
-    const m = await MeterModel.createMeterWithSeed({ meterName: name, buildingId, SN, capacity, dateInstalled });
-    res.status(201).json(m);
+    const buildingId = req.params.buildingId;
+    const meters = await MeterModel.getMetersByBuilding(buildingId);
+    res.json(meters);
   } catch (err) {
-    console.error('createMeter error', err);
-    res.status(err.status || 500).json({ error: err.message });
+    console.error('getMetersByBuilding error', err);
+    res.status(500).json({ error: err.message });
   }
 }
 
-async function approveMeter(req, res) {
+async function getApprovedMeters(req, res) {
   try {
-    const snid = req.params.snid;
-    const approve = req.body && typeof req.body.approve !== 'undefined' ? !!req.body.approve : true;
-    const updated = await MeterModel.approveMeter(snid, approve);
-    res.json(updated);
+    const meters = await MeterModel.getApprovedMeters();
+    res.json(meters);
   } catch (err) {
-    console.error('approveMeter error', err);
-    res.status(err.status || 500).json({ error: err.message });
+    console.error('getApprovedMeters error', err);
+    res.status(500).json({ error: err.message });
   }
 }
 
-async function getMeterBySNID(req, res) {
-    try {
-        const snid = req.params.snid;
-        const meter = await MeterModel.getMeterBySNID(snid);
-        if (!meter) return res.status(404).json({ error: 'meter not found' });
-        res.json(meter);
-    } catch (err) {
-        console.error('getMeterBySNID error', err);
-        res.status(500).json({ error: err.message });
-    }
+async function getApprovedMetersByBuilding(req, res) {
+  try {
+    const buildingId = req.params.buildingId;
+    const meters = await MeterModel.getApprovedMetersByBuilding(buildingId);
+    res.json(meters);
+  } catch (err) {
+    console.error('getApprovedMetersByBuilding error', err);
+    res.status(500).json({ error: err.message });
+  }
 }
 
-module.exports = { listPendingMeters, createMeter, approveMeter, getMeterBySNID };
+async function getPendingMeters(req, res) {
+  try {
+    const meters = await MeterModel.getPendingMeters();
+    res.json(meters);
+  } catch (err) {
+    console.error('getPendingMeters error', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function getRejectedMeters(req, res) {
+  try {
+    const meters = await MeterModel.getRejectedMeters();
+    res.json(meters);
+  } catch (err) {
+    console.error('getRejectedMeters error', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { 
+  getMeters,
+  getMetersByBuilding,
+  getApprovedMeters,
+  getApprovedMetersByBuilding,
+  getPendingMeters,
+  getRejectedMeters
+ };

@@ -1,20 +1,10 @@
 // backend/server.js
 const express = require('express');
 const cors = require('cors');
-// const transactionRoutes = require('./routes/transaction.routes');
 const userRoutes = require('./routes/user.routes');
-// const walletRoutes = require('./routes/wallet.routes');
-// const rateRoutes = require('./routes/dashboard.routes');
 const buildingRoutes = require("./routes/building.routes");
 const meterRoutes = require("./routes/meter.routes");
-// const devRoutes = require('./routes/devRoutes');
-// const batteryRoutes = require('./routes/battery.routes');
-// const energyRoutes = require('./routes/energy.routes');
-// const runningMeterRoutes = require('./routes/runningMeter.routes');
-// const rateApiRoutes = require('./routes/rateRoutes');
-// const systemRoutes = require('./routes/system.routes');
-// const invoiceRoutes = require('./routes/invoice.routes');
-// const receiptRoutes = require('./routes/receipt.routes');
+const walletRoutes = require('./routes/wallet.routes');
 
 const app = express();
 // CORS: allow the frontend origin and support credentials (cookies or auth flows)
@@ -25,34 +15,18 @@ app.use(express.json());
 // also accept urlencoded form bodies (e.g. Postman form-data / x-www-form-urlencoded)
 app.use(express.urlencoded({ extended: true }));
 
-// app.use('/api/transactions', transactionRoutes);
 app.use('/api/users', userRoutes);
-// app.use('/api/wallet', walletRoutes);
-
-// Convenience alias: list all wallets
-// app.get('/wallets', (req, res, next) => {
-// 	// forward to wallet routes handler
-// 	req.url = '/';
-// 	return walletRoutes.handle(req, res, next);
-// });
-// app.use('/api/dashboard', rateRoutes);
 app.use("/api/buildings", buildingRoutes);
 app.use('/api/meters', meterRoutes);
-// app.use('/api/energy', energyRoutes);
-// app.use('/api/energy/running', runningMeterRoutes);
-// app.use('/api/rates', rateApiRoutes);
-// app.use('/api/system', systemRoutes);
-// app.use('/api/dev', devRoutes);
-// app.use('/api/batteries', batteryRoutes);
-// app.use('/api/invoices', invoiceRoutes);
-// app.use('/api/receipts', receiptRoutes);
+app.use('/api/wallets', walletRoutes);
+
 
 // health endpoint for quick checks
 app.get('/api/health', (req, res) => {
 	res.json({ status: 'ok' });
 });
 
-const PORT = 3001;
+const PORT = 8000;
 // run DB initialization for local/dev environments to handle schema drift
 try {
 	// log DATABASE_URL for debugging connection target
