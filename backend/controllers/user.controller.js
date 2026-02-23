@@ -36,9 +36,35 @@ async function getUserByBuildingName(req, res) {
 	}
 }
 
+async function getUserByBuildingId(req, res) {
+	try {
+		const buildingId = parseInt(req.params.buildingId);
+		const user = await User.getUserByBuildingId(buildingId);
+		if (!user) return res.status(404).json({ error: 'user not found' });
+		res.json(user);
+	} catch (err) {
+		console.error('getUserByBuildingId error', err);
+		res.status(500).json({ error: err.message });
+	}
+}
+
+async function register(req, res) {
+	try {
+		const { name, email, password } = req.body;
+		console.log('Registering user', { name, email });
+		const newUser = await User.registerUser(name, email, password);
+		res.status(201).json(newUser);
+	} catch (err) {
+		console.error('register error', err);
+		res.status(400).json({ error: err.message });
+	}
+}
+
 module.exports = { 
 	getUsers, 
 	getUser, 
-	getUserByBuildingName
+	getUserByBuildingName,
+	getUserByBuildingId,
+	register
 };
 
