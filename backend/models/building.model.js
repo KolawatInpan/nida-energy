@@ -10,17 +10,44 @@ async function getBuilding(id) {
 }
 
 async function getTotalMeters(buildingId) {
-  const count = await prisma.meterInfo.count({
-    include {
-      
+    const count = await prisma.meterInfo.count({
+        where: {
+          building: {
+            id: parseInt(buildingId)
+          }
+        }
+    })
+    return count;
+}
+
+async function getBuildingByEmail(email) {
+    return await prisma.building.findMany({
+      where: { email: email}
+    })
+}
+
+async function createBuilding(name, url, fullAddr, province, postalCode, email) {
+    if (!name || !url || !fullAddr || !province || !postalCode || !email) {
+        throw new Error('All fields are required');
     }
-  })
-  return count;
+    const newBuilding = await prisma.building.create({
+        data: {
+            name,
+            url,
+            fullAddr,
+            province,
+            postalCode,
+            email
+        }
+    });
+    return newBuilding;
 }
 
 module.exports = {
   getBuildings,
   getBuilding,
-  getTotalMeters
+  getTotalMeters,
+  getBuildingByEmail,
+  createBuilding,
 };
 
