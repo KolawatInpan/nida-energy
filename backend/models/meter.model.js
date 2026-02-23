@@ -50,11 +50,28 @@ async function getRejectedMeters() {
   return meters;
 }
 
+async function createMeter(snid, buildingName, capacity, type) {
+  const building = await prisma.building.findUnique({ where: { name: buildingName } });
+  if (!building) {
+    throw new Error('Building not found');
+  }
+  const newMeter = await prisma.meterInfo.create({
+    data: {
+      snid,
+      buildingId: building.id,
+      capacity,
+      type
+    }
+  });
+  return newMeter;
+}
+
 module.exports = {
   getMeters,
   getMetersByBuilding,
   getApprovedMeters,
   getApprovedMetersByBuilding,
   getPendingMeters,
-  getRejectedMeters
+  getRejectedMeters,
+  createMeter
 };
