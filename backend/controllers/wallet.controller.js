@@ -9,6 +9,20 @@ async function getWallets(req, res) {
     }
 }
 
+async function getWalletById(req, res) {
+    const { id } = req.params;
+    try {
+        const wallet = await Wallet.getWalletById(id);
+        if (!wallet) {
+            res.status(404).json({ error: 'Wallet not found' });
+        } else {
+            res.json(wallet);
+        }
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.message || 'Failed to retrieve wallet' });
+    }
+}
+
 async function getBalance(req, res) {
     const { walletId } = req.params;
     try {
@@ -25,5 +39,6 @@ async function getBalance(req, res) {
 
 module.exports = {
     getWallets,
+    getWalletById,
     getBalance
 };
