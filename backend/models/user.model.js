@@ -26,10 +26,41 @@ async function getUserByEmail(email) {
   return await prisma.user.findUnique({ where: { email }, include: { wallets: true, credentials: true } });
 }
 
+async function getUserByBuildingId(buildingId) {
+  if (!buildingId) return null;
+  const building = await prisma.building.findUnique({ where: { id: buildingId }, select: { email: true } });
+  const buildingEmail = building?.email;
+  if (!buildingEmail) return null;
+  return await prisma.user.findUnique({ where: { email: buildingEmail }, include: { wallets: true, credentials: true } });
+}
+
+async function registerUser(name, email, password) {
+  if (!name || !email || !password) {
+    throw new Error('Name, email, and password are required');
+  }
+  const existingUser = await prisma.user.findUnique({ where: { email } });
+  if (existingUser) {
+    throw new Error('User with this email already exists');
+  }
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const credId = randomUUID();
+  const newUser = await prisma.user.create({
+    data: {
+      name,
+      email,
+      passwordHash: hashedPassword,
+      credId
+    },
+    include: { credentials: true, wallets: true },
+  });
+  return newUser;
+}
 
 module.exports = {
   getUsers,
   getUserById,
   getUserByEmail,
-  getUserByBuildingName
+  getUserByBuildingName,
+  getUserByBuildingId,
+  registerUser,
 };
