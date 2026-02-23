@@ -35,8 +35,23 @@ async function getTotalMeters(req, res) {
   }
 }
 
+async function getBuildingByEmail(req, res) {
+  const { email } = req.params;
+  try {
+    const building = await BuildingModel.getBuildingByEmail(email);
+    if (!building) {
+      return res.status(404).json({ error: 'Building not found' });
+    }
+    res.json(building);
+  } catch (err) {
+    console.error('getBuildingByEmail error', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   getBuildings,
   getBuilding,
-  getTotalMeters
+  getTotalMeters,
+  getBuildingByEmail
 };
