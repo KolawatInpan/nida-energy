@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nPOST /api/meters/register" as API
+participant "Database\nTable: MeterInfo" as DB
+User->UI: Enter meter information
+UI->API: Submit meter registration request
+API->DB: Store meter data
+DB-->API: Meter record created successfully
+API-->UI: Return meter registration result
+UI-->User: Display registered meter details
+
+@enduml

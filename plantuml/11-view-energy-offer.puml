@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nGET /api/offers" as API
+participant "Database\nTable: EnergyOffer" as DB
+User->UI: Open the energy marketplace page
+UI->API: Request available offers
+API->DB: Retrieve available offers
+DB-->API: Return offer data
+API-->UI: Return offer list
+UI-->User: Display available energy offers
+
+@enduml

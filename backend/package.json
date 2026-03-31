@@ -9,10 +9,13 @@
   "scripts": {
     "start": "nodemon server.js",
     "dev": "nodemon --watch . --ext js,json --exec \"node server.js\"",
+    "prisma:generate": "prisma generate",
     "feed-running": "node ./scripts/feed_hourly_running.js",
     "feed-running-http": "node ./scripts/feed_hourly_running_http.js",
     "feed-historical": "node ./scripts/feed_historical.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node unit_test/run.js",
+    "test:unit": "node unit_test/run.js",
+    "test:integration": "node integration_test/health.integration.test.js"
   },
   "dependencies": {
     "@prisma/client": "^6.18.0",
@@ -26,6 +29,8 @@
     "node-fetch": "3.3.1",
     "nodemon": "^3.1.10",
     "pg": "^8.16.3",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "web3": "^4.16.0",
     "yargs": "^17.7.2"
   },

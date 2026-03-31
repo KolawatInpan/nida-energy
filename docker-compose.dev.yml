@@ -1,0 +1,84 @@
+services:
+  blockchain:
+    build:
+      context: ./blockchain
+      dockerfile: Dockerfile.dev
+    container_name: nida-blockchain-dev
+    restart: unless-stopped
+    command: sh -c "npm install && npx hardhat node --hostname 0.0.0.0"
+    ports:
+      - "${BLOCKCHAIN_PORT:-8545}:8545"
+    volumes:
+      - ./blockchain:/app
+      - blockchain_node_modules:/app/node_modules
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: nida-backend-dev
+    restart: unless-stopped
+    depends_on:
+      - blockchain
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      NODE_ENV: development
+      PORT: 8000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      SECRET_KEY: ${SECRET_KEY:-12345678901234567890123456789012}
+      RUN_PRISMA_MIGRATE: ${RUN_PRISMA_MIGRATE:-false}
+      DEFAULT_DATA_MODE: ${DEFAULT_DATA_MODE:-real}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:5432/energy_trading?schema=public}
+      DATABASE_URL_DEMO: ${DATABASE_URL_DEMO:-postgresql://postgres:postgres@host.docker.internal:5432/energy_trading_demo?schema=public}
+      ETH_RPC_URL: ${ETH_RPC_URL:-http://blockchain:8545}
+      ETH_PRIVATE_KEY: ${ETH_PRIVATE_KEY:-}
+      ETH_CHAIN_ID: ${ETH_CHAIN_ID:-31337}
+      ETH_EXPLORER_BASE_URL: ${ETH_EXPLORER_BASE_URL:-}
+      ETH_VERIFICATION_CONTRACT_ADDRESS: ${ETH_VERIFICATION_CONTRACT_ADDRESS:-}
+      CHOKIDAR_USEPOLLING: "true"
+    command: sh -c "npx prisma db push --accept-data-loss && npx prisma generate && npx nodemon -L --watch . --ext js,json --exec 'node server.js'"
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: nida-frontend-dev
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      WDS_SOCKET_PORT: 3000
+      REACT_APP_MOCKUPMODE: ${REACT_APP_MOCKUPMODE:-false}
+      REACT_APP_APPAPI: ${REACT_APP_APPAPI:-http://localhost:8000/api}
+      REACT_APP_API: ${REACT_APP_API:-http://localhost:8000/api/}
+      REACT_APP_API_BASE: ${REACT_APP_API_BASE:-http://localhost:8000/api}
+      REACT_APP_APIURL: ${REACT_APP_APIURL:-http://localhost:8000/api/users}
+      REACT_APP_DATAAPI: ${REACT_APP_DATAAPI:-}
+      REACT_APP_MONGOAPI: ${REACT_APP_MONGOAPI:-}
+      REACT_APP_IOCCMDAPI: ${REACT_APP_IOCCMDAPI:-}
+      REACT_APP_FOCUSAPI: ${REACT_APP_FOCUSAPI:-}
+      REACT_APP_SPHINXAPI: ${REACT_APP_SPHINXAPI:-}
+      REACT_APP_PARKINGAPI: ${REACT_APP_PARKINGAPI:-}
+      REACT_APP_PARKINGURL: ${REACT_APP_PARKINGURL:-}
+      REACT_APP_DEFAULT_DATA_MODE: ${DEFAULT_DATA_MODE:-real}
+    command: sh -c "npm start"
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+
+volumes:
+  blockchain_node_modules:
+  backend_node_modules:
+  frontend_node_modules:

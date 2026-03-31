@@ -3,6 +3,14 @@
 /backend/node_modules
 /backend/.env
 /backend/prisma/.env
-/frontend/
 /backend/db_migrations/
 /backend/prisma
+/backend/config
+/frontend/build
+/frontend/public
+/frontend/src/assets
+/sequenceDiagram/
+/usecaseDiagram/
+/blockchain
+.env
+.env.ec2

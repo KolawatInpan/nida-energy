@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nGET /api/transactions/blockchain/recent" as API
+participant "Database\nTable: Transaction" as DB
+User->UI: Open the blockchain explorer page
+UI->API: Request recent blockchain transactions
+API->DB: Retrieve transactions with txHash
+DB-->API: Return blockchain transaction data
+API-->UI: Return recent blockchain transactions
+UI-->User: Display blockchain transaction details
+
+@enduml

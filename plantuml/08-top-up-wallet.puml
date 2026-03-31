@@ -1,0 +1,36 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nPOST /api/wallets/by-email/:email/topup" as API
+participant "Database\nTable: Wallet" as WalletDB
+participant "Database\nTable: Transaction" as TxDB
+participant "Ethereum/Hardhat" as Chain
+User->UI: Enter the token top-up amount
+UI->API: Submit top-up request
+API->WalletDB: Update wallet balance
+WalletDB-->API: Wallet balance updated
+API->TxDB: Store top-up transaction
+TxDB-->API: Transaction stored successfully
+API->Chain: Publish verification proof
+Chain-->API: Return txHash and block metadata
+API->TxDB: Update verification status
+TxDB-->API: Verification updated
+API-->UI: Return top-up result
+UI-->User: Display updated wallet balance and transaction details
+
+@enduml

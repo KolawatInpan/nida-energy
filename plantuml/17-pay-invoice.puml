@@ -1,0 +1,45 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nPOST /api/invoices/:id/pay" as API
+participant "Database\nTable: Wallet" as WalletDB
+participant "Database\nTable: WalletTx" as WalletTxDB
+participant "Database\nTable: Transaction" as TxDB
+participant "Database\nTable: Invoice" as InvoiceDB
+participant "Database\nTable: Receipt" as ReceiptDB
+participant "Ethereum/Hardhat" as Chain
+User->UI: Confirm invoice payment
+UI->API: Submit invoice payment request
+API->WalletDB: Validate wallet balance and deduct payment amount
+WalletDB-->API: Wallet updated
+API->WalletTxDB: Store wallet payment movement
+WalletTxDB-->API: Wallet transaction stored
+API->TxDB: Store invoice payment transaction
+TxDB-->API: Payment transaction stored
+API->InvoiceDB: Update invoice status to paid
+InvoiceDB-->API: Invoice updated
+API->ReceiptDB: Create or retrieve receipt
+ReceiptDB-->API: Receipt ready
+API->Chain: Publish payment verification proof
+Chain-->API: Return txHash and block metadata
+API->TxDB: Update verification status
+TxDB-->API: Verification updated
+API-->UI: Return payment result
+UI-->User: Display payment result and transaction status
+
+@enduml

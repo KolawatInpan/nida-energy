@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nPOST /api/buildings/register" as API
+participant "Database\nTable: Building" as DB
+User->UI: Enter building information
+UI->API: Submit building registration request
+API->DB: Store building data
+DB-->API: Building record created successfully
+API-->UI: Return building registration result
+UI-->User: Display created building details
+
+@enduml

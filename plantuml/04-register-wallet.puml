@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nPOST /api/wallets/register" as API
+participant "Database\nTable: Wallet" as DB
+User->UI: Request wallet creation
+UI->API: Submit wallet creation request
+API->DB: Create wallet record
+DB-->API: Wallet created successfully
+API-->UI: Return wallet data
+UI-->User: Display wallet creation result
+
+@enduml

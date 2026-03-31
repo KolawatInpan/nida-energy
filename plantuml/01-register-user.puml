@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nPOST /api/users/register" as API
+participant "Database\nTable: User" as DB
+User->UI: Enter registration information
+UI->API: Submit registration request
+API->DB: Validate and store user data
+DB-->API: User account created successfully
+API-->UI: Return registration result
+UI-->User: Display registration confirmation
+
+@enduml

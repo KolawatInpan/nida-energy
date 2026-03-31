@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nGET /api/wallets/by-email/:email" as API
+participant "Database\nTable: Wallet" as DB
+User->UI: Open wallet details page
+UI->API: Request wallet details
+API->DB: Retrieve wallet information
+DB-->API: Return wallet data
+API-->UI: Return wallet details
+UI-->User: Display wallet balance and details
+
+@enduml

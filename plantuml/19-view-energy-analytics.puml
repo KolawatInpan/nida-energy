@@ -1,0 +1,43 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nGET /api/energy/buildings" as API
+participant "Database\nTable: Building" as BuildingDB
+participant "Database\nTable: MeterInfo" as MeterDB
+participant "Database\nTable: HourlyEnergy" as HourlyDB
+participant "Database\nTable: DailyEnergy" as DailyDB
+participant "Database\nTable: WeeklyEnergy" as WeeklyDB
+participant "Database\nTable: MonthlyEnergy" as MonthlyDB
+User->UI: Open the energy analytics page
+UI->API: Request energy analytics
+API->BuildingDB: Retrieve building information
+BuildingDB-->API: Building data returned
+API->MeterDB: Retrieve related meter information
+MeterDB-->API: Meter data returned
+API->HourlyDB: Retrieve hourly energy data
+HourlyDB-->API: Hourly data returned
+API->DailyDB: Retrieve daily energy data
+DailyDB-->API: Daily data returned
+API->WeeklyDB: Retrieve weekly energy data
+WeeklyDB-->API: Weekly data returned
+API->MonthlyDB: Retrieve monthly energy data
+MonthlyDB-->API: Monthly data returned
+API-->UI: Return analytics data
+UI-->User: Display charts and energy analytics
+
+@enduml

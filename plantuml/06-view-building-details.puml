@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nGET /api/buildings/:id" as API
+participant "Database\nTable: Building" as DB
+User->UI: Select a building to view
+UI->API: Request building details
+API->DB: Retrieve building information
+DB-->API: Return building details
+API-->UI: Return building data
+UI-->User: Display building details
+
+@enduml

@@ -1,0 +1,51 @@
+export const ROUTE_PATHS = {
+  root: '/',
+  home: '/home',
+  login: '/login',
+  logout: '/logout',
+  security: '/security',
+  parking: '/parking',
+  utility: '/utility',
+  environment: '/environment',
+  analytic: '/analytic',
+  covid: '/covid',
+  smoke: '/smoke',
+  transaction: '/transaction',
+  tradingHistory: '/trading-history',
+  transactionDetail: '/transactions/:txid',
+  quota: '/quota',
+  wallet: '/wallet',
+  walletByBuilding: '/wallet/:buildingName',
+  building: '/building/:buildingId',
+  meter: '/meter/:meterId',
+  approvedRequest: '/approved-request',
+  approvedRequestDetail: '/approved-request/:id',
+  meterRegistration: '/meter-registration',
+  energySelling: '/energy-selling',
+  mockEnergy: '/mock-energy',
+  market: '/market',
+  blockExplorer: '/block-explorer',
+  blockExplorerTx: '/block-explorer/tx/:txHash',
+  blockchainValidators: '/blockchain/validators',
+  blockchainCompare: '/blockchain/compare',
+  blockchainCompareById: '/blockchain/compare/:txid',
+  report: '/report',
+  receipts: '/receipts',
+  receipt: '/receipt/:id',
+  receiptLegacy: '/receipts/:id',
+  tokenManagement: '/token-management',
+  invoice: '/invoice',
+  invoicePayment: '/invoice/:id/pay',
+  rateManagement: '/rate-management',
+  adminUsers: '/admin/users',
+  adminBuildings: '/admin/buildings',
+  adminMeters: '/admin/meters',
+  adminResetDatabase: '/admin/reset-database',
+};
+
+export const routeToBuilding = (slug = ':buildingId') => `/building/${slug}`;
+export const routeToMeter = (meterId = ':meterId') => `/meter/${meterId}`;
+export const routeToWallet = (buildingName = ':buildingName') => `/wallet/${buildingName}`;
+export const routeToInvoicePayment = (id = ':id') => `/invoice/${id}/pay`;
+export const routeToBlockExplorerTx = (txHash = ':txHash') => `/block-explorer/tx/${txHash}`;
+export const routeToBlockchainCompare = (txid = ':txid') => `/blockchain/compare/${txid}`;

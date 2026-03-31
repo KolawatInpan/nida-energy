@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nGET /api/transactions" as API
+participant "Database\nTable: Transaction" as DB
+User->UI: Open the transaction page
+UI->API: Request transaction list
+API->DB: Retrieve all transactions
+DB-->API: Return transaction records
+API-->UI: Return transaction list
+UI-->User: Display system transactions
+
+@enduml

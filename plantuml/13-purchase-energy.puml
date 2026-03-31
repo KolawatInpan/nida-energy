@@ -1,0 +1,51 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nPOST /api/invoices/purchase" as API
+participant "Database\nTable: Wallet" as WalletDB
+participant "Database\nTable: WalletTx" as WalletTxDB
+participant "Database\nTable: Transaction" as TxDB
+participant "Database\nTable: Invoice" as InvoiceDB
+participant "Database\nTable: Receipt" as ReceiptDB
+participant "Database\nTable: EnergyOffer" as OfferDB
+participant "Database\nTable: MeterInfo" as MeterDB
+participant "Ethereum/Hardhat" as Chain
+User->UI: Select an offer to purchase energy
+UI->API: Submit energy purchase request
+API->WalletDB: Validate buyer balance and update buyer/seller wallets
+WalletDB-->API: Wallet balances updated
+API->WalletTxDB: Store wallet movement records
+WalletTxDB-->API: Wallet transaction records stored
+API->TxDB: Store buyer/seller transaction records
+TxDB-->API: Transaction records stored
+API->InvoiceDB: Create invoice record
+InvoiceDB-->API: Invoice created
+API->ReceiptDB: Create receipt record
+ReceiptDB-->API: Receipt created
+API->OfferDB: Update purchased offer status
+OfferDB-->API: Offer updated
+API->MeterDB: Update battery or meter state if required
+MeterDB-->API: Meter data updated
+API->Chain: Publish buyer/seller transaction proof
+Chain-->API: Return txHash and block metadata
+API->TxDB: Update transaction verification
+TxDB-->API: Verification updated
+API-->UI: Return purchase result
+UI-->User: Display purchase result and related transactions
+
+@enduml

@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nGET /api/receipts/:id" as API
+participant "Database\nTable: Receipt" as DB
+User->UI: Open receipt details
+UI->API: Request receipt details
+API->DB: Retrieve receipt information
+DB-->API: Return receipt details
+API-->UI: Return receipt data
+UI-->User: Display receipt details
+
+@enduml

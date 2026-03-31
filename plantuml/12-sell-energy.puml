@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nPOST /api/offers" as API
+participant "Database\nTable: EnergyOffer" as DB
+User->UI: Confirm energy sale submission
+UI->API: Submit sale offer
+API->DB: Validate and store sale offer
+DB-->API: Sale offer stored successfully
+API-->UI: Return sale result
+UI-->User: Display listed energy sale
+
+@enduml

@@ -1,0 +1,28 @@
+﻿@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequence {
+  ArrowColor Black
+  LifeLineBorderColor Black
+  LifeLineBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor White
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantFontColor Black
+  ActorFontColor Black
+}
+
+actor "User" as User
+participant "Frontend" as UI
+participant "Backend API\nGET /api/invoices" as API
+participant "Database\nTable: Invoice" as DB
+User->UI: Open the invoice page
+UI->API: Request invoice list
+API->DB: Retrieve invoice records
+DB-->API: Return invoice data
+API-->UI: Return invoice list
+UI-->User: Display invoice details
+
+@enduml

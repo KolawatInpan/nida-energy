@@ -1,0 +1,81 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nida-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-energy_trading}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-energy_trading}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  blockchain:
+    build:
+      context: ./blockchain
+      dockerfile: Dockerfile
+    container_name: nida-blockchain
+    restart: unless-stopped
+    ports:
+      - "${BLOCKCHAIN_PORT:-8545}:8545"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.ec2
+    container_name: nida-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      blockchain:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      PORT: 8000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      SECRET_KEY: ${SECRET_KEY:-12345678901234567890123456789012}
+      DEFAULT_DATA_MODE: ${DEFAULT_DATA_MODE:-real}
+      RUN_PRISMA_DB_PUSH: ${RUN_PRISMA_DB_PUSH:-true}
+      RUN_PRISMA_MIGRATE: ${RUN_PRISMA_MIGRATE:-false}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-energy_trading}?schema=public
+      DATABASE_URL_DEMO: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB_DEMO:-energy_trading_demo}?schema=public
+      ETH_RPC_URL: ${ETH_RPC_URL:-http://blockchain:8545}
+      ETH_PRIVATE_KEY: ${ETH_PRIVATE_KEY:-}
+      ETH_CHAIN_ID: ${ETH_CHAIN_ID:-31337}
+      ETH_EXPLORER_BASE_URL: ${ETH_EXPLORER_BASE_URL:-}
+      ETH_VERIFICATION_CONTRACT_ADDRESS: ${ETH_VERIFICATION_CONTRACT_ADDRESS:-}
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.ec2
+      args:
+        REACT_APP_MOCKUPMODE: ${REACT_APP_MOCKUPMODE:-false}
+        REACT_APP_APPAPI: /api
+        REACT_APP_API: /api/
+        REACT_APP_API_BASE: /api
+        REACT_APP_APIURL: /api/users
+        REACT_APP_DATAAPI: ${REACT_APP_DATAAPI:-}
+        REACT_APP_MONGOAPI: ${REACT_APP_MONGOAPI:-}
+        REACT_APP_IOCCMDAPI: ${REACT_APP_IOCCMDAPI:-}
+        REACT_APP_FOCUSAPI: ${REACT_APP_FOCUSAPI:-}
+        REACT_APP_SPHINXAPI: ${REACT_APP_SPHINXAPI:-}
+        REACT_APP_PARKINGAPI: ${REACT_APP_PARKINGAPI:-}
+        REACT_APP_PARKINGURL: ${REACT_APP_PARKINGURL:-}
+    container_name: nida-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+
+volumes:
+  postgres_data:
