@@ -11,6 +11,6 @@
 /frontend/src/assets
 /sequenceDiagram/
 /usecaseDiagram/
-/blockchain
+/blockchain/node_modules
 .env
 .env.ec2

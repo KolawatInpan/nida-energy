@@ -1,0 +1,15 @@
+{
+  "name": "nida-blockchain",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local Ethereum development workspace for NIDA verification flow",
+  "scripts": {
+    "node": "hardhat node",
+    "compile": "hardhat compile",
+    "deploy:local": "hardhat run scripts/deploy-verification-registry.js --network localhost"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.17"
+  }
+}

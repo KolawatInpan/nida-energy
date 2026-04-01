@@ -27,24 +27,41 @@ Siam
 
 ## Docker
 
-This repo can now run `frontend`, `backend`, and `postgres` together with Docker Compose.
+This repo runs `frontend`, `backend`, `postgres`, and `blockchain` together with Docker Compose.
 
 ### First run
 
-1. Copy `.env.docker.example` to `.env`.
-2. Adjust the values if you want different ports, passwords, or frontend API endpoints.
-3. Start everything:
+No manual PostgreSQL setup is required for a fresh clone.
+
+1. Clone the repo.
+2. Start everything:
 
 ```bash
 docker compose up --build
 
 ```
 
+This uses Docker Compose defaults for `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD`.
+Default password used by Compose is `admin123` unless overridden in `.env`.
+
+If you want custom local values, copy `.env.example` to `.env` and edit only what you need.
+
+Optional: create a root `.env` only if you want to override ports, database credentials, or frontend/backend URLs.
+
 Frontend: `http://localhost:3000`
 
 Backend: `http://localhost:8000`
 
 Postgres: `localhost:5432`
+
+pgAdmin: `http://localhost:5050`
+
+The backend now connects to the Docker Postgres service (`db`) directly, so it no longer depends on a local machine database when started via Docker Compose.
+
+Note on `DATABASE_URL`: in root `.env`, `localhost` is for host-run commands (for example, running Prisma from your machine). Inside Docker Compose, backend uses `db:5432` automatically.
+
+pgAdmin auto-loads a preconfigured server named `nida-db`, so new developers do not need to manually create the server connection.
+The one-shot `pgadmin-init` service runs during `docker compose up` to import this server automatically.
 
 ### Database persistence
 
@@ -55,6 +72,13 @@ The data will be removed only if you explicitly delete the volume, for example:
 ```bash
 docker compose down -v
 
+```
+
+If you change Postgres credentials in `.env` after the first run and then get an authentication error, recreate the DB volume and start again:
+
+```bash
+docker compose down -v
+docker compose up --build
 ```
 
 ### Useful commands
@@ -78,6 +102,8 @@ docker compose -f docker-compose.dev.yml up --build
 Frontend dev server: `http://localhost:3000`
 
 Backend dev server: `http://localhost:8000`
+
+pgAdmin: `http://localhost:5050`
 
 This mode bind-mounts the source code into the containers and runs:
 

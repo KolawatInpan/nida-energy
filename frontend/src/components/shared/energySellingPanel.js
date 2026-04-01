@@ -37,6 +37,7 @@ export default function EnergySellingPanel({
   const gridPrice = Number(marketSnapshot?.gridPrice || 4);
   const priceDelta = Number(marketSnapshot?.priceDelta || 0);
   const spread = Number(marketSnapshot?.spread || 0);
+  const demandLabel = String(marketSnapshot?.demandLabel || 'LIVE MARKET');
   const orderBookRows = Array.isArray(marketSnapshot?.orderBook) ? marketSnapshot.orderBook : [];
   const produceSource = sourceEnergyStatus?.produce || { current: 0, capacity: 0, percentage: '0.00', available: false };
   const batterySource = sourceEnergyStatus?.battery || { current: 0, capacity: 0, percentage: '0.00', available: false };
@@ -165,7 +166,7 @@ export default function EnergySellingPanel({
               borderRadius: 3,
               fontSize: 10,
               fontWeight: 600
-            }}>PEAK DEMAND</div>
+            }}>{demandLabel}</div>
             <svg width="100%" height="120" style={{ padding: "20px 10px" }}>
               <defs>
                 <linearGradient id="priceGradient" x1="0%" y1="0%" x2="0%" y2="100%">

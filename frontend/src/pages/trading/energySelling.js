@@ -80,6 +80,13 @@ export default function EnergySelling() {
       () => overviewStats.availableBuildings.map((building) => String(building?.name || '')).filter(Boolean),
       [overviewStats.availableBuildings]
     );
+    const ownedBuildingNames = useMemo(
+      () => overviewStats.availableBuildings
+        .filter((building) => isOwnedByCurrentUser(building))
+        .map((building) => String(building?.name || ''))
+        .filter(Boolean),
+      [overviewStats.availableBuildings, isAdmin, memberEmail]
+    );
 
     const classifyMeterType = (meter = {}) => {
       const rawType = String(meter.type || meter.meterType || '').toLowerCase();
@@ -102,6 +109,13 @@ export default function EnergySelling() {
       const candidates = [meter.capacity, meter.capacitykWH, meter.capacityKwh];
       const found = candidates.find((value) => value !== null && value !== undefined && value !== '');
       return toNumber(found);
+    };
+
+    const getLatestRatePrice = (rows = [], fallback = 0) => {
+      if (!Array.isArray(rows) || rows.length === 0) return toNumber(fallback);
+      const sorted = [...rows].sort((a, b) => new Date(b?.effectiveStart || 0) - new Date(a?.effectiveStart || 0));
+      const latest = sorted[0];
+      return toNumber(latest?.price ?? latest?.bahtPerKwh ?? latest?.value ?? fallback);
     };
 
     const buildMarketSnapshot = ({ meters = [], offers = [], energyRates = [] }) => {
@@ -143,9 +157,18 @@ export default function EnergySelling() {
       const orderBook = [...buySide, ...sellSide];
       const topBid = buySide[0]?.ratePerKwh || 0;
       const topAsk = sellSide[0]?.ratePerKwh || 0;
-      const marketPrice = topAsk || topBid || toNumber(energyRates?.[0]?.bahtPerKwh || energyRates?.[0]?.value || selectedBuilding?.price || 0);
-      const gridPrice = toNumber(energyRates?.[0]?.bahtPerKwh || energyRates?.[0]?.value || 4);
-      const spread = topBid && topAsk ? Math.max(0, topBid - topAsk) : 0;
+      const weightedOfferRate = availableOffers.length
+        ? availableOffers.reduce((sum, offer) => sum + (offer.ratePerKwh * offer.remainingKwh), 0)
+          / Math.max(availableOffers.reduce((sum, offer) => sum + offer.remainingKwh, 0), 1)
+        : 0;
+      const gridPrice = getLatestRatePrice(energyRates, 4);
+      const marketPrice = Number((topAsk || topBid || weightedOfferRate || gridPrice).toFixed(2));
+      const spread = topBid && topAsk ? Math.max(0, topAsk - topBid) : 0;
+      const demandLabel = consumedKwh > producedKwh * 1.1
+        ? 'PEAK GRID DEMAND'
+        : producedKwh > consumedKwh
+          ? 'SOLAR SURPLUS'
+          : 'BALANCED LOAD';
 
       return {
         producedKwh,
@@ -157,6 +180,7 @@ export default function EnergySelling() {
         gridPrice,
         priceDelta: Number((marketPrice - gridPrice).toFixed(2)),
         spread,
+        demandLabel,
         orderBook
       };
     };
@@ -200,8 +224,9 @@ export default function EnergySelling() {
                 const totalConsumption = consumeMeters.reduce((sum, meter) => sum + getMeterCurrentKwh(meter), 0);
                 const netGridLoad = Math.max(0, totalConsumption - solarGeneration);
                 const availableOffers = offers.filter((offer) => String(offer?.status || '').toUpperCase() === 'AVAILABLE');
-                const marketRate = toNumber(energyRates?.[0]?.bahtPerKwh || energyRates?.[0]?.value || availableOffers?.[0]?.ratePerkWH || 0);
-                const gridRate = 4;
+                const gridRate = getLatestRatePrice(energyRates, 4);
+                const offerRateRows = availableOffers.map((offer) => toNumber(offer?.ratePerkWH ?? offer?.ratePerKwh ?? offer?.rate));
+                const marketRate = offerRateRows.find((value) => value > 0) || gridRate;
 
                 if (!mounted) return;
                 setOverviewStats({
@@ -1157,6 +1182,7 @@ export default function EnergySelling() {
             member={member}
             showPanel={showPanel}
             availableBuildingNames={availableBuildingNames}
+            ownedBuildingNames={ownedBuildingNames}
             onSelectBuilding={triggerBuildingByName}
           />
 

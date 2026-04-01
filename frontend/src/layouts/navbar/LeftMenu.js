@@ -257,6 +257,11 @@ const LeftMenu = ({ history, location }) => {
     }, []);
 
     const isAuthenticated = Boolean(token || authStore);
+    const memberEmail = String(member?.email || localStorage.getItem(Key.UserEmail) || '').toLowerCase();
+    const memberBuilding = useMemo(
+        () => buildings.find((building) => String(building?.email || '').toLowerCase() === memberEmail) || null,
+        [buildings, memberEmail]
+    );
 
     const logoutAction = () => {
         dispatch(Logout());
@@ -272,8 +277,6 @@ const LeftMenu = ({ history, location }) => {
         const firstBatteryMeterId = meters.find(isBatteryMeter)?.snid || meters.find(isBatteryMeter)?.meterNumber || '';
         const roleName = normalizeRoleName(member);
         const isUserMenu = roleName === 'USER' || roleName === 'CONSUMER';
-        const memberEmail = String(member?.email || '').toLowerCase();
-        const memberBuilding = buildings.find((building) => String(building?.email || '').toLowerCase() === memberEmail) || null;
         const memberBuildingSlug = slugify(memberBuilding?.name || '');
         const walletBuildingSlug = memberBuildingSlug || firstBuildingSlug;
 
@@ -367,7 +370,7 @@ const LeftMenu = ({ history, location }) => {
                 ],
             },
         ];
-    }, [buildings, meters, member]);
+    }, [buildings, memberBuilding, meters, member]);
 
     const currentKey = useMemo(() => {
         const path = location?.pathname || history?.location?.pathname || '';
@@ -445,7 +448,12 @@ const LeftMenu = ({ history, location }) => {
             <AuthMenu style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '8px 10px' }}>
                 <div style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <FontAwesomeIcon icon={faUser} />
-                    <span style={{ fontSize: 12 }}>{member?.name || 'User'}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600 }}>{member?.name || 'User'}</span>
+                        {memberBuilding?.name ? (
+                            <span style={{ fontSize: 10, color: '#64748b' }}>{memberBuilding.name}</span>
+                        ) : null}
+                    </div>
                 </div>
 
                 <Button

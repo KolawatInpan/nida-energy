@@ -10,6 +10,7 @@ export default function Market() {
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [destinationBuildings, setDestinationBuildings] = useState([]);
+  const [statusFilter, setStatusFilter] = useState('available');
 
   const toNumber = (value) => {
     if (value === null || value === undefined) return 0;
@@ -269,6 +270,9 @@ export default function Market() {
     };
 
     const availableListings = listings.filter(l => l.status === 'AVAILABLE' && l.availableKwh > 0);
+    const filteredListings = statusFilter === 'available'
+      ? availableListings
+      : listings;
     const totalAvailable = availableListings.reduce((sum, l) => sum + l.availableKwh, 0);
 
   return (
@@ -308,6 +312,17 @@ export default function Market() {
               <span className="text-3xl">⚡</span>
               Available Energy Listings
             </h2>
+            <div className="mt-4 flex items-center gap-3 lg:mt-0">
+              <label className="text-sm font-semibold text-gray-700">Status</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm focus:border-orange-400 focus:outline-none"
+              >
+                <option value="available">AVAILABLE only</option>
+                <option value="all">All statuses</option>
+              </select>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -317,7 +332,7 @@ export default function Market() {
                   <th className="text-left font-bold text-gray-900 py-4 px-6">List ID</th>
                   <th className="text-left font-bold text-gray-900 py-4 px-6">Date Posted</th>
                   <th className="text-left font-bold text-gray-900 py-4 px-6">From Building</th>
-                  <th className="text-left font-bold text-gray-900 py-4 px-6">Total kWh</th>
+                  <th className="text-left font-bold text-gray-900 py-4 px-6">Available kWh</th>
                   <th className="text-left font-bold text-gray-900 py-4 px-6">Rate (Token/kWh)</th>
                   <th className="text-left font-bold text-gray-900 py-4 px-6">Total Amount (Token)</th>
                   <th className="text-left font-bold text-gray-900 py-4 px-6">Status</th>
@@ -325,7 +340,7 @@ export default function Market() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {listings.length > 0 ? listings.map(listing => (
+                {filteredListings.length > 0 ? filteredListings.map(listing => (
                   <tr key={listing.id} className="hover:bg-orange-50 transition-colors">
                     <td className="py-4 px-6">
                       <span className="font-bold text-orange-600 bg-orange-50 px-3 py-1 rounded-full text-sm">
@@ -339,9 +354,8 @@ export default function Market() {
                       {listing.building}
                     </td>
                     <td className="py-4 px-6">
-                      <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Total kWh</div>
-                      <div className="mt-1 text-2xl font-extrabold text-gray-900">
-                        Available: {listing.availableKwh} <span className="text-base font-semibold text-gray-600">kWh</span>
+                      <div className="mt-1 whitespace-nowrap text-sm font-bold text-gray-900">
+                        {listing.availableKwh} <span className="text-xs font-semibold text-gray-600">kWh</span>
                       </div>
                       <div className="mt-1 text-xs text-gray-500">
                         Total: {listing.totalKwh} kWh
@@ -379,7 +393,7 @@ export default function Market() {
                 )) : (
                   <tr>
                     <td colSpan="8" className="py-12 px-6 text-center text-gray-500">
-                      No energy listings available
+                      No energy listings match the selected status
                     </td>
                   </tr>
                 )}

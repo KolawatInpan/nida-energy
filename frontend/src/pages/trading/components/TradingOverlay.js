@@ -11,7 +11,7 @@ function buildInitials(name) {
 
 function StatCard({ label, value, subtitle, accentColor = '#64748b' }) {
   return (
-    <div style={{ background: 'rgba(255, 255, 255, 0.28)', backdropFilter: 'blur(8px)', borderRadius: '10px', padding: '8px 10px', boxShadow: '0 4px 12px rgba(15,23,42,0.05)', border: '1px solid rgba(255,255,255,0.22)', textAlign: 'center', minWidth: '104px', flex: '1 1 120px' }}>
+    <div style={{ background: 'rgba(255, 255, 255, 0.14)', backdropFilter: 'blur(6px)', borderRadius: '10px', padding: '7px 10px', boxShadow: '0 3px 10px rgba(15,23,42,0.04)', border: '1px solid rgba(255,255,255,0.18)', textAlign: 'center', minWidth: '104px', flex: '1 1 0' }}>
       <div style={{ fontSize: '8px', color: '#8c8c8c', fontWeight: 700, letterSpacing: '0.45px', marginBottom: '3px' }}>{label}</div>
       <div style={{ fontSize: '16px', fontWeight: 700, color: '#000', lineHeight: '1' }}>{value}</div>
       <div style={{ fontSize: '9px', color: accentColor, fontWeight: 600, marginTop: '2px', whiteSpace: 'nowrap' }}>{subtitle}</div>
@@ -25,6 +25,7 @@ export default function TradingOverlay({
   member,
   showPanel,
   availableBuildingNames,
+  ownedBuildingNames = [],
   onSelectBuilding,
 }) {
   return (
@@ -40,17 +41,18 @@ export default function TradingOverlay({
       >
         <div
           style={{
-            background: 'rgba(255, 255, 255, 0.34)',
-            backdropFilter: 'blur(9px)',
+            background: 'rgba(255, 255, 255, 0.18)',
+            backdropFilter: 'blur(7px)',
             borderRadius: '12px',
             padding: '10px 12px',
-            boxShadow: '0 4px 16px rgba(15,23,42,0.07)',
-            border: '1px solid rgba(255,255,255,0.32)',
+            boxShadow: '0 4px 14px rgba(15,23,42,0.05)',
+            border: '1px solid rgba(255,255,255,0.22)',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            flexWrap: 'wrap',
+            flexWrap: 'nowrap',
             width: '100%',
+            overflow: 'hidden',
           }}
         >
           <div
@@ -70,7 +72,7 @@ export default function TradingOverlay({
             {'\u26A1'}
           </div>
 
-          <div style={{ minWidth: '150px', flex: '1 1 180px' }}>
+          <div style={{ minWidth: '140px', flex: '1 1 180px' }}>
             <div style={{ fontSize: '14px', fontWeight: 700, color: '#000', letterSpacing: '-0.2px', lineHeight: '1.15', marginBottom: '2px' }}>
               NIDA SMART GRID
             </div>
@@ -85,16 +87,16 @@ export default function TradingOverlay({
           <StatCard
             label="NET GRID LOAD"
             value={<>{Math.round(overviewStats.netGridLoad).toLocaleString()} <span style={{ fontSize: '10px', fontWeight: 600, color: '#666' }}>kWh</span></>}
-            subtitle="Across connected buildings"
+            subtitle=""
           />
           <StatCard
             label="SOLAR GEN"
             value={<>{Math.round(overviewStats.solarGeneration).toLocaleString()} <span style={{ fontSize: '10px', fontWeight: 600, color: '#666' }}>kWh</span></>}
-            subtitle="Available producer energy"
+            subtitle=""
             accentColor="#666"
           />
           <div style={{ display: 'flex', alignItems: 'stretch', gap: '8px', flex: '0 0 auto', marginLeft: 'auto', flexWrap: 'nowrap' }}>
-            <div style={{ minWidth: '118px', flex: '0 0 auto' }}>
+            <div style={{ minWidth: '112px', flex: '0 0 auto' }}>
               <StatCard
                 label="TOKEN PRICE"
                 value={`${'\u0E3F'}${overviewStats.marketPrice.toFixed(2)}`}
@@ -103,7 +105,7 @@ export default function TradingOverlay({
               />
             </div>
 
-            <div style={{ background: 'rgba(255, 255, 255, 0.28)', backdropFilter: 'blur(8px)', borderRadius: '10px', padding: '8px 10px', boxShadow: '0 4px 12px rgba(15,23,42,0.05)', border: '1px solid rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto', whiteSpace: 'nowrap' }}>
+            <div style={{ background: 'rgba(255, 255, 255, 0.14)', backdropFilter: 'blur(6px)', borderRadius: '10px', padding: '7px 10px', boxShadow: '0 3px 10px rgba(15,23,42,0.04)', border: '1px solid rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto', whiteSpace: 'nowrap' }}>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: '#000', lineHeight: '1.1' }}>{member?.role || 'ADMIN'}</div>
                 <div style={{ fontSize: '9px', color: '#666', marginTop: '1px' }}>{member?.name || 'System Operator'}</div>
@@ -137,9 +139,17 @@ export default function TradingOverlay({
                 type="button"
                 onClick={() => onSelectBuilding(name)}
                 style={{
-                  border: selectedBuilding?.name === name ? '1px solid #2563eb' : '1px solid #cbd5e1',
-                  background: selectedBuilding?.name === name ? '#dbeafe' : '#f8fafc',
-                  color: '#0f172a',
+                  border: selectedBuilding?.name === name
+                    ? '1px solid #2563eb'
+                    : ownedBuildingNames.includes(name)
+                      ? '1px solid #16a34a'
+                      : '1px solid #cbd5e1',
+                  background: selectedBuilding?.name === name
+                    ? '#dbeafe'
+                    : ownedBuildingNames.includes(name)
+                      ? '#f0fdf4'
+                      : '#f8fafc',
+                  color: ownedBuildingNames.includes(name) ? '#166534' : '#0f172a',
                   borderRadius: 9999,
                   padding: '6px 10px',
                   fontSize: 12,
@@ -147,7 +157,7 @@ export default function TradingOverlay({
                   cursor: 'pointer',
                 }}
               >
-                {name}
+                {name}{ownedBuildingNames.includes(name) ? ' • My Building' : ''}
               </button>
             )) : (
               <span style={{ fontSize: 12, color: '#64748b' }}>No buildings available for trading</span>
