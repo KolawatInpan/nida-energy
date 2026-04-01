@@ -1,0 +1,23 @@
+{
+  "files": {
+    "main.css": "/static/css/main.985d6773.css",
+    "main.js": "/static/js/main.a83e5cff.js",
+    "static/media/NavLogo.svg": "/static/media/NavLogo.dbb7c2491006fd9b019b9ed51e3ba766.svg",
+    "static/media/Sarabun-Light.ttf": "/static/media/Sarabun-Light.0f087e83f6ea3dec4d85.ttf",
+    "static/media/Sarabun-Medium.ttf": "/static/media/Sarabun-Medium.1e54abd50a32a9ba2ef0.ttf",
+    "static/media/Sarabun-Regular.ttf": "/static/media/Sarabun-Regular.6620546d7e20154fd04d.ttf",
+    "static/media/Sarabun-SemiBold.ttf": "/static/media/Sarabun-SemiBold.398aadea5e42de9ec5ad.ttf",
+    "static/media/Sarabun-Bold.ttf": "/static/media/Sarabun-Bold.bf525c98f35c56d7aab9.ttf",
+    "static/media/chulabhornlikittext-medium.woff": "/static/media/chulabhornlikittext-medium.579889ebddb8f082c7d4.woff",
+    "static/media/chulabhornlikittext-bold.woff": "/static/media/chulabhornlikittext-bold.71f28e964d5b4a41449e.woff",
+    "static/media/chulabhornlikittext-regular.woff": "/static/media/chulabhornlikittext-regular.269bca1c190ea1671e5f.woff",
+    "static/media/chulabhornlikittext-light.woff": "/static/media/chulabhornlikittext-light.e2312a17426a85b13c07.woff",
+    "index.html": "/index.html",
+    "main.985d6773.css.map": "/static/css/main.985d6773.css.map",
+    "main.a83e5cff.js.map": "/static/js/main.a83e5cff.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.985d6773.css",
+    "static/js/main.a83e5cff.js"
+  ]
+}

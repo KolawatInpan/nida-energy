@@ -1,0 +1,2337 @@
+@import '~antd/dist/antd.less';
+
+@font-face {
+    font-family: 'Chulabhorn';
+    src: local('Chulabhorn'), url(./fonts/chulabhornlikittext-regular.woff) format('woff');
+}
+
+@font-face {
+    font-family: 'Chulabhorn Light';
+    src: local('Chulabhorn Light'), url(./fonts/chulabhornlikittext-light.woff) format('woff');
+}
+
+@font-face {
+    font-family: 'Chulabhorn Medium';
+    src: local('Chulabhorn Medium'), url(./fonts/chulabhornlikittext-medium.woff) format('woff');
+}
+
+@font-face {
+    font-family: 'Chulabhorn Bold';
+    src: local('Chulabhorn Bold'), url(./fonts/chulabhornlikittext-bold.woff) format('woff');
+}
+
+@font-face {
+    font-family: 'Sarabun';
+    src: local('Sarabun'), url(./fonts/Sarabun-Regular.ttf) format('truetype');
+    //src: local('Sarabun'), url(./fonts/chulabhornlikittext-light.woff) format('woff');
+}
+
+@font-face {
+    font-family: 'Sarabun Bold';
+    src: local('Sarabun Bold'), url(./fonts/Sarabun-Bold.ttf) format('truetype');
+    //src: local('Sarabun'), url(./fonts/chulabhornlikittext-light.woff) format('woff');
+}
+
+@font-face {
+    font-family: 'Sarabun SemiBold';
+    src: local('Sarabun SemiBold'), url(./fonts/Sarabun-SemiBold.ttf) format('truetype');
+    //src: local('Sarabun'), url(./fonts/chulabhornlikittext-light.woff) format('woff');
+}
+
+@font-face {
+    font-family: 'Sarabun Medium';
+    src: local('Sarabun Medium'), url(./fonts/Sarabun-Medium.ttf) format('truetype');
+}
+
+@font-face {
+    font-family: 'Sarabun Light';
+    src: local('Sarabun Light'), url(./fonts/Sarabun-Light.ttf) format('truetype');
+}
+
+html {
+    font-size: 20px;
+    font-family: 'Chulabhorn', sans-serif;
+}
+
+.grid {
+    grid-template-columns: 1fr 300px !important;
+}
+
+body {
+    overflow: hidden;
+}
+
+.nav-menu {
+    color: #FFFFFF;
+}
+
+.row {
+    margin-right: 0 !important
+}
+
+.ant-table-cell {
+    font-weight: bold !important;
+}
+
+.nav-bar {
+    background-color: #353535;
+}
+
+
+a,
+a:hover,
+a:focus {
+    color: inherit;
+    text-decoration: none;
+    transition: all 0.3s;
+}
+
+.line {
+    width: 100%;
+    height: 1px;
+    border-bottom: 1px dashed #ddd;
+    margin: 40px 0;
+}
+
+/* ---------------------------------------------------
+    SIDEBAR STYLE
+----------------------------------------------------- */
+
+.wrapper {
+    display: flex;
+    width: 100%;
+    align-items: stretch;
+}
+
+.ant-btn-lg {
+    height: auto !important;
+}
+
+
+
+.dropdown-toggle::after {
+    display: block;
+    position: absolute;
+    top: 50%;
+    right: 20px;
+    transform: translateY(-50%);
+}
+
+ul ul a {
+    font-size: 0.9em !important;
+    padding-left: 30px !important;
+    background: #6d7fcc;
+}
+
+ul.CTAs {
+    padding: 20px;
+}
+
+ul.CTAs a {
+    text-align: center;
+    font-size: 0.9em !important;
+    display: block;
+    border-radius: 5px;
+    margin-bottom: 5px;
+}
+
+a.download {
+    background: #fff;
+    color: #7386D5;
+}
+
+a.article,
+a.article:hover {
+    background: #6d7fcc !important;
+    color: #fff !important;
+}
+
+/* ---------------------------------------------------
+    CONTENT STYLE
+----------------------------------------------------- */
+
+#content {
+    width: 100%;
+    padding: 20px;
+    min-height: 100vh;
+    transition: all 0.3s;
+}
+
+/* ---------------------------------------------------
+    MEDIAQUERIES
+----------------------------------------------------- */
+
+@media (max-width: 768px) {
+    #sidebar {
+        margin-left: -250px;
+    }
+
+    #sidebar.active {
+        margin-left: 0;
+    }
+
+    #sidebarCollapse span {
+        display: none;
+    }
+}
+
+.ant-notification {
+    z-index: 999;
+    max-height: calc(100vh - 230px);
+}
+
+.fill img {
+    flex-shrink: 0;
+    min-width: 100%;
+    min-height: 100%
+}
+
+.foot-data {
+    background-color: black;
+    color: #FFFFFF;
+}
+
+.btn-end {
+    justify-content: flex-end;
+    display: flex;
+}
+
+.line-vertical {
+    width: 1px;
+    height: auto;
+    float: left;
+    background-color: white;
+    margin: 10px;
+}
+
+.line-vertical-black {
+    width: 1px;
+    height: auto;
+    float: left;
+    background-color: black;
+    margin: 10px;
+}
+
+.bg-purple {
+    background-color: #CCCCFF;
+}
+
+.ant-modal {
+    width: 70% !important;
+    min-width: 520px;
+}
+
+.ant-modal-footer {
+    text-align: center;
+}
+
+.ant-modal-header {
+    text-align: center;
+    color: #1F3D7D;
+    //background-color: black;
+    border-bottom: none;
+}
+
+.ant-modal-title {
+    color: #FFFFFF;
+}
+
+.center-modal-text {
+    text-align: center;
+}
+
+.ant-btn.confirmation {
+    background-color: #44af69;
+    color: #FFFFFF;
+}
+
+.search-button {
+    background-color: #1F3D7D;
+    color: #FFFFFF;
+    border: 0;
+}
+
+.clear-button {
+    background-color: #ff3030;
+    color: #FFFFFF;
+    border: 0;
+}
+
+.ant-modal-body {
+    padding-bottom: 0px;
+}
+
+.table-content {
+    font-weight: lighter;
+    font-size: 18px;
+    color: #939090;
+}
+
+.table-content-detail {
+    font-weight: lighter;
+    font-size: 18px;
+    color: #575656;
+}
+
+td {
+    max-width: 50%;
+}
+
+table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+.site-footer {
+    display: none;
+}
+
+body.home .site-footer {
+    display: none;
+}
+
+.login-logo {
+    display: block;
+    margin-left: auto;
+    margin-right: auto
+}
+
+.login-title {
+    text-align: center;
+    letter-spacing: 5px;
+    font-weight: bold;
+    color: #1F3D7D;
+}
+
+.login-subtitle {
+    text-align: center;
+    color: #9da1aa;
+}
+
+.login-div {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 10px;
+    background-color: #ff3399 !important;
+    -webkit-border-radius: 10px;
+    -moz-border-radius: 10px;
+    border-radius: 10px;
+}
+
+.MuiButton-root {
+    border-radius: 25px;
+}
+
+
+/* ---------------------------------------------------
+    Sidebar STYLE
+----------------------------------------------------- */
+.sidebar {
+    height: 100vh;
+    margin-right: 24px;
+}
+
+/* ---------------------------------------------------
+    Navbar STYLE
+----------------------------------------------------- */
+
+.menuBar {
+    background-color: #454545;
+    padding: 0 0px;
+    overflow: hidden;
+}
+
+.ant-menu-item {
+    padding: 10px !important;
+}
+
+.ant-menu-horizontal>.ant-menu-item:hover,
+.ant-menu-horizontal>.ant-menu-submenu:hover,
+.ant-menu-horizontal>.ant-menu-item-active,
+.ant-menu-horizontal>.ant-menu-submenu-active,
+.ant-menu-horizontal>.ant-menu-item-open,
+.ant-menu-horizontal>.ant-menu-submenu-open,
+.ant-menu-horizontal>.ant-menu-item-selected,
+.ant-menu-horizontal>.ant-menu-submenu-selected {
+    color: #ff3399;
+    border-top: 5px solid #ff3399;
+}
+
+.ant-menu-horizontal>.ant-menu-item a:hover {
+    color: #ff3399;
+}
+
+.ant-menu {
+    background: none;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.logo {
+    float: left;
+}
+
+.logo a {
+    display: inline-block;
+    font-size: 20px;
+    padding: 19px 20px;
+    text-transform: capitalize;
+}
+
+.menuCon {
+    width: calc(100% - 150px);
+    float: left;
+}
+
+.menuCon .ant-menu-item {
+    padding: 0px 1px;
+}
+
+.menuCon .ant-menu-submenu-title {
+    padding: 10px 20px;
+}
+
+.ant-menu-inline {
+    border: none;
+}
+
+.menuCon .ant-menu-item a,
+.menuCon .ant-menu-submenu-title a {
+    padding: 0px 0px;
+    color: white;
+}
+
+.menuCon .ant-menu-horizontal {
+    border-bottom: none;
+}
+
+.menuCon .leftMenu {
+    float: left;
+}
+
+.menuCon .rightMenu {
+    float: right;
+}
+
+.barsMenu {
+    float: right;
+    height: 32px;
+    padding: 6px;
+    margin-top: 8px;
+    display: none;
+    background: none;
+}
+
+.barsBtn {
+    display: block;
+    width: 20px;
+    height: 2px;
+    background: #1890ff;
+    position: relative;
+}
+
+.barsBtn:after,
+.barsBtn:before {
+    content: attr(x);
+    width: 20px;
+    position: absolute;
+    top: -6px;
+    left: 0;
+    height: 2px;
+    background: #1890ff;
+}
+
+.barsBtn:after {
+    top: auto;
+    bottom: -6px;
+}
+
+.ant-drawer-body {
+    background-color: #1F3D7D;
+    padding: 0;
+}
+
+.barsMenu>span {
+    display: block;
+}
+
+.ant-drawer-body .ant-menu-horizontal>.ant-menu-item,
+.ant-drawer-body .ant-menu-horizontal>.ant-menu-submenu {
+    display: inline-block;
+    width: 100%;
+}
+
+.ant-drawer-body .ant-menu-horizontal {
+    border-bottom: none;
+}
+
+.ant-drawer-body .ant-menu-horizontal>.ant-menu-item:hover {
+    border-bottom-color: transparent;
+}
+
+@media (max-width: 768px) {
+    .barsMenu {
+        display: inline-block;
+    }
+
+    .leftMenu,
+    .rightMenu {
+        display: none;
+    }
+
+    .logo a {
+        margin-left: -20px;
+    }
+
+    .logo a {
+        padding: 10px 20px;
+    }
+}
+
+
+
+
+
+div.table-title {
+    display: block;
+    margin: auto;
+    max-width: 600px;
+    padding: 5px;
+    width: 100%;
+}
+
+.table-title h3 {
+    color: #fafafa;
+    font-size: 30px;
+    font-weight: 400;
+    font-style: normal;
+    text-transform: uppercase;
+}
+
+
+/*** Table Styles **/
+
+.table-fill {
+    background: white;
+    border-radius: 3px;
+    border-collapse: collapse;
+    margin: auto;
+    width: 100%;
+    box-shadow: 0 5px 10px rgba(0, 0, 0, 0.1);
+    animation: float 5s infinite;
+}
+
+.confirmation-th {
+    color: #D5DDE5;
+    ;
+    background: #1b1e24;
+    border: 4px solid #9ea7af;
+    font-size: 23px;
+    font-weight: 100;
+    padding: 24px;
+    text-align: left;
+    vertical-align: middle;
+}
+
+th:first-child {
+    border-top-left-radius: 3px;
+}
+
+th:last-child {
+    border-top-right-radius: 3px;
+}
+
+.confirmation-tr {
+    border-right: 1px solid #C1C3D1;
+    border-left: 1px solid #C1C3D1;
+    border-top: 1px solid #C1C3D1;
+    border-bottom: 1px solid #C1C3D1;
+    font-size: 16px;
+    font-weight: normal;
+}
+
+
+.tr-link:hover td {
+    background: #4E5066;
+    color: #FFFFFF;
+    border-top: 1px solid #22262e;
+}
+
+tr:first-child {
+    border-top: none;
+}
+
+tr:last-child {
+    border-bottom: none;
+}
+
+tr:nth-child(odd) td {
+    background: #EBEBEB;
+}
+
+.tr-link:nth-child(odd):hover td {
+    background: #4E5066;
+}
+
+.react-calendar {
+    font-family: inherit;
+}
+
+abbr[title],
+abbr[data-original-title] {
+    text-decoration: none;
+    /* text-decoration: underline dotted; */
+    /* border-bottom: 0; */
+    cursor: default;
+}
+
+tr:last-child td:first-child {
+    border-bottom-left-radius: 3px;
+}
+
+tr:last-child td:last-child {
+    border-bottom-right-radius: 3px;
+}
+
+td {
+    background: #FFFFFF;
+    padding: 10px;
+    text-align: left;
+    vertical-align: middle;
+    border-right: 1px solid #C1C3D1;
+    border-left: 1px solid #C1C3D1;
+    border-top: 1px solid #C1C3D1;
+    border-bottom: 1px solid #C1C3D1;
+
+}
+
+
+td:last-child {
+    border-right: 0px;
+}
+
+th.text-left {
+    text-align: left;
+}
+
+th.text-center {
+    text-align: center;
+}
+
+th.text-right {
+    text-align: right;
+}
+
+td.text-left {
+    text-align: left;
+}
+
+td.text-center {
+    text-align: center;
+}
+
+td.text-right {
+    text-align: right;
+}
+
+.ant-btn-sm {
+    height: 100% !important;
+    font-size: 20px;
+    border-radius: 8px;
+}
+
+.ant-card {
+    //margin:10px;
+}
+
+// Custom CSS
+.submenu {
+    display: flex;
+    font-size: 20px;
+    line-height: 2;
+    list-style-type: none;
+    margin-top: 20px;
+    padding-left: 0px;
+    font-family: 'Chulabhorn',
+}
+
+.submenu>li {
+    margin: 5px 10px;
+    cursor: pointer;
+}
+
+.submenu>li:hover {
+    border-bottom: 4px solid #00ccf2 !important;
+}
+
+.submenu>li:active {
+    font-weight: bold;
+    border-bottom: 4px solid #00ccf2 !important;
+}
+
+.submenu>li.active {
+    font-weight: bold;
+    border-bottom: 4px solid #00ccf2 !important;
+}
+
+c .ant-picker-input>input {
+    font-size: 16px;
+}
+
+// .home-div .overlay-div {
+//     width: 760px;
+//     height: 416px;
+//     position: absolute;
+// }
+
+.ant-tooltip .ant-tooltip-inner {
+    color: #fff;
+    background-color: #00CCF2;
+    pointer-events: none;
+}
+
+body>div[style*="absolute"] {
+    pointer-events: none;
+}
+
+// global css for home page -----
+
+.maplayout .bbtn,
+.maplayout .bgbtn {
+    cursor: pointer;
+    position: absolute;
+    background-color: rgba(0, 0, 0, 0);
+    //--ratio1: calc( 100vw - 400px );
+    //--ratio2: calc( var(--ratio1) / 1453 );
+    --ratiobtn: calc(calc(100vh - 173px) / 1045);
+}
+
+.maplayout.wide .bbtn,
+.maplayout.wide .bgbtn {
+    --ratiobtn: calc(calc(100vw - 400px) / 1920);
+    //--ratiobtn: calc( calc(100vh - 173px) / 1045 );
+}
+
+.maplayout .btn1 {
+    width: calc(var(--ratiobtn) * 241);
+    height: calc(var(--ratiobtn) * 145);
+    margin-top: calc(var(--ratiobtn) * 552);
+    margin-left: calc(var(--ratiobtn) * 1163);
+}
+
+.maplayout .btn2 {
+    width: calc(var(--ratiobtn) * 195);
+    height: calc(var(--ratiobtn) * 140);
+    margin-top: calc(var(--ratiobtn) * 159);
+    margin-left: calc(var(--ratiobtn) * 448);
+}
+
+.maplayout .btn3 {
+    width: calc(var(--ratiobtn) * 106);
+    height: calc(var(--ratiobtn) * 91);
+    margin-top: calc(var(--ratiobtn) * 458);
+    margin-left: calc(var(--ratiobtn) * 609);
+}
+
+.maplayout .btn4 {
+    width: calc(var(--ratiobtn) * 174);
+    height: calc(var(--ratiobtn) * 121);
+    margin-top: calc(var(--ratiobtn) * 322);
+    margin-left: calc(var(--ratiobtn) * 509);
+}
+
+.maplayout .btn5 {
+    width: calc(var(--ratiobtn) * 172);
+    height: calc(var(--ratiobtn) * 220);
+    margin-top: calc(var(--ratiobtn) * 551);
+    margin-left: calc(var(--ratiobtn) * 931);
+}
+
+.maplayout .btn6 {
+    width: calc(var(--ratiobtn) * 194);
+    height: calc(var(--ratiobtn) * 301);
+    margin-top: calc(var(--ratiobtn) * 252);
+    margin-left: calc(var(--ratiobtn) * 889);
+}
+
+.maplayout .btn7 {
+    width: calc(var(--ratiobtn) * 89);
+    height: calc(var(--ratiobtn) * 113);
+    margin-top: calc(var(--ratiobtn) * 269);
+    margin-left: calc(var(--ratiobtn) * 438);
+}
+
+.maplayout .btn8 {
+    width: calc(var(--ratiobtn) * 224);
+    height: calc(var(--ratiobtn) * 188);
+    margin-top: calc(var(--ratiobtn) * 512);
+    margin-left: calc(var(--ratiobtn) * 675);
+}
+
+.maplayout .btn9 {
+    width: calc(var(--ratiobtn) * 309);
+    height: calc(var(--ratiobtn) * 174);
+    margin-top: calc(var(--ratiobtn) * 682);
+    margin-left: calc(var(--ratiobtn) * 1081);
+}
+
+.maplayout .btn10 {
+    width: calc(var(--ratiobtn) * 145);
+    height: calc(var(--ratiobtn) * 96);
+    margin-top: calc(var(--ratiobtn) * 660);
+    margin-left: calc(var(--ratiobtn) * 1419);
+}
+
+.maplayout .btn11 {
+    width: calc(var(--ratiobtn) * 186);
+    height: calc(var(--ratiobtn) * 237);
+    margin-top: calc(var(--ratiobtn) * 287);
+    margin-left: calc(var(--ratiobtn) * 703);
+}
+
+.maplayout .btn0 {
+    width: calc(var(--ratiobtn) * 1920);
+    height: calc(var(--ratiobtn) * 1045);
+    margin-top: calc(var(--ratiobtn) * 0);
+    margin-left: calc(var(--ratiobtn) * 0);
+}
+
+.maplayout .currentTooltip {
+    pointer-events: none;
+    position: absolute;
+    color: #fff;
+    background-color: #00CCF2;
+    border-radius: 8px;
+    min-width: 30px;
+    min-height: 32px;
+    padding: 6px 8px;
+    box-shadow: 0 3px 6px -4px rgb(0 0 0 / 12%), 0 6px 16px 0 rgb(0 0 0 / 8%), 0 9px 28px 8px rgb(0 0 0 / 5%);
+    line-height: 1.5715;
+    font-size: 20px;
+    max-width: 250px;
+}
+
+.maplayout .bbtn:hover~.img0,
+.maplayout .bbtn.active~.img0 {
+    display: none;
+}
+
+.maplayout .bbtn:hover~.current {
+    display: none !important;
+}
+
+.maplayout .btn1:hover~.img1,
+.maplayout .btn2:hover~.img2,
+.maplayout .btn3:hover~.img3,
+.maplayout .btn4:hover~.img4,
+.maplayout .btn5:hover~.img5,
+.maplayout .btn6:hover~.img6,
+.maplayout .btn7:hover~.img7,
+.maplayout .btn8:hover~.img8,
+.maplayout .btn9:hover~.img9,
+.maplayout .btn10:hover~.img10,
+.maplayout .btn11:hover~.img11 {
+    display: block;
+    z-index: 80;
+}
+
+.maplayout .btn1.active~.img1,
+.maplayout .btn2.active~.img2,
+.maplayout .btn3.active~.img3,
+.maplayout .btn4.active~.img4,
+.maplayout .btn5.active~.img5,
+.maplayout .btn6.active~.img6,
+.maplayout .btn7.active~.img7,
+.maplayout .btn8.active~.img8,
+.maplayout .btn9.active~.img9,
+.maplayout .btn10.active~.img10,
+.maplayout .btn11.active~.img11 {
+    display: block;
+}
+
+.img1,
+.img2,
+.img3,
+.img4,
+.img5,
+.img6,
+.img7,
+.img8,
+.img9,
+.img10,
+.img11 {
+    display: none;
+}
+
+.maplayout .map-bar {
+    --ratiobtn: calc(calc(100vh - 173px) / 1045);
+    margin-left: calc(calc(calc(100vw - 400px) - calc(1920 * var(--ratiobtn)))/2);
+}
+
+.maplayout.opening .map-bar {
+    --ratiobtn: calc(calc(100vh - 173px) / 1045);
+    margin-left: calc(calc(calc(100vw - 800px) - calc(1920 * var(--ratiobtn)))/2);
+}
+
+.maplayout.wide .map-bar {
+    --ratiobtn: calc(calc(100vw - 400px) / 1920);
+    //margin-left: calc( calc( calc(100vw - 400px) - calc( 1920 * var(--ratiobtn) ) )/2 );
+    margin-top: calc(calc(calc(100vh - 173px) - calc(1045 * var(--ratiobtn)))/2);
+}
+
+.maplayout .mapimg {
+    width: auto;
+    height: calc(100vh - 173px);
+}
+
+.maplayout.wide .mapimg {
+    width: calc(100vw - 400px);
+    height: auto;
+}
+
+.maplayout .left-div {
+    width: calc(100vw - 400px);
+    height: calc(100vh - 173px);
+    overflow: hidden;
+}
+
+.maplayout.opening .left-div {
+    width: calc(100vw - 400px);
+    margin-left: calc(400px);
+}
+
+.maplayout.opening .right-div {
+    display: none;
+}
+
+.maplayout .right-div {
+    position: absolute;
+    margin-top: 0px;
+    margin-left: calc(100vw - 400px);
+    width: 400px;
+    height: calc(100vh - 190px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 10px;
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
+    z-index: 100;
+}
+
+.maplayout .right-div::-webkit-scrollbar {
+    display: none;
+}
+
+.maplayout.opening .building-div {
+    display: block;
+}
+
+.maplayout .building-div {
+    display: none;
+    position: absolute;
+    margin-top: 0px;
+    margin-left: 0px;
+    width: 400px;
+    height: calc(100vh - 190px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 10px;
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
+    z-index: 100;
+}
+
+.maplayout .building-div::-webkit-scrollbar {
+    display: none;
+}
+
+.maplayout .side-bar {
+    font-family: 'Sarabun';
+    width: 380px;
+    letter-spacing: -0.82px;
+
+}
+
+.maplayout .ant-progress-status-normal .ant-progress-bg {
+    background-color: #2D62ED;
+}
+
+.maplayout .ant-progress-status-exception .ant-progress-bg {
+    background-color: #FF007C;
+}
+
+.home-div .ant-card-body {
+    padding: 15px 10px;
+}
+
+.home-div .cardtitle {
+    font-size: 34px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.home-div .ant-col {
+    font-size: 34px;
+    white-space: nowrap;
+}
+
+.home-div .ant-card {
+    box-shadow: 0px 3px 6px #00000029;
+    border-radius: 20px;
+}
+
+.home-div .car-num {
+    font-size: 20;
+}
+
+.home-div .side-bar .head-bar {
+    width: 370px;
+    border-radius: 20px;
+}
+
+.home-div .side-bar .space-hori-div .ant-space-item {
+    width: inherit;
+}
+
+.home-div .side-bar .head-bar .ant-card-head {
+    background-color: #6C63FF;
+    color: #fff;
+    font-size: 20px;
+    height: 30px;
+    font-family: "Sarabun Medium";
+}
+
+.home-div .side-bar .head-bar .ant-card-head-title {
+    padding-top: 10px;
+}
+
+.home-div .side-bar .ant-col {
+    line-height: 28px;
+}
+
+.home-div .side-bar .number {
+    font-size: 14px;
+    color: #0FC942;
+    font-family: Sarabun Bold;
+}
+
+.home-div .side-bar .number.red {
+    color: #FF007C
+}
+
+.home-div .ant-typography:nth-child(1) {
+    font-family: Chulabhorn Light;
+}
+
+.home-div .side-bar .ant-card .ant-col,
+.home-div .side-bar .ant-card {
+    margin: 0px 5px;
+}
+
+.home-div .side-bar .ant-space {
+    padding: 10px 0px;
+}
+
+.home-div svg[data-icon="arrow-up"] path {
+    fill: #00CCF2;
+}
+
+.home-div svg[data-icon="arrow-down"] path {
+    fill: #FF007C;
+}
+
+.home-div .pm25 img {
+    margin: 10px
+}
+
+.home-div .pm25 .number {
+    color: #fff;
+}
+
+.home-div .pm25 .happiness,
+.home-div .pm25 .death {
+    display: none;
+}
+
+.home-div .pm25.Healthy .happiness {
+    display: inline;
+}
+
+.home-div .pm25.Healthy .sickness {
+    display: none;
+}
+
+.home-div .pm25.Healthy {
+    background-color: #0FC942;
+    color: #ffffff;
+}
+
+.home-div .pm25 {
+    background-color: #FF7D1C;
+    color: #ffffff;
+    line-height: 18px;
+}
+
+.home-div .pm25.Unhealthy .death,
+.home-div .pm25.Danger .death {
+    display: inline;
+}
+
+.home-div .pm25.Unhealthy .sickness,
+.home-div .pm25.Danger .sickness {
+    display: none;
+}
+
+.home-div .pm25.Unhealthy {
+    background-color: #FF007C;
+    color: #ffffff;
+}
+
+.home-div .pm25.Danger {
+    background-color: #7D15B5;
+    color: #ffffff;
+}
+
+.home-div .square-card {
+    text-align: center;
+    min-width: 175px
+}
+
+.home-div .square-card {
+    width: 180px
+}
+
+.home-div .square-card .pm25-emo {
+    width: 50px;
+    height: 50px;
+}
+
+.home-div .square-card .parking-emo {}
+
+.home-div .car-num {
+    font-size: 20px;
+}
+
+.home-div .cartitle {
+    font-size: 20px;
+    font-family: Chulabhorn Medium
+}
+
+.home-div .parktitle {
+    font-size: 14px;
+    font-family: 'Sarabun Medium';
+}
+
+.home-div .vip-lot-icon {
+    width: 15px;
+    height: 20px;
+    background-color: #00CCF2;
+    display: inline-block;
+    margin: 5px 5px 0px 5px;
+    border-radius: 3px;
+}
+
+.home-div .vip-lot-icon.red {
+    background-color: #FF007C;
+}
+
+.home-div .sep-icon {
+    font-size: 20px;
+}
+
+.home-div .parktitle-end.exception {
+    display: inline;
+}
+
+.home-div .parktitle-end.exception .parktitle-color {
+    color: #FF007C;
+}
+
+.home-div .parktitle-end {
+    display: none;
+}
+
+.home-div .park-descrip {
+    font-size: 12px;
+    font-family: 'Sarabun Medium';
+    opacity: 0.44;
+}
+
+.home-div .park-count {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.home-div .building-bar .energy .title {
+    font-size: 34px;
+    line-height: 28px;
+}
+
+.home-div .building-bar .energy .building-title {
+    font-size: 16px;
+    line-height: 20px;
+}
+
+.home-div .building-bar .energy .status {
+    font-size: 19px;
+    color: #FF007C;
+    white-space: normal;
+    line-height: 39px;
+    font-family: 'Chulabhorn';
+}
+
+.home-div .building-bar .energy .status.Medium {
+    color: #FCB415;
+}
+
+.home-div .building-bar .energy .status.Low {
+    color: #0FC942;
+}
+
+.home-div .building-bar .energy .consumpimg {}
+
+.home-div .building-bar .energy .consumpimg.Medium {
+    margin-left: 140px;
+}
+
+.home-div .building-bar .energy .consumpimg.Low {
+    margin-left: 125px;
+}
+
+.home-div .icon-building path {
+    fill: #777777
+}
+
+.home-div .building-title {
+    font-family: 'Sarabun Light';
+    line-height: 23px;
+    font-size: 16px;
+}
+
+.home-div .update-txt {
+    line-height: 0.8;
+}
+
+.home-div .building-value {
+    font-family: 'Sarabun Bold';
+    line-height: 23px;
+    font-size: 18px;
+}
+
+.home-div .building-bar .building-byPerson .building-title {
+    font-size: 16px;
+    line-height: 20px;
+}
+
+// global css for parking pahge -----
+
+.parking-div .bubble {
+    position: absolute;
+    -webkit-border-radius: 50%;
+    -moz-border-radius: 50%;
+    border-radius: 50%;
+    //margin-left: 500px;
+    //margin-top: 0px;
+    display: none;
+    border: solid 5px #2D62ED;
+    height: 115px;
+    width: 115px;
+    text-align: center;
+    background-color: #fff;
+    font-family: 'Sarabun';
+    font-size: 20px;
+    line-height: 10px;
+}
+
+.parking-div .bubble .line1 {
+    line-height: 60px;
+}
+
+.parking-div .bubble .num {
+    font-size: 42px;
+    line-height: 0px;
+}
+
+.parking-div .bubble .unit {
+    font-size: 20px;
+    line-height: 33px;
+}
+
+.parking-div .btn1:hover {
+    //background-color: #1b1e24;
+}
+
+.parking-div .btn1:hover~.img0 {
+    display: none;
+}
+
+.parking-div .btn1:hover~.img1 {
+    display: block;
+}
+
+.img1,
+.img2 {
+    display: none;
+}
+
+.parking-div .ant-card-body {
+    padding: 15px 10px;
+}
+
+.parking-div .cardtitle {
+    font-size: 34px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.parking-div .ant-col {
+    font-size: 34px;
+    white-space: nowrap;
+}
+
+.parking-div .ant-card {
+    box-shadow: 0px 3px 6px #00000029;
+    border-radius: 20px;
+}
+
+.parking-div .car-num {
+    font-size: 20;
+}
+
+.parking-div .side-bar .ant-col {
+    line-height: 28px;
+}
+
+.parking-div .side-bar .number {
+    font-size: 14px;
+    color: #0FC942;
+    font-family: Sarabun Bold;
+}
+
+.parking-div .side-bar .number.red {
+    color: #FF007C
+}
+
+.parking-div .ant-typography:nth-child(1) {
+    font-family: Chulabhorn Light;
+}
+
+.parking-div .side-bar .ant-card .ant-col,
+.parking-div .side-bar .ant-card {
+    margin: 0px 5px;
+}
+
+.parking-div .side-bar .ant-space {
+    padding: 10px 0px;
+}
+
+.parking-div svg[data-icon="arrow-up"] path {
+    fill: #00CCF2;
+}
+
+.parking-div svg[data-icon="arrow-down"] path {
+    fill: #FF007C;
+}
+
+.parking-div .pm25 {
+    background-color: #FF007C;
+    color: #ffffff;
+}
+
+.parking-div .square-card {
+    text-align: center;
+    min-width: 175px
+}
+
+.parking-div .square-card {
+    width: 180px
+}
+
+// .parking-div .square-card img {
+//     width: 50px;
+//     height: 50px;
+// }
+
+.parking-div .car-num {
+    font-size: 20px;
+}
+
+.parking-div .cartitle {
+    font-size: 20px;
+    font-family: Chulabhorn Medium
+}
+
+.parking-div .parktitle {
+    font-size: 14px;
+    font-family: 'Sarabun Medium';
+}
+
+.parking-div .parktitle-end.exception {
+    display: inline;
+}
+
+.parking-div .parktitle-end.exception .parktitle-color {
+    color: #FF007C;
+}
+
+.parking-div .parktitle-end.exception {
+    display: inline;
+}
+
+.parking-div .parktitle-end.exception .parktitle-color {
+    color: #FF007C;
+}
+
+.parking-div .parktitle-end {
+    display: none;
+}
+
+.parking-div .park-descrip {
+    font-size: 12px;
+    font-family: 'Sarabun Medium';
+    opacity: 0.44;
+}
+
+.parking-div .park-count {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.parking-div .building-bar .energy .title {
+    font-size: 34px;
+    line-height: 28px;
+}
+
+.parking-div .building-bar .energy .building-title {
+    font-size: 16px;
+    line-height: 20px;
+}
+
+.parking-div .building-bar .energy .status {
+    font-size: 34px;
+    color: #FF007C;
+    white-space: normal;
+    line-height: 39px;
+}
+
+.parking-div .icon-building path {
+    fill: #777777
+}
+
+.parking-div .building-title {
+    font-family: 'Sarabun Light';
+    line-height: 23px;
+    font-size: 16px;
+}
+
+.parking-div .building-value {
+    font-family: 'Sarabun Bold';
+    line-height: 23px;
+    font-size: 18px;
+}
+
+.parking-div .building-bar .building-byPerson .building-title {
+    font-size: 16px;
+    line-height: 20px;
+}
+
+.parking-div .unit-cartime {
+    font-family: 'Chulabhorn';
+    color: #00CCF2
+}
+
+.parking-div .num-cartime {
+    font-family: 'Chulabhorn';
+    color: #00CCF2;
+    font-size: 60px;
+}
+
+.parking-div .lot_btn {
+    font-family: "Sarabun Light";
+    font-size: 18px;
+    height: 67px;
+    padding: 18px 0px;
+    cursor: pointer;
+}
+
+.parking-div .lot_btn:hover {
+    background-color: #FF007C;
+    color: #fff;
+}
+
+.parking-div.opening .bubble {
+    display: block !important;
+}
+
+.parking-div .bubble .triangle {
+    position: absolute;
+    margin-left: 43px;
+    margin-top: 2px;
+    width: 0;
+    height: 0;
+    border-width: 17.3px 10px 0 10px;
+    border-color: #2D62ED transparent transparent transparent;
+    border-style: solid;
+}
+
+.parking-div .update-txt {
+    line-height: 0.8;
+}
+
+.parking-div .vip-lot-icon {
+    width: 15px;
+    height: 20px;
+    background-color: #00CCF2;
+    display: inline-block;
+    margin: 5px 5px 0px 5px;
+    border-radius: 3px;
+}
+
+.parking-div .vip-lot-icon.red {
+    background-color: #FF007C;
+}
+
+.parking-div .sep-icon {
+    font-size: 20px;
+}
+
+.parking-lot-modal img {
+    width: 100%;
+    height: auto;
+    min-height: 300px;
+}
+
+.parking-lot-modal .ant-modal-content {
+    background-color: #3A3E46;
+    color: #fff
+}
+
+.parking-lot-modal .lot-header {
+    font-size: 27px;
+    font-family: "Sarabun Medium";
+}
+
+.parking-lot-modal .lot-open-btn {
+    background-color: #00F777;
+    color: #000;
+    float: right;
+    width: 120px;
+    font-family: "Sarabun";
+    font-size: 15px;
+}
+
+.parking-lot-modal .close-lot-btn {
+    background-color: #3A3E46;
+    width: 120px;
+    font-family: "Sarabun";
+    color: #fff;
+    font-size: 15px;
+}
+
+.parking-lot-modal .ant-modal-footer {
+    border: none;
+    text-align: left;
+    padding: 20px 16px;
+}
+
+// global css for security pahge -----
+.security-div .header {
+    height: 74px;
+}
+
+.security-div .submenu {
+    margin-top: 0px;
+    height: 32px;
+}
+
+.security-div .update-txt {
+    line-height: 0.8;
+}
+
+.security-div .submenu .sub-btn {
+    display: inline-block;
+    height: 32px;
+    margin: 3px;
+    font-family: "Sarabun Light";
+    line-height: 1;
+    padding: 1px 3px;
+    cursor: pointer;
+}
+
+.security-div .submenu .out-cam-btn:hover {
+    color: #fff;
+    background-color: #FF007C;
+}
+
+.security-div .submenu .sub-btn:hover {
+    background-color: #FF007C;
+    font-family: "Sarabun Bold";
+}
+
+.security-div .submenu .sub-btn.active {
+    font-family: "Sarabun Bold";
+}
+
+/*
+.security-div .map-bar {
+    --ratiobtn: calc(calc(100vh - 173px) / 1045);
+    margin-left: calc(calc(calc(100vw - 400px) - calc(1920 * var(--ratiobtn)))/2);
+}
+
+.security-div.wide .map-bar {
+    --ratiobtn: calc(calc(100vw - 400px) / 1920);
+    //margin-left: calc( calc( calc(100vw - 400px) - calc( 1920 * var(--ratiobtn) ) )/2 );
+    margin-top: calc(calc(calc(100vh - 173px) - calc(1045 * var(--ratiobtn)))/2);
+}
+
+.security-div .mapimg {
+    width: auto;
+    height: calc(100vh - 173px);
+}
+
+.security-div.wide .mapimg {
+    width: calc(100vw - 400px);
+    height: auto;
+}
+*/
+.security-div .bubble {
+    cursor: pointer;
+    position: absolute;
+    -webkit-border-radius: 50%;
+    -moz-border-radius: 50%;
+    border-radius: 50%;
+
+    border: solid 5px #2D62ED;
+    height: 115px;
+    width: 115px;
+    text-align: center;
+    background-color: #fff;
+    font-family: 'Sarabun';
+    font-size: 20px;
+    //line-height: 100px;
+    --ratiobtn: calc(calc(100vh - 173px) / 1045);
+}
+
+.security-div.wide .bgbtn {
+    --ratiobtn: calc(calc(100vw - 400px) / 1920);
+}
+
+.security-div #bubble1 {
+    margin-left: calc(calc(var(--ratiobtn) * 1288) - 55px);
+    margin-top: calc(calc(var(--ratiobtn) * 619) - 110px);
+}
+
+.security-div #bubble2 {
+    margin-left: calc(calc(var(--ratiobtn) * 539) - 55px);
+    margin-top: calc(calc(var(--ratiobtn) * 184) - 110px);
+}
+
+.security-div #bubble3 {
+    margin-left: calc(calc(var(--ratiobtn) * 671) - 55px);
+    margin-top: calc(calc(var(--ratiobtn) * 503) - 110px);
+}
+
+.security-div #bubble4 {
+    margin-left: calc(calc(var(--ratiobtn) * 608) - 55px);
+    margin-top: calc(calc(var(--ratiobtn) * 369) - 110px);
+}
+
+.security-div #bubble5 {
+    margin-left: calc(calc(var(--ratiobtn) * 1025) - 55px);
+    margin-top: calc(calc(var(--ratiobtn) * 595) - 110px);
+}
+
+.security-div #bubble6 {
+    margin-left: calc(calc(var(--ratiobtn) * 997) - 55px);
+    margin-top: calc(calc(var(--ratiobtn) * 274) - 110px);
+}
+
+.security-div #bubble7 {
+    margin-left: calc(calc(var(--ratiobtn) * 479) - 55px);
+    margin-top: calc(calc(var(--ratiobtn) * 305) - 110px);
+}
+
+.security-div #bubble8 {
+    margin-left: calc(calc(var(--ratiobtn) * 789) - 55px);
+    margin-top: calc(calc(var(--ratiobtn) * 574) - 110px);
+}
+
+.security-div #bubble9 {
+    margin-left: calc(calc(var(--ratiobtn) * 1351) - 55px);
+    margin-top: calc(calc(var(--ratiobtn) * 771) - 110px);
+}
+
+.security-div #bubble10 {
+    margin-left: calc(calc(var(--ratiobtn) * 1494) - 55px);
+    margin-top: calc(calc(var(--ratiobtn) * 708) - 110px);
+}
+
+.security-div #bubble11 {
+    margin-left: calc(calc(var(--ratiobtn) * 792) - 55px);
+    margin-top: calc(calc(var(--ratiobtn) * 337) - 110px);
+}
+
+.security-div .bubble .triangle {
+    position: absolute;
+    margin-left: 43px;
+    margin-top: 45px;
+    width: 0;
+    height: 0;
+    border-width: 17.3px 10px 0 10px;
+    border-color: #2D62ED transparent transparent transparent;
+    border-style: solid;
+}
+
+.security-div .bubble .line1 {
+    line-height: 60px;
+}
+
+.security-div .bubble .num {
+    pointer-events: none;
+    font-size: 42px;
+    //line-height: 12px;
+}
+
+.security-div .bubble .unit {
+    pointer-events: none;
+    font-size: 20px;
+    display: block;
+    height: 10px;
+    margin-top: -15px;
+    //line-height: 12px;
+}
+
+.security-div .left-div {
+    width: calc(100vw - 400px);
+    height: calc(100vh - 173px);
+    overflow: hidden;
+}
+
+.security-div .right-div {
+    position: absolute;
+    margin-top: 0px;
+    margin-left: calc(100vw - 400px);
+    width: 400px;
+    height: calc(100vh - 190px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 10px;
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
+}
+
+.security-div .right-div::-webkit-scrollbar {
+    display: none;
+}
+
+.security-div .right-div .title {
+    font-family: 'Sarabun Bold';
+    font-size: 24px;
+    text-align: center;
+}
+
+.security-div .right-div .status {
+    font-family: 'Sarabun';
+    font-size: 16px;
+    text-align: center;
+}
+
+.security-div .right-div .list-header {
+    font-family: 'Sarabun';
+    font-size: 16px;
+}
+
+.security-div .side-bar {
+    font-family: 'Sarabun';
+    width: 380px;
+    letter-spacing: -0.82px;
+
+}
+
+.security-div .ant-progress-status-normal .ant-progress-bg {
+    background-color: #2D62ED;
+}
+
+.security-div .ant-progress-status-exception .ant-progress-bg {
+    background-color: #FF007C;
+}
+
+.security-div .ant-card-body {
+    padding: 15px 10px;
+}
+
+.security-div .cardtitle {
+    font-size: 34px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+// .security-div .ant-col {
+//     font-size: 34px;
+//     white-space: nowrap;
+// }
+
+.security-div .ant-card {
+    box-shadow: 0px 3px 6px #00000029;
+    border-radius: 20px;
+}
+
+.security-div .car-num {
+    font-size: 20;
+}
+
+.security-div .side-bar .ant-col {
+    line-height: 28px;
+}
+
+.security-div .side-bar .number {
+    font-size: 14px;
+    color: #0FC942;
+    font-family: Sarabun Bold;
+}
+
+.security-div .side-bar .number.red {
+    color: #FF007C
+}
+
+.security-div .ant-typography:nth-child(1) {
+    font-family: Chulabhorn Light;
+}
+
+.security-div .side-bar .ant-card .ant-col,
+.security-div .side-bar .ant-card {
+    margin: 0px 5px;
+}
+
+.security-div .side-bar .ant-space {
+    padding: 10px 0px;
+}
+
+.security-div svg[data-icon="arrow-up"] path {
+    fill: #00CCF2;
+}
+
+.security-div svg[data-icon="arrow-down"] path {
+    fill: #FF007C;
+}
+
+.security-div .pm25 {
+    background-color: #FF007C;
+    color: #ffffff;
+}
+
+.security-div .square-card {
+    text-align: center;
+    min-width: 175px
+}
+
+.security-div .square-card {
+    width: 180px
+}
+
+.security-div .square-card img {
+    width: 50px;
+    height: 50px;
+}
+
+.security-div .car-num {
+    font-size: 20px;
+}
+
+.security-div .cartitle {
+    font-size: 20px;
+    font-family: Chulabhorn Medium
+}
+
+.security-div .parktitle {
+    font-size: 20px;
+    font-family: 'Sarabun Medium';
+}
+
+.security-div .park-descrip {
+    font-size: 12px;
+    font-family: 'Sarabun Medium';
+    opacity: 0.44;
+}
+
+.security-div .park-count {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.security-div .building-bar .energy .title {
+    font-size: 34px;
+    line-height: 28px;
+}
+
+.security-div .building-bar .energy .building-title {
+    font-size: 16px;
+    line-height: 20px;
+}
+
+.security-div .building-bar .energy .status {
+    font-size: 34px;
+    color: #FF007C;
+    white-space: normal;
+    line-height: 39px;
+}
+
+.security-div .icon-building path {
+    fill: #777777
+}
+
+.security-div .building-title {
+    font-family: 'Sarabun Light';
+    line-height: 23px;
+    font-size: 16px;
+}
+
+.security-div .building-value {
+    font-family: 'Sarabun Bold';
+    line-height: 23px;
+    font-size: 18px;
+}
+
+.security-div .building-bar .building-byPerson .building-title {
+    font-size: 16px;
+    line-height: 20px;
+}
+
+.security-div .nonac-list {
+    max-height: 300px;
+    width: 340px;
+    overflow: auto;
+}
+
+.security-div .cam_nonac {
+    height: 60px;
+    font-size: 20px;
+    font-family: 'Sarabun SemiBold';
+    padding: 15px;
+    cursor: pointer;
+}
+
+.security-div .cam_nonac:hover {
+    background-color: #FF007C;
+    color: #fff;
+}
+
+.security-div .unit-camac {
+    font-family: 'Chulabhorn';
+    color: #00CCF2
+}
+
+.security-div .num-camac {
+    font-family: 'Chulabhorn';
+    color: #00CCF2;
+    font-size: 60px;
+}
+
+.security-div .unit-camnon {
+    font-family: 'Chulabhorn';
+    color: #FF007C
+}
+
+.security-div .num-camnon {
+    font-family: 'Chulabhorn';
+    color: #FF007C;
+    font-size: 60px;
+}
+
+.security-div .camall {
+    text-align: center;
+}
+
+.security-div .camall-header {
+    font-family: 'Sarabun Bold';
+}
+
+.security-div .unit-camall {
+    font-family: 'Sarabun Medium';
+}
+
+.security-div .num-camall {
+    font-family: 'Chulabhorn';
+    color: #00CCF2;
+    font-size: 98px;
+}
+
+.security-noti-modal {
+    width: calc(100% - 350px);
+}
+
+.security-noti-modal .ant-modal-title {
+    color: #000
+}
+
+.security-detail-modal {
+    width: 90% !important
+}
+
+.security-detail-modal .menu-bar {
+    //position:absolute;
+    width: 350px;
+}
+
+.security-detail-modal .list-bar {
+    //position: absolute;
+    //margin-left: 350px;
+    //width: calc(100% - 400px);
+    //margin-top: calc(60px - 80vh);
+    padding: 15px;
+    height: calc(80vh - 85px);
+    overflow-y: auto;
+}
+
+.security-detail-modal .container {
+    height: 80vh;
+}
+
+.security-detail-modal .location-list {
+    height: calc(80vh - 115px);
+    overflow-y: scroll;
+}
+
+.security-detail-modal .location_btn {
+    cursor: pointer;
+    font-family: "Sarabun Light";
+    font-size: 18px;
+    height: 60px;
+    padding: 10px;
+    border-bottom: solid 1px #aaaaaa;
+}
+
+.security-detail-modal .location_btn:hover {
+    background-color: #FF007C;
+    color: #fff;
+}
+
+.security-detail-modal .location_btn .num {
+    float: right;
+}
+
+.security-detail-modal .cam_btn {
+    width: 398px;
+    height: 260px;
+    background-color: #FF007C;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.security-detail-modal .cam_btn img {
+    width: 100%;
+    height: 100%;
+}
+
+.security-detail-modal .cam_btn .title {
+    width: 398px;
+    height: 30px;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0px 5px;
+    //position: absolute;
+    margin-top: 230px;
+}
+
+.security-div .ant-table table {
+    font-size: 14px;
+}
+
+// global css for smoke pahge -----
+.smoke-div .header {
+    height: 74px;
+}
+
+.smoke-div .submenu {
+    margin-top: 0px;
+    height: 32px;
+}
+
+.smoke-div .submenu .sub-btn {
+    display: inline-block;
+    height: 32px;
+    margin: 3px;
+    font-family: "Sarabun Light";
+    line-height: 1;
+    padding: 1px 3px;
+    cursor: pointer;
+}
+
+.smoke-div .submenu .sub-btn:hover {
+    background-color: #FF007C;
+    font-family: "Sarabun Bold";
+}
+
+.smoke-div .submenu .sub-btn.active {
+    font-family: "Sarabun Bold";
+}
+
+.smoke-div .left-div {
+    width: calc(600px);
+    height: calc(100vh - 173px);
+    overflow: hidden;
+}
+
+.smoke-div .right-div {
+    position: absolute;
+    margin-top: 0px;
+    margin-left: calc(950px);
+    width: calc(100vw - 950px);
+    height: calc(100vh - 178px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 10px;
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
+}
+
+.smoke-div .middle-div {
+    position: absolute;
+    margin-top: 0px;
+    margin-left: 600px;
+    width: 350px;
+    height: calc(100vh - 172px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0px;
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
+    background-color: #707070;
+}
+
+.smoke-div .right-div::-webkit-scrollbar {
+    display: none;
+}
+
+.smoke-div .div-blueprint {
+    width: 100%
+}
+
+.smoke-div .div-blueprint img {
+    width: 100%;
+    height: auto;
+}
+
+.smoke-div .floor-display {
+    height: calc(100vh - 173px);
+    overflow: auto;
+    background-color: #111111;
+}
+
+.smoke-div .floor-display.hide {
+    display: none;
+}
+
+.smoke-div .floor-header {
+    font-size: 34px;
+    font-family: "Sarabun";
+    height: 72px;
+    background-color: #fff;
+    color: #000;
+    padding: 12px;
+}
+
+.smoke-div .floor-menu {
+    background-color: #707070;
+    height: calc(100vh - 172px);
+    color: #fff;
+}
+
+.smoke-div .floor-btn:hover,
+.smoke-div .floor-btn.active {
+    background-color: #FF097C
+}
+
+.smoke-div .floor-btn {
+    height: 40px;
+}
+
+.smoke-div .floor-btn>.ant-col {
+    height: 40px;
+    line-height: 1.8;
+}
+
+.smoke-div .alert-building {
+    -webkit-animation: flash 2s ease infinite;
+    animation: flash 2s ease infinite;
+}
+
+.smoke-div .sensor-bubble {
+    position: absolute;
+    width: 47px;
+    height: 47px;
+    background-color: #fff;
+    border-radius: 50%;
+    font-family: "Sarabun Medium";
+    font-size: 10px;
+    border: solid 5px #0FC942;
+    text-align: center;
+    line-height: 12px;
+    padding: 6px;
+}
+
+.smoke-div .sensor-bubble.red {
+    border: solid 5px #FF007C;
+}
+
+.smoke-div .sensor-contain {
+    background-color: #111111;
+    width: 100%;
+}
+
+.smoke-div .sensor-div {
+    color: #fff;
+    width: 250px;
+    font-size: 20px;
+    padding: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    user-select: none;
+}
+
+.smoke-div .sensor-div .textred {
+    color: #FB0B0B;
+}
+
+.smoke-div .sensor-div .right {
+    float: right;
+}
+
+.react-datepicker-wrapper,
+.react-datepicker__input-container,
+.react-datepicker__input-container input {
+    display: block;
+    width: 100%;
+    font-size: 14px;
+    border-radius: 10px;
+    cursor: pointer;
+
+}
+
+#util>.ant-space-item {
+    padding: 10px
+}
+
+// global css for analytic pahge -----
+.analytic-div iframe {
+    width: 100%;
+    height: calc(100vh - 65px);
+}
+
+.report-style-class {
+    width: 100%;
+    height: calc(100vh - 145px);
+}
+
+// global css for covid page -----
+.covid-div .map-bar .bubble {
+    position: absolute;
+}
+
+.covid-div .submenu .sub-btn {
+    display: inline-block;
+    height: 32px;
+    margin: 3px;
+    font-family: "Sarabun Light";
+    line-height: 1;
+    padding: 1px 3px;
+    cursor: pointer;
+}
+
+.covid-div .submenu .sub-btn:hover {
+    background-color: #FF007C;
+    font-family: "Sarabun Bold";
+}
+
+.covid-div .submenu .sub-btn.active {
+    font-family: "Sarabun Bold";
+}
+
+.covid-div .camall {
+    text-align: center;
+}
+
+.covid-div .camall .ant-card-body {
+    padding: 5px;
+}
+
+.covid-div .camall-header {
+    font-family: 'Sarabun Bold';
+}
+
+.covid-div .unit-camall {
+    font-family: 'Sarabun Medium';
+}
+
+.covid-div .num-camall {
+    font-family: 'Chulabhorn';
+    color: #00CCF2;
+    font-size: 98px;
+}
+
+.covid-div .num-camall.red {
+    color: #FF0000
+}
+
+// global css for utility page -----
+.utility-div .overview-left-div {
+    height: calc(100vh - 238px);
+    overflow-y: auto;
+}
+
+.utility-div .overview-right-div {
+    height: calc(100vh - 238px);
+    overflow-y: auto;
+}
+
+.utility-div .building-left-div {
+    height: calc(100vh - 238px);
+    overflow-y: auto;
+}
+
+.utility-div .building-right-div {
+    height: calc(100vh - 238px);
+    overflow-y: auto;
+}
+
+.number {
+    font-size: 14px;
+    color: #0FC942;
+    font-family: Sarabun Bold;
+}
+
+.number.red {
+    color: #FF007C
+}
+
+// global css for ... page -----
+
+.video-react,
+.video-react-video,
+.video-react-poster {
+    height: calc(80vh - 0px) !important;
+    padding-top: 0px !important;
+}
+
+.video-react-big-play-button {
+    top: calc(50% - 20px) !important;
+    left: calc(50% - 43px) !important;
+}

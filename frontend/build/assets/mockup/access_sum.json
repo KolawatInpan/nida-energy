@@ -1,0 +1,11 @@
+{
+    "status": "OK",
+    "result": [
+        {
+            "area_id": "NAVAMIN",
+            "location": "FL02",
+            "in": 2,
+            "out": 1
+        }
+    ]
+}

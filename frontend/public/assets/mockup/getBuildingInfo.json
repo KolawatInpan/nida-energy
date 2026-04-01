@@ -1,0 +1,418 @@
+{
+  "result": "success",
+  "date_time": "2023-02-11 00:17:24.481188",
+  "data": [
+      {
+          "building_name": "NAVAMIN",
+          "floor": [
+              {
+                  "floor_id": "02",
+                  "alert_tag": true,
+                  "co2": 399.0,
+                  "pm25": 43.5862,
+                  "humidity": 63.4176,
+                  "temperature": 28.4831
+              },
+              {
+                  "floor_id": "03",
+                  "alert_tag": true,
+                  "co2": 402.0,
+                  "pm25": 69.6943,
+                  "humidity": 61.9648,
+                  "temperature": 28.2473
+              },
+              {
+                  "floor_id": "04",
+                  "alert_tag": true,
+                  "co2": 400.0,
+                  "pm25": 79.3448,
+                  "humidity": 61.5714,
+                  "temperature": 28.3767
+              },
+              {
+                  "floor_id": "05",
+                  "alert_tag": true,
+                  "co2": 403.0,
+                  "pm25": 34.2175,
+                  "humidity": 60.9094,
+                  "temperature": 28.6407
+              },
+              {
+                  "floor_id": "06",
+                  "alert_tag": true,
+                  "co2": 391.0,
+                  "pm25": 33.5916,
+                  "humidity": 61.9459,
+                  "temperature": 28.3706
+              },
+              {
+                  "floor_id": "07",
+                  "alert_tag": true,
+                  "co2": 401.0,
+                  "pm25": 27.5042,
+                  "humidity": 63.6798,
+                  "temperature": 27.9866
+              },
+              {
+                  "floor_id": "08",
+                  "alert_tag": true,
+                  "co2": 395.0,
+                  "pm25": 39.9137,
+                  "humidity": 58.5732,
+                  "temperature": 29.2372
+              },
+              {
+                  "floor_id": "09",
+                  "alert_tag": true,
+                  "co2": 401.0,
+                  "pm25": 32.7951,
+                  "humidity": 63.9159,
+                  "temperature": 27.7824
+              },
+              {
+                  "floor_id": "10",
+                  "alert_tag": true,
+                  "co2": 392.0,
+                  "pm25": 20.1525,
+                  "humidity": 68.0754,
+                  "temperature": 25.8842
+              },
+              {
+                  "floor_id": "11",
+                  "alert_tag": true,
+                  "co2": 410.0,
+                  "pm25": 1.4727,
+                  "humidity": 62.9888,
+                  "temperature": 25.8617
+              },
+              {
+                  "floor_id": "12",
+                  "alert_tag": true,
+                  "co2": 399.0,
+                  "pm25": 42.7093,
+                  "humidity": 65.9273,
+                  "temperature": 26.2609
+              },
+              {
+                  "floor_id": "12A",
+                  "alert_tag": true,
+                  "co2": 403.0,
+                  "pm25": 9.0032,
+                  "humidity": 64.685,
+                  "temperature": 26.762
+              },
+              {
+                  "floor_id": "14",
+                  "alert_tag": true,
+                  "co2": 410.0,
+                  "pm25": 18.3219,
+                  "humidity": 64.9216,
+                  "temperature": 25.7802
+              },
+              {
+                  "floor_id": "15",
+                  "alert_tag": true,
+                  "co2": 407.0,
+                  "pm25": 13.3387,
+                  "humidity": 61.7669,
+                  "temperature": 27.0893
+              },
+              {
+                  "floor_id": "16",
+                  "alert_tag": true,
+                  "co2": 397.0,
+                  "pm25": 17.1026,
+                  "humidity": 65.7311,
+                  "temperature": 27.2051
+              },
+              {
+                  "floor_id": "17",
+                  "alert_tag": true,
+                  "co2": 404.0,
+                  "pm25": 31.3539,
+                  "humidity": 63.9376,
+                  "temperature": 28.0049
+              },
+              {
+                  "floor_id": "18",
+                  "alert_tag": true,
+                  "co2": 405.0,
+                  "pm25": 21.2686,
+                  "humidity": 62.0812,
+                  "temperature": 28.3087
+              },
+              {
+                  "floor_id": "19",
+                  "alert_tag": true,
+                  "co2": 406.0,
+                  "pm25": 22.3045,
+                  "humidity": 68.2793,
+                  "temperature": 27.3585
+              },
+              {
+                  "floor_id": "20",
+                  "alert_tag": true,
+                  "co2": 400.0,
+                  "pm25": 26.6171,
+                  "humidity": 62.9877,
+                  "temperature": 28.2936
+              },
+              {
+                  "floor_id": "21",
+                  "alert_tag": true,
+                  "co2": 405.0,
+                  "pm25": 202.1199,
+                  "humidity": 67.0498,
+                  "temperature": 27.3984
+              },
+              {
+                  "floor_id": "B1",
+                  "alert_tag": true,
+                  "co2": 400.0,
+                  "pm25": 86.0611,
+                  "humidity": 64.6316,
+                  "temperature": 28.7919
+              },
+              {
+                  "floor_id": "B2",
+                  "alert_tag": true,
+                  "co2": 402.0,
+                  "pm25": 54.1057,
+                  "humidity": 64.5796,
+                  "temperature": 28.9207
+              },
+              {
+                  "floor_id": "G",
+                  "alert_tag": true,
+                  "co2": 400.0,
+                  "pm25": 107.5793,
+                  "humidity": 62.4188,
+                  "temperature": 28.662
+              }
+          ]
+      },
+      {
+          "building_name": "SIAM",
+          "floor": [
+              {
+                  "floor_id": "02",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "03",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "04",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "05",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "06",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "07",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "08",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "09",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "10",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "11",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "12",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "12A",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "14",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "15",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "B1",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "G",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "M",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              }
+          ]
+      },
+      {
+          "building_name": "NVOut",
+          "floor": [
+              {
+                  "floor_id": "01",
+                  "alert_tag": true,
+                  "co2": 404.0,
+                  "pm25": 5.0,
+                  "humidity": 78.4078,
+                  "temperature": 28.8906
+              },
+              {
+                  "floor_id": "02",
+                  "alert_tag": true,
+                  "co2": 404.0,
+                  "pm25": 4.3,
+                  "humidity": 79.3462,
+                  "temperature": 28.7727
+              },
+              {
+                  "floor_id": "03",
+                  "alert_tag": true,
+                  "co2": 404.0,
+                  "pm25": 5.7,
+                  "humidity": 78.7588,
+                  "temperature": 28.8263
+              },
+              {
+                  "floor_id": "04",
+                  "alert_tag": true,
+                  "co2": 420.0,
+                  "pm25": 5.2,
+                  "humidity": 18.1203,
+                  "temperature": 28.5582
+              },
+              {
+                  "floor_id": "05",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 6.5,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              }
+          ]
+      },
+      {
+          "building_name": "SOut",
+          "floor": [
+              {
+                  "floor_id": "01",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "02",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "03",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              },
+              {
+                  "floor_id": "04",
+                  "alert_tag": false,
+                  "co2": 0.0,
+                  "pm25": 0.0,
+                  "humidity": 0.0,
+                  "temperature": 0.0
+              }
+          ]
+      }
+  ]
+}

@@ -1,0 +1,3 @@
+/* Minimal fallback styles (previously App.less) - add styles as needed */
+html { font-size: 20px; }
+body { margin: 0; font-family: 'Chulabhorn', sans-serif; }

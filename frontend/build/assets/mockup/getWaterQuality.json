@@ -1,0 +1,19 @@
+{
+  "result": "success",
+  "water_temp": {
+    "val": 1,
+    "percent_change": 0
+  },
+  "ph": {
+    "val": 7,
+    "percent_change": 0
+  },
+  "ec": {
+    "val": 1,
+    "percent_change": 0
+  },
+  "turbidity": {
+    "val": 91,
+    "percent_change": 4
+  }
+}

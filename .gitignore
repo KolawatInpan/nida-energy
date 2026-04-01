@@ -4,11 +4,7 @@
 /backend/.env
 /backend/prisma/.env
 /backend/db_migrations/
-/backend/prisma
 /backend/config
-/frontend/build
-/frontend/public
-/frontend/src/assets
 /sequenceDiagram/
 /usecaseDiagram/
 /blockchain/node_modules

@@ -1,0 +1,23 @@
+{
+    "status": "OK",
+    "result": [
+        {
+            "device_id": "AC001",
+            "enable": true,
+            "area_id": "SIAM",
+            "location": "FL0M",
+            "device_type": "ac",
+            "ioc_device_id": "AC001",
+            "remark": "Air Control ห้อง datacenter",
+            "status": "normal",
+            "alarm_high_temp": false,
+            "alarm_high_humidity": false,
+            "alarm_air1_fail": false,
+            "alarm_air2_fail": true,
+            "alarm_sensor_error": false,
+            "alarm_ts": null,
+            "last_seen": null,
+            "temp_c": 23
+        }
+    ]
+}

@@ -1,0 +1,42 @@
+{
+  "result": "success",
+  "data": {
+    "power": {
+      "consumption": 2414.0,
+      "unit": "kWh",
+      "growth": 0.6672226855713177
+    },
+    "energy": {
+      "consumption": 10833,
+      "unit": "kWh",
+      "growth": 0.0
+    },
+    "water": {
+      "consumption": 18.9789,
+      "unit": "m3",
+      "growth": 12.10880737196527
+    },
+    "flow": {
+      "consumption": 1.0543833333333332,
+      "unit": "m3/h",
+      "growth": 49.47840982928702
+    },
+    "waterinfo": {
+      "water_max": 200,
+      "vol": 150,
+      "unit": "m3"
+    },
+    "parking": {
+      "car_in": 0,
+      "car_out": 0,
+      "park_vip_cap": 0,
+      "park_vip_used": 0,
+      "park_normal_cap": 0,
+      "park_normal_used": 0
+    },
+    "people": {
+      "people_in": 134,
+      "growth": 4.76
+    }
+  }
+}
