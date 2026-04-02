@@ -281,6 +281,13 @@ export default function MeterRegistration() {
           </div>
         )}
 
+        <div className="mb-6 flex items-center justify-between">
+          <div />
+          <a href="/login" className="rounded-lg border border-gray-300 px-4 py-2 font-semibold text-gray-700 hover:bg-gray-50">
+            Back to Login
+          </a>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="flex flex-wrap items-center gap-6">
             <ModeRadio

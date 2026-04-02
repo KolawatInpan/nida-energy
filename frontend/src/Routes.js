@@ -166,7 +166,7 @@ const App = () => {
                     {publicRoutes.map(({ path, exact, component: Component }) => (
                         <Route key={path} path={path} exact={exact} component={Component} />
                     ))}
-                    <Redirect to={ROUTE_PATHS.login} />
+                    <Redirect to={ROUTE_PATHS.meterRegistration} />
                 </Switch>
             )
             }

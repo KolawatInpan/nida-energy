@@ -1,4 +1,4 @@
-const DashBoardModel = require('./dashboard.model');
+const DashBoardModel = require('./dashboard.service');
 // Use model for DB work
 
 async function getBuildingByMeterId(req, res) {

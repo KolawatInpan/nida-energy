@@ -1,4 +1,4 @@
-const BuildingModel = require('./building.model');
+const BuildingModel = require('./building.service');
 
 async function getBuildings(req, res) {
   try {

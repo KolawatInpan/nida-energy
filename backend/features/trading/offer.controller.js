@@ -1,4 +1,4 @@
-const Offer = require('./offer.model');
+const Offer = require('./offer.service');
 
 async function getOffers(req, res) {
     try {

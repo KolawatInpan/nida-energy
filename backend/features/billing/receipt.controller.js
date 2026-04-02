@@ -1,6 +1,4 @@
-const { prisma } = require('../../utils/prisma');
-const Receipt = require('./receipt.model');
-const InvoiceModel = require('./invoice.model');
+const Receipt = require('./receipt.service');
 
 async function listReceipts(req, res) {
 	try {
@@ -14,44 +12,11 @@ async function listReceipts(req, res) {
 
 async function getReceipt(req, res) {
 	try {
-		const receipt = await prisma.receipt.findUnique({
-			where: { id: String(req.params.id) },
-			include: { invoice: true }
-		});
+		const receipt = await Receipt.getReceiptDetails(req.params.id);
 		if (!receipt) {
 			return res.status(404).json({ error: 'Receipt not found' });
 		}
-
-		const [enrichedInvoice] = await InvoiceModel.attachInvoiceEnergyBreakdown(
-			receipt.invoice ? [receipt.invoice] : [],
-		);
-
-		const building = receipt.invoice?.buildingName
-			? await prisma.building.findUnique({
-				where: { name: String(receipt.invoice.buildingName) },
-			})
-			: null;
-
-		const owner = building?.email
-			? await prisma.user.findUnique({
-				where: { email: String(building.email) },
-				include: { wallets: true },
-			})
-			: null;
-
-		const walletTx = receipt.walletTxId
-			? await prisma.walletTx.findUnique({
-				where: { id: String(receipt.walletTxId) },
-			})
-			: null;
-
-		res.json({
-			...receipt,
-			invoice: enrichedInvoice || receipt.invoice,
-			building,
-			owner,
-			walletTx,
-		});
+		res.json(receipt);
 	} catch (err) {
 		console.error('getReceipt error:', err);
 		res.status(500).json({ error: err.message });
@@ -74,7 +39,7 @@ async function createReceipt(req, res) {
 
 async function deleteReceipt(req, res) {
 	try {
-		await prisma.receipt.delete({ where: { id: String(req.params.id) } });
+		await Receipt.deleteReceipt(req.params.id);
 		res.status(204).send();
 	} catch (err) {
 		console.error('deleteReceipt error:', err);
@@ -86,7 +51,5 @@ module.exports = {
 	listReceipts,
 	getReceipt,
 	createReceipt,
-	deleteReceipt
+	deleteReceipt,
 };
-
-

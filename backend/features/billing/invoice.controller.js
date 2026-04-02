@@ -1,4 +1,3 @@
-const Invoice = require('./invoice.model');
 const invoiceService = require('./invoice.service');
 
 function toNumber(value) {
@@ -65,8 +64,8 @@ async function getInvoices(req, res) {
         await invoiceService.ensurePreviousMonthInvoiceIfDue();
         const { month, year, status } = req.query;
         const buildingName = resolveBuildingFilter(req.query);
-        const invoices = await Invoice.getInvoices({ month, year, status, buildingName });
-        const enrichedInvoices = await Invoice.attachInvoiceEnergyBreakdown(invoices);
+        const invoices = await invoiceService.getInvoices({ month, year, status, buildingName });
+        const enrichedInvoices = await invoiceService.attachInvoiceEnergyBreakdown(invoices);
         res.json(enrichedInvoices);
     } catch (err) {
         console.error('getInvoices error:', err);
@@ -76,11 +75,11 @@ async function getInvoices(req, res) {
 
 async function getInvoiceById(req, res) {
     try {
-        const invoice = await Invoice.getInvoiceById(req.params.id);
+        const invoice = await invoiceService.getInvoiceById(req.params.id);
         if (!invoice) {
             return res.status(404).json({ error: 'Invoice not found' });
         }
-        const [enrichedInvoice] = await Invoice.attachInvoiceEnergyBreakdown([invoice]);
+        const [enrichedInvoice] = await invoiceService.attachInvoiceEnergyBreakdown([invoice]);
         res.json(enrichedInvoice);
     } catch (err) {
         console.error('getInvoiceById error:', err);
@@ -93,8 +92,8 @@ async function getInvoiceSummary(req, res) {
         await invoiceService.ensurePreviousMonthInvoiceIfDue();
         const { month, year } = resolvePeriod(req.query);
         const buildingName = resolveBuildingFilter(req.query);
-        const snapshot = await Invoice.getInvoiceConsumptionSnapshot({ month, year, buildingName });
-        const invoices = await Invoice.getInvoices({ month, year, buildingName });
+        const snapshot = await invoiceService.getInvoiceConsumptionSnapshot({ month, year, buildingName });
+        const invoices = await invoiceService.getInvoices({ month, year, buildingName });
 
         const summary = invoices.reduce((acc, item) => {
             const amount = toNumber(item.tokenAmount);
@@ -127,7 +126,7 @@ async function getInvoiceSummary(req, res) {
             month,
             year,
             buildingName,
-            ratePerKwh: Invoice.TOKEN_RATE_PER_KWH,
+            ratePerKwh: invoiceService.TOKEN_RATE_PER_KWH,
             snapshot,
             summary: {
                 ...summary,
@@ -147,10 +146,10 @@ async function getQuotaWarnings(req, res) {
     try {
         await invoiceService.ensurePreviousMonthInvoiceIfDue();
         const lookbackMonths = Number(req.query.lookbackMonths || 3);
-        const result = await Invoice.getQuotaWarnings({ lookbackMonths });
+        const result = await invoiceService.getQuotaWarnings({ lookbackMonths });
         res.json({
             lookbackMonths,
-            ratePerKwh: Invoice.TOKEN_RATE_PER_KWH,
+            ratePerKwh: invoiceService.TOKEN_RATE_PER_KWH,
             ...result,
         });
     } catch (err) {

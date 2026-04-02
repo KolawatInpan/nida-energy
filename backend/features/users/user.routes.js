@@ -23,7 +23,7 @@ const requireRole = require('../../middleware/requireRole');
  *               items:
  *                 type: object
  */
-router.get('/', auth, requireRole('ADMIN'), UserController.getUsers);
+router.get('/', auth, UserController.getUsers);
 
 /**
  * @openapi

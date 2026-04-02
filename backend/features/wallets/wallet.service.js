@@ -29,6 +29,34 @@ async function resolveWalletBalance(walletId) {
   return { walletId: wallet.id, balance: wallet.tokenBalance };
 }
 
+async function getWallets() {
+  return Wallet.getWallets();
+}
+
+async function getWalletById(id) {
+  return Wallet.getWalletById(id);
+}
+
+async function createWallet(input) {
+  return Wallet.createWallet(input);
+}
+
+async function getWalletByEmail(email) {
+  return Wallet.getWalletByEmail(email);
+}
+
+async function addBalance(email, amount, rate) {
+  return Wallet.addBalance(email, amount, rate);
+}
+
+async function getWalletTransactions(walletId) {
+  return Transaction.getTransactionsByWallet(walletId);
+}
+
+async function recalculateBalance(walletId) {
+  return Wallet.recalculateBalance(walletId);
+}
+
 async function topupWalletByEmail(email, amount, snid) {
   const numericAmount = Number(amount || 0);
 
@@ -70,6 +98,13 @@ async function topupWalletByEmail(email, amount, snid) {
 }
 
 module.exports = {
+  getWallets,
+  getWalletById,
+  createWallet,
+  getWalletByEmail,
+  addBalance,
+  getWalletTransactions,
+  recalculateBalance,
   resolveWalletBalance,
   topupWalletByEmail,
 };

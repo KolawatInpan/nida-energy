@@ -1,5 +1,4 @@
 const { prisma } = require('../../utils/prisma');
-const WalletModel = require('../wallets/wallet.model');
 
 async function getBuildings() {
 	  return await prisma.building.findMany();
@@ -43,13 +42,6 @@ async function createBuilding(name, mapURL, address, province, postalCode, email
         email
     }
   });
-  // Attempt to auto-create a custodial wallet for the building owner/email.
-  try {
-    await WalletModel.createWallet({ buildingId: newBuilding.id, email });
-  } catch (err) {
-    // Log but do not fail building creation if wallet creation fails
-    console.warn('Auto-create wallet failed for building:', newBuilding.id, err);
-  }
 
   return newBuilding;
 }

@@ -1,5 +1,5 @@
-const MeterModel = require('./meter.model');
-const UserModel = require('../users/user.model');
+const MeterModel = require('./meter.service');
+const UserModel = require('../users/user.service');
 
 
 async function getMeters(req, res) {

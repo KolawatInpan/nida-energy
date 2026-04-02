@@ -97,6 +97,26 @@ async function ensurePreviousMonthInvoiceIfDue(referenceDate = new Date()) {
   return syncInvoicesForPeriods([previousPeriod]);
 }
 
+async function getInvoices(filter = {}) {
+  return Invoice.getInvoices(filter);
+}
+
+async function getInvoiceById(id) {
+  return Invoice.getInvoiceById(id);
+}
+
+async function getInvoiceConsumptionSnapshot(filter = {}) {
+  return Invoice.getInvoiceConsumptionSnapshot(filter);
+}
+
+async function attachInvoiceEnergyBreakdown(invoices = []) {
+  return Invoice.attachInvoiceEnergyBreakdown(invoices);
+}
+
+async function getQuotaWarnings(filter = {}) {
+  return Invoice.getQuotaWarnings(filter);
+}
+
 async function purchaseMarketplaceEnergy({ offerId, buyerWalletId, targetBuildingId, amount }) {
   if (!offerId || !buyerWalletId || !targetBuildingId) {
     const err = new Error('offerId, buyerWalletId, and targetBuildingId are required');
@@ -431,10 +451,16 @@ async function payInvoiceById(invoiceId) {
 }
 
 module.exports = {
+  getInvoices,
+  getInvoiceById,
+  getInvoiceConsumptionSnapshot,
+  attachInvoiceEnergyBreakdown,
+  getQuotaWarnings,
   purchaseMarketplaceEnergy,
   generateMonthlyInvoices,
   payInvoiceById,
   syncInvoicesForPeriods,
   syncInvoicesForEnergyLogs,
   ensurePreviousMonthInvoiceIfDue,
+  TOKEN_RATE_PER_KWH: Invoice.TOKEN_RATE_PER_KWH,
 };

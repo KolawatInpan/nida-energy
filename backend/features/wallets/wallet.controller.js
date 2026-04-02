@@ -1,10 +1,8 @@
-const Wallet = require('./wallet.model');
-const Transaction = require('../transactions/transaction.model');
 const walletService = require('./wallet.service');
 
 async function getWallets(req, res) {
     try {
-        const wallets = await Wallet.getWallets();
+        const wallets = await walletService.getWallets();
         res.json(wallets);
     } catch (e) {
         res.status(e.status || 500).json({ error: e.message || 'Failed to retrieve wallets' });
@@ -14,7 +12,7 @@ async function getWallets(req, res) {
 async function getWalletById(req, res) {
     const { id } = req.params;
     try {
-        const wallet = await Wallet.getWalletById(id);
+        const wallet = await walletService.getWalletById(id);
         if (!wallet) {
             res.status(404).json({ error: 'Wallet not found' });
         } else {
@@ -38,7 +36,7 @@ async function getBalance(req, res) {
 async function createWallet(req, res) {
     const { buildingId, email } = req.body;
     try {
-        const newWallet = await Wallet.createWallet({ buildingId, email });
+        const newWallet = await walletService.createWallet({ buildingId, email });
         res.status(201).json(newWallet);
     } catch (e) {
         res.status(e.status || 500).json({ error: e.message || 'Failed to create wallet' });
@@ -48,7 +46,7 @@ async function createWallet(req, res) {
 async function getWalletByEmail(req, res) {
     const { email } = req.params;
     try {
-        const wallet = await Wallet.getWalletByEmail(email);
+        const wallet = await walletService.getWalletByEmail(email);
         if (!wallet) {
             return res.status(404).json({ error: 'Wallet not found' });
         }
@@ -62,7 +60,7 @@ async function addBalance(req, res) {
     const { email } = req.params;
     const { amount, rate } = req.body;
     try {
-        const updatedWallet = await Wallet.addBalance(email, amount, rate);
+        const updatedWallet = await walletService.addBalance(email, amount, rate);
         res.json(updatedWallet);
     } catch (e) {
         res.status(e.status || 500).json({ error: e.message || 'Failed to add balance' });
@@ -83,7 +81,7 @@ async function topupByEmail(req, res) {
 async function getWalletTransactions(req, res) {
     const { walletId } = req.params;
     try {
-        const txs = await Transaction.getTransactionsByWallet(walletId);
+        const txs = await walletService.getWalletTransactions(walletId);
         res.json(txs);
     } catch (e) {
         res.status(e.status || 500).json({ error: e.message || 'Failed to get wallet transactions' });
@@ -93,7 +91,7 @@ async function getWalletTransactions(req, res) {
 async function recalculateWalletBalance(req, res) {
     const { walletId } = req.params;
     try {
-        const result = await Wallet.recalculateBalance(walletId);
+        const result = await walletService.recalculateBalance(walletId);
         res.json(result);
     } catch (e) {
         res.status(e.status || 500).json({ error: e.message || 'Failed to recalculate wallet balance' });
