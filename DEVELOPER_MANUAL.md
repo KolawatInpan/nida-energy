@@ -311,6 +311,10 @@ wallets/
 
 ## 6. คู่มือ Database สำหรับผู้พัฒนา
 
+สำหรับรายละเอียดเชิงลึกของการใช้งาน PostgreSQL + Prisma (โครงสร้าง schema, migration workflow, backup/restore, troubleshooting) ให้ดูเอกสารเพิ่มเติมที่:
+
+- `DATABASE_DEVELOPER_MANUAL.md`
+
 ### 6.1 เทคโนโลยี
 
 - PostgreSQL
@@ -493,6 +497,8 @@ backend/integration_test/
 - `DATABASE_URL`
 - `DATABASE_URL_DEMO`
 - `DEFAULT_DATA_MODE`
+
+หมายเหตุ: ค่าที่ใช้กับระบบควรถูกกำหนดจาก root `.env` เท่านั้น ไม่ควรสร้าง `.env` ซ้ำใน `backend/prisma/` หรือ `frontend/`
 - `ETH_RPC_URL`
 - `ETH_PRIVATE_KEY`
 - `ETH_CHAIN_ID`
