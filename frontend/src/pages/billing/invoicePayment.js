@@ -1,8 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import { getInvoiceById, payInvoice } from '../../core/data_connecter/invoice';
 import { getWalletBalance } from '../../core/data_connecter/wallet';
+import { getBuildings } from '../../core/data_connecter/register';
 import { formatEnergy, formatToken } from '../../utils/formatters';
+import { normalizeRoleName } from '../../utils/authSession';
+import { NoBuildingAssignedPage } from '../../components/shared';
+import Key from '../../global/key';
 
 function toNumber(value) {
   const numeric = Number(value);
@@ -24,6 +29,7 @@ function formatTime(value) {
 export default function InvoicePayment() {
   const history = useHistory();
   const { id } = useParams();
+  const memberStore = useSelector((store) => store.member.all);
   const [invoice, setInvoice] = useState(null);
   const [walletBalance, setWalletBalance] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -32,12 +38,77 @@ export default function InvoicePayment() {
   const [step, setStep] = useState('detail');
   const [agreed, setAgreed] = useState(false);
   const [paymentResult, setPaymentResult] = useState(null);
+  const [allBuildings, setAllBuildings] = useState([]);
+  const [buildingsResolved, setBuildingsResolved] = useState(false);
+
+  const member = useMemo(() => {
+    if (Array.isArray(memberStore) && memberStore.length > 0) return memberStore[0];
+    if (memberStore && typeof memberStore === 'object') return memberStore;
+    return null;
+  }, [memberStore]);
+
+  const roleName = useMemo(() => {
+    if (member) return normalizeRoleName(member);
+    const storedRole = String(localStorage.getItem(Key.UserRole) || '').trim().toUpperCase();
+    return storedRole || 'USER';
+  }, [member]);
+
+  const isUserScope = roleName === 'USER' || roleName === 'CONSUMER';
+
+  const memberEmail = useMemo(() => {
+    return String(member?.email || localStorage.getItem(Key.UserEmail) || '').toLowerCase();
+  }, [member?.email]);
+
+  const memberBuilding = useMemo(() => {
+    return allBuildings.find((building) => String(building?.email || '').toLowerCase() === memberEmail) || null;
+  }, [allBuildings, memberEmail]);
+
+  useEffect(() => {
+    let mounted = true;
+    getBuildings()
+      .then((rows) => {
+        if (!mounted) return;
+        setAllBuildings(Array.isArray(rows) ? rows : []);
+        setBuildingsResolved(true);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setAllBuildings([]);
+        setBuildingsResolved(true);
+      });
+
+    return () => { mounted = false; };
+  }, []);
 
   const loadInvoice = async () => {
     try {
       setLoading(true);
       setError('');
+
+      if (isUserScope && !buildingsResolved) {
+        return;
+      }
+
+      if (isUserScope && !memberBuilding?.name) {
+        setError('No building assigned to this user');
+        setInvoice(null);
+        setWalletBalance(0);
+        return;
+      }
+
       const data = await getInvoiceById(id);
+
+      if (
+        isUserScope
+        && memberBuilding?.name
+        && String(data?.buildingName || '').toLowerCase() !== String(memberBuilding.name || '').toLowerCase()
+      ) {
+        setError('You can only access invoices for your assigned building');
+        setInvoice(null);
+        setWalletBalance(0);
+        return;
+      }
+
       setInvoice(data);
 
       if (data?.toWId) {
@@ -56,7 +127,7 @@ export default function InvoicePayment() {
 
   useEffect(() => {
     loadInvoice();
-  }, [id]);
+  }, [id, isUserScope, buildingsResolved, memberBuilding?.name]);
 
   const view = useMemo(() => {
     const tokenAmount = toNumber(invoice?.tokenAmount);
@@ -115,6 +186,10 @@ export default function InvoicePayment() {
 
   if (loading) {
     return <div className="min-h-screen bg-gray-100 p-6 text-gray-600">Loading invoice payment details...</div>;
+  }
+
+  if (error === 'No building assigned to this user') {
+    return <NoBuildingAssignedPage />;
   }
 
   if (!invoice) {

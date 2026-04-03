@@ -1,8 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useHistory } from 'react-router-dom';
 import { Modal, message } from 'antd';
+import { useSelector } from 'react-redux';
 import { getPendingMeters, getUserFromBuilding, updateMeter } from '../../core/data_connecter/meter';
 import { useTOR } from '../../global/TORContext';
+import { normalizeRoleName } from '../../utils/authSession';
 
 function StatCard({ title, value, tag }) {
     return (
@@ -23,11 +25,19 @@ function StatCard({ title, value, tag }) {
 export default function BuildingRequest() {
     const history = useHistory();
     const { showTOR } = useTOR();
+    const memberStore = useSelector((store) => store.member.all);
     const [q, setQ] = useState('');
     const [typeFilter, setTypeFilter] = useState('all');
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(false);
     const [actioningId, setActioningId] = useState('');
+
+    const member = useMemo(() => {
+        if (Array.isArray(memberStore) && memberStore.length > 0) return memberStore[0];
+        if (memberStore && typeof memberStore === 'object') return memberStore;
+        return null;
+    }, [memberStore]);
+    const isAdmin = normalizeRoleName(member) === 'ADMIN';
 
     useEffect(() => {
         let mounted = true;
@@ -125,6 +135,10 @@ export default function BuildingRequest() {
     };
 
     const handleDecision = async (request, nextStatus) => {
+        if (!isAdmin) {
+            message.warning('Only ADMIN can approve or reject meter requests');
+            return;
+        }
         if (!request?.meter) return;
         const label = nextStatus === 'approved' ? 'approve' : 'reject';
 
@@ -269,13 +283,15 @@ export default function BuildingRequest() {
                                                 </button>
                                                 <button
                                                     onClick={() => handleDecision(r, 'approved')}
-                                                    disabled={actioningId === r.id}
+                                                    disabled={actioningId === r.id || !isAdmin}
+                                                    title={isAdmin ? 'Approve meter request' : 'Only ADMIN can approve meter requests'}
                                                     className="px-2 py-1 bg-green-500 text-white font-semibold rounded-md hover:bg-green-600 transition-colors text-[10px] leading-tight w-[60px] h-6 disabled:opacity-60 disabled:cursor-not-allowed">
                                                     Approve
                                                 </button>
                                                 <button
                                                     onClick={() => handleDecision(r, 'rejected')}
-                                                    disabled={actioningId === r.id}
+                                                    disabled={actioningId === r.id || !isAdmin}
+                                                    title={isAdmin ? 'Reject meter request' : 'Only ADMIN can reject meter requests'}
                                                     className="px-2 py-1 bg-red-500 text-white font-semibold rounded-md hover:bg-red-600 transition-colors text-[10px] leading-tight w-[56px] h-6 disabled:opacity-60 disabled:cursor-not-allowed">
                                                     Reject
                                                 </button>

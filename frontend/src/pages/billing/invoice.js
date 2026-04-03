@@ -8,6 +8,9 @@ import {
 } from '../../core/data_connecter/invoice';
 import { getBuildings } from '../../core/data_connecter/register';
 import { formatEntityId } from '../../utils/formatters';
+import { normalizeRoleName as normalizeRoleNameFromSession } from '../../utils/authSession';
+import { NoBuildingAssignedPage } from '../../components/shared';
+import Key from '../../global/key';
 
 const RATE_PER_KWH = 1;
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -41,23 +44,6 @@ function getStatusPill(status) {
   return 'bg-orange-100 text-orange-700';
 }
 
-function normalizeRoleName(member) {
-  const roleValue = member?.role ?? member?.userRole ?? member?.type ?? null;
-
-  if (typeof roleValue === 'string') {
-    return roleValue.toUpperCase();
-  }
-
-  if (roleValue && typeof roleValue === 'object') {
-    if (roleValue.role_admin || roleValue.admin) return 'ADMIN';
-    if (roleValue.role_consumer || roleValue.consumer) return 'CONSUMER';
-    if (roleValue.role_user || roleValue.user) return 'USER';
-    if (roleValue.role_monitor || roleValue.role_booking || roleValue.role_reseption) return 'ADMIN';
-  }
-
-  return 'ADMIN';
-}
-
 export default function Invoice() {
   const history = useHistory();
   const memberStore = useSelector((store) => store.member.all);
@@ -74,15 +60,20 @@ export default function Invoice() {
   const [invoices, setInvoices] = useState([]);
   const [yearInvoices, setYearInvoices] = useState([]);
   const [buildings, setBuildings] = useState([]);
+  const [buildingsResolved, setBuildingsResolved] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState('all');
   const member = useMemo(() => {
     if (Array.isArray(memberStore) && memberStore.length > 0) return memberStore[0];
     if (memberStore && typeof memberStore === 'object') return memberStore;
     return null;
   }, [memberStore]);
-  const roleName = useMemo(() => normalizeRoleName(member), [member]);
+  const roleName = useMemo(() => {
+    if (member) return normalizeRoleNameFromSession(member);
+    const storedRole = String(localStorage.getItem(Key.UserRole) || '').trim().toUpperCase();
+    return storedRole || 'USER';
+  }, [member]);
   const isUserScope = roleName === 'USER' || roleName === 'CONSUMER';
-  const memberEmail = String(member?.email || '').toLowerCase();
+  const memberEmail = String(member?.email || localStorage.getItem(Key.UserEmail) || '').toLowerCase();
   const memberBuilding = useMemo(() => {
     return buildings.find((building) => String(building?.email || '').toLowerCase() === memberEmail) || null;
   }, [buildings, memberEmail]);
@@ -97,6 +88,19 @@ export default function Invoice() {
     try {
       setLoading(true);
       setError('');
+
+      if (isUserScope && !buildingsResolved) {
+        return;
+      }
+
+      if (isUserScope && buildingsResolved && !memberBuilding?.name) {
+        setError('No building assigned to this user');
+        setSummary(null);
+        setInvoices([]);
+        setYearInvoices([]);
+        return;
+      }
+
       const buildingName = isUserScope ? (memberBuilding?.name || undefined) : (selectedBuilding !== 'all' ? selectedBuilding : undefined);
 
       const [summaryData, invoiceData, yearlyInvoiceData] = await Promise.all([
@@ -128,10 +132,12 @@ export default function Invoice() {
       .then((rows) => {
         if (!mounted) return;
         setBuildings(Array.isArray(rows) ? rows : []);
+        setBuildingsResolved(true);
       })
       .catch(() => {
         if (!mounted) return;
         setBuildings([]);
+        setBuildingsResolved(true);
       });
 
     return () => { mounted = false; };
@@ -207,6 +213,10 @@ export default function Invoice() {
       setActionLoading('');
     }
   };
+
+  if (error === 'No building assigned to this user') {
+    return <NoBuildingAssignedPage />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 lg:p-6 text-[0.85rem]">

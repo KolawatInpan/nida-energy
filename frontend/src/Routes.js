@@ -59,12 +59,11 @@ const Routes = () => {
 
 const LogoutPage = () => {
     const dispatch = useDispatch();
-    const history = useHistory();
 
     useEffect(() => {
         dispatch(Logout());
-        history.replace(ROUTE_PATHS.login);
-    }, [dispatch, history]);
+        window.location.replace(ROUTE_PATHS.login);
+    }, [dispatch]);
 
     return null;
 };

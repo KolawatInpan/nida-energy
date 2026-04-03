@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useHistory, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from "react-redux";
 import { validateAuth } from "../../store/auth/auth.action";
 import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/register';
 import { searchBuildingEnergy } from '../../core/data_connecter/dashboard';
 import { getWalletByEmail, getWalletBalance } from '../../core/data_connecter/wallet';
+import { normalizeRoleName } from '../../utils/authSession';
+import { ROUTE_PATHS } from '../../routes/routePaths';
+import Key from '../../global/key';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
@@ -172,6 +175,7 @@ export default function Building() {
     const location = useLocation();
     const dispatch = useDispatch();
     const authStore = useSelector((store) => store.auth.isAuthenticate);
+    const memberStore = useSelector((store) => store.member.all);
     const [building, setBuilding] = useState(null);
     const [serviceUnitsList, setServiceUnitsList] = useState([]);
     const [productionToday, setProductionToday] = useState(0);
@@ -179,6 +183,23 @@ export default function Building() {
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [walletBalance, setWalletBalance] = useState(0);
     const [notFound, setNotFound] = useState(false);
+
+    const member = useMemo(() => {
+        if (Array.isArray(memberStore) && memberStore.length > 0) return memberStore[0];
+        if (memberStore && typeof memberStore === 'object') return memberStore;
+        return null;
+    }, [memberStore]);
+
+    const roleName = useMemo(() => {
+        if (member) return normalizeRoleName(member);
+        return String(localStorage.getItem(Key.UserRole) || '').trim().toUpperCase() || 'USER';
+    }, [member]);
+
+    const memberEmail = useMemo(() => {
+        return String(member?.email || localStorage.getItem(Key.UserEmail) || '').toLowerCase();
+    }, [member?.email]);
+
+    const isUserRole = roleName === 'USER' || roleName === 'CONSUMER';
 
     // Store the last viewed building in localStorage
     useEffect(() => {
@@ -234,7 +255,18 @@ export default function Building() {
 
                 let data = null;
                 if (buildings && buildings.length) {
+                    const assignedBuilding = buildings.find((item) => String(item?.email || '').toLowerCase() === memberEmail) || null;
+                    if (isUserRole && !assignedBuilding) {
+                        history.replace(ROUTE_PATHS.noBuildingAssigned);
+                        return;
+                    }
+
                     const found = buildings.find(b => (b.name || '').toString().toLowerCase() === (nameParam || '').toString().toLowerCase());
+                    if (isUserRole && assignedBuilding && found && String(found?.email || '').toLowerCase() !== memberEmail) {
+                        history.replace(ROUTE_PATHS.noBuildingAssigned);
+                        return;
+                    }
+
                     if (found) {
                         data = {
                             id: formatBuildingId(found.id),
@@ -354,7 +386,7 @@ export default function Building() {
         };
 
         init();
-    }, [buildingId]);
+    }, [buildingId, history, isUserRole, memberEmail]);
 
     // Reload wallet balance when returning to this page
     useEffect(() => {

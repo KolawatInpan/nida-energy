@@ -8,6 +8,7 @@ import { searchBuildingEnergy } from '../../core/data_connecter/dashboard';
 import { getEnergyRates, getTokenRates } from '../../core/data_connecter/rate';
 import { formatCurrency, formatEnergy, formatToken, toSafeNumber } from '../../utils/formatters';
 import { SummaryCard, UserEnergyBreakdownSection, UserInsightCards } from './components';
+import { NoBuildingAssignedPage } from '../../components/shared';
 import Key from '../../global/key';
 import { getStoredMemberFallback, normalizeRoleName } from '../../utils/authSession';
 
@@ -377,6 +378,10 @@ export default function DashboardUser() {
 
   if (loading) {
     return <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center text-gray-500">Loading dashboard...</div>;
+  }
+
+  if (error === 'No building assigned to this user') {
+    return <NoBuildingAssignedPage />;
   }
 
   if (error) {

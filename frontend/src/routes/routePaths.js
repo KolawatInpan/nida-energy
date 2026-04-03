@@ -1,6 +1,7 @@
 export const ROUTE_PATHS = {
   root: '/',
   home: '/home',
+  noBuildingAssigned: '/no-building-assigned',
   login: '/login',
   logout: '/logout',
   security: '/security',

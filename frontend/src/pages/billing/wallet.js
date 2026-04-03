@@ -7,6 +7,8 @@ import { getQuotaWarnings } from '../../core/data_connecter/invoice';
 import { formatCurrency, formatEntityId, formatToken, formatVerificationStatus, getSignedTokenAmount, getTransactionDisplayType, toSafeNumber } from '../../utils/formatters';
 import { normalizeRoleName } from '../../utils/authSession';
 import { calculateQuotaStatus } from '../../utils/walletQuota';
+import { NoBuildingAssignedPage } from '../../components/shared';
+import Key from '../../global/key';
 
 function shortenValue(value, start = 10, end = 8) {
   if (!value) return '-';
@@ -58,8 +60,16 @@ export default function Wallet() {
     if (memberStore && typeof memberStore === 'object') return memberStore;
     return null;
   }, [memberStore]);
-  const roleName = useMemo(() => normalizeRoleName(member), [member]);
+  const memberEmail = useMemo(() => {
+    return String(member?.email || localStorage.getItem(Key.UserEmail) || '').toLowerCase();
+  }, [member?.email]);
+  const roleName = useMemo(() => {
+    if (member) return normalizeRoleName(member);
+    const storedRole = String(localStorage.getItem(Key.UserRole) || '').trim().toUpperCase();
+    return storedRole || 'USER';
+  }, [member]);
   const isAdmin = roleName === 'ADMIN';
+  const isUserRole = roleName === 'USER' || roleName === 'CONSUMER';
 
   const resolvedBuildingName = useMemo(() => {
     return (building?.name || buildingName || 'wallet').toString();
@@ -77,8 +87,29 @@ export default function Wallet() {
       const target = arr.find(b => (b.name || '').toString().toLowerCase() === wantedName) || null;
       setBuilding(target);
 
+      const assignedBuilding = arr.find((item) => String(item?.email || '').toLowerCase() === memberEmail) || null;
+
+      if (isUserRole) {
+        if (!assignedBuilding) {
+          setError('No building assigned to this user');
+          setWallet(null);
+          setTransactions([]);
+          setQuotaOverride(null);
+          return;
+        }
+
+        if (target && String(target?.email || '').toLowerCase() !== memberEmail) {
+          setError('No building assigned to this user');
+          setBuilding(assignedBuilding);
+          setWallet(null);
+          setTransactions([]);
+          setQuotaOverride(null);
+          return;
+        }
+      }
+
       if (!target?.email) {
-        setError('Building or building owner email not found');
+        setError(isUserRole && !assignedBuilding ? 'No building assigned to this user' : 'Building or building owner email not found');
         setWallet(null);
         setTransactions([]);
         setQuotaOverride(null);
@@ -135,7 +166,7 @@ export default function Wallet() {
 
   useEffect(() => {
     loadData();
-  }, [buildingName]);
+  }, [buildingName, isUserRole, memberEmail]);
 
   const handleQuickAmount = (amount) => {
     setExchangeAmount(amount);
@@ -186,6 +217,10 @@ export default function Wallet() {
       setLoading(false);
     }
   };
+
+  if (error === 'No building assigned to this user') {
+    return <NoBuildingAssignedPage />;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-yellow-50 p-6">

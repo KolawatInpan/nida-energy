@@ -32,7 +32,7 @@ ENV CI=false
 ENV NODE_OPTIONS=--max-old-space-size=4096
 
 COPY package*.json ./
-RUN npm install --legacy-peer-deps --no-audit --no-fund
+RUN npm install --include=dev --legacy-peer-deps --no-audit --no-fund
 
 COPY . .
 RUN npm run build

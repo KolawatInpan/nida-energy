@@ -35,25 +35,6 @@ services:
       - pgadmin_data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
 
-  pgadmin-init:
-    image: dpage/pgadmin4:8
-    container_name: nida-pgadmin-init-dev
-    restart: "no"
-    depends_on:
-      pgadmin:
-        condition: service_started
-    entrypoint: /bin/sh
-    command: >
-      -c "for i in 1 2 3 4 5 6 7 8 9 10; do
-      /venv/bin/python /pgadmin4/setup.py load-servers /pgadmin4/servers.json --user ${PGADMIN_DEFAULT_EMAIL:-admin@nida.com} --replace && exit 0;
-      sleep 2;
-      done;
-      echo 'Failed to import pgAdmin servers.';
-      exit 1"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
-
   blockchain:
     build:
       context: ./blockchain
@@ -87,7 +68,7 @@ services:
       DEFAULT_DATA_MODE: ${DEFAULT_DATA_MODE:-real}
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-admin123}@db:5432/${POSTGRES_DB:-energy_trading}?schema=public
       DATABASE_URL_DEMO: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-admin123}@db:5432/${POSTGRES_DB_DEMO:-energy_trading_demo}?schema=public
-      ETH_RPC_URL: ${ETH_RPC_URL:-http://blockchain:8545}
+      ETH_RPC_URL: http://blockchain:8545
       ETH_PRIVATE_KEY: ${ETH_PRIVATE_KEY:-}
       ETH_CHAIN_ID: ${ETH_CHAIN_ID:-31337}
       ETH_EXPLORER_BASE_URL: ${ETH_EXPLORER_BASE_URL:-}
@@ -127,11 +108,11 @@ services:
       REACT_APP_PARKINGAPI: ${REACT_APP_PARKINGAPI:-}
       REACT_APP_PARKINGURL: ${REACT_APP_PARKINGURL:-}
       REACT_APP_DEFAULT_DATA_MODE: ${DEFAULT_DATA_MODE:-real}
-    command: sh -c "npm start"
+    command: sh -c "npm run dev -- --host 0.0.0.0 --port 3000"
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     volumes:
-      - ./frontend:/app
+      - ./frontend-vue:/app
       - frontend_node_modules:/app/node_modules
 
 volumes:

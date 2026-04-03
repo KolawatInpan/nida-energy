@@ -8,3 +8,4 @@
 /blockchain/node_modules
 .env
 .env.ec2
+/frontend-vue

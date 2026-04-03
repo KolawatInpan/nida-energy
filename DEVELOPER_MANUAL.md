@@ -196,7 +196,19 @@ frontend/src/
 - JWT Authentication
 - Ethereum / Ethers / Web3
 
-### 5.2 โครงสร้างหลักของ Backend
+### 5.2 บทบาทของ Backend
+
+backend เป็นศูนย์กลางของระบบ ทำหน้าที่รับคำขอจาก frontend แล้วประมวลผล business logic ก่อนจะอ่านหรือเขียนข้อมูลผ่านฐานข้อมูล และเรียก blockchain เมื่อ flow นั้นต้องมีการ verify on-chain
+
+สิ่งที่ backend รับผิดชอบหลัก ๆ ได้แก่:
+
+- จัดการ API ของผู้ใช้ อาคาร มิเตอร์ wallet energy billing trading transaction และ system
+- ตรวจสอบสิทธิ์ด้วย JWT และ role-based guard
+- จัดการการอ่าน/เขียนข้อมูลผ่าน Prisma
+- เตรียมข้อมูลสรุปสำหรับ dashboard และ report
+- ทำงานร่วมกับ blockchain layer เพื่อ publish proof ของ transaction
+
+### 5.3 โครงสร้างหลักของ Backend
 
 ```text
 backend/
@@ -212,7 +224,7 @@ backend/
   server.js
 ```
 
-### 5.3 โครงสร้างแบบ feature-based
+### 5.4 โครงสร้างแบบ feature-based
 
 backend ใช้แนวทางจัดโฟลเดอร์ตาม feature/domain แทนการรวมทุกอย่างไว้ใน `controllers/`, `models/`, `routes/`
 
@@ -233,7 +245,7 @@ users/
 wallets/
 ```
 
-### 5.4 หน้าที่ของแต่ละ feature
+### 5.5 หน้าที่ของแต่ละ feature
 
 - `billing/`
   - invoice, receipt, payment flow, invoice sync จาก energy usage
@@ -271,7 +283,19 @@ wallets/
 - `wallets/`
   - wallet registration, top-up, balance update
 
-### 5.5 Middleware
+### 5.6 การไหลของ request ใน backend
+
+หนึ่ง request ใน backend มักไหลตามลำดับนี้:
+
+1. frontend เรียก API ของ backend
+2. `app.js` รับ request และลง middleware ที่จำเป็น
+3. `dataMode.js` กำหนดว่าจะใช้ real หรือ demo data
+4. route ของ feature ที่เกี่ยวข้องรับ request ไปยัง controller/service
+5. controller ตรวจสอบ input แล้วเรียก model หรือ service ที่เหมาะสม
+6. Prisma หรือ blockchain service ทำงานตาม business logic
+7. backend ส่ง response กลับไปยัง frontend
+
+### 5.7 Middleware สำคัญ
 
 โฟลเดอร์ `backend/middleware/` เก็บ cross-cutting logic ของระบบ เช่น
 
@@ -285,27 +309,62 @@ wallets/
 
 แนวทางใช้งาน:
 
-- middleware ด้าน auth/role ควรใช้ก่อน route ที่จำกัดสิทธิ์
-- error handling ควรรวมผ่าน `errorHandler`
-- route ที่เป็น async ควรใช้ `asyncHandler` เมื่อเหมาะสม
+- middleware ด้าน auth/role ควรใช้ก่อน route ที่จำกัดสิทธิ์เสมอ
+- error handling ควรรวมผ่าน `errorHandler` เพื่อให้ response มีรูปแบบเดียวกัน
+- route ที่เป็น async ควรใช้ `asyncHandler` เพื่อลด try/catch ซ้ำ ๆ
 
-### 5.6 การทำงานของ app entrypoint
+รายละเอียดของ middleware ที่ใช้บ่อย:
+
+- `auth.js`
+  - ตรวจสอบ JWT จาก header `Authorization: Bearer <token>`
+  - ถ้า token ไม่ถูกต้องจะตอบ `401`
+
+- `dataMode.js`
+  - เลือก data mode จาก request
+  - ผูก Prisma client ที่เหมาะสมไว้กับ `req.prisma`
+  - ส่ง header บอก mode ที่ใช้งานกลับไป
+
+- `asyncHandler.js`
+  - ห่อ async controller ให้ส่ง error ไปที่ middleware กลางอัตโนมัติ
+
+- `notFound.js`
+  - ใช้ตอบกรณีเรียก route ที่ไม่มีอยู่
+
+- `errorHandler.js`
+  - ใช้จัดรูป error response ให้เป็นมาตรฐานเดียวกัน
+
+### 5.8 การทำงานของ app entrypoint
+
+backend แยก entrypoint ออกเป็น 2 ชั้น:
 
 - `app.js`
   - สร้าง Express app และลง middleware/route ต่าง ๆ
-  - เหมาะกับการใช้ใน integration test
+  - เหมาะกับการใช้ใน integration test หรือการนำไป embed ใน runner อื่น
 
 - `server.js`
   - ใช้สำหรับ start server จริง
-  - เรียก app และ bind port
+  - เรียก `app` แล้ว bind port ตามตัวแปร `PORT`
+  - ในโปรเจกต์นี้ยังเรียก `dbInit` ตอนเริ่มต้นเพื่อช่วยจัดการ schema drift ในโหมด local/dev
 
-### 5.7 แนวทางพัฒนา Backend
+### 5.9 แนวทางพัฒนา Backend
 
 - API ใหม่ควรจัดเข้ากับ feature ที่เกี่ยวข้อง
 - route/controller/service/model ควรอยู่ใน feature เดียวกัน
 - business logic ไม่ควรอยู่หนาแน่นใน controller
 - logic ที่ reuse ได้หรือ test ง่ายควรแยกเป็น helper/service
 - การ query ฐานข้อมูลควรสื่อชื่อให้ชัดและผูกกับ domain
+- ถ้า endpoint ใหม่เกี่ยวข้องกับ blockchain ควรแยก responsibility ระหว่าง transaction service, blockchain service และ persistence layer ให้ชัด
+- ควรใช้ Prisma client ที่โปรเจกต์เตรียมไว้ ไม่สร้าง client ซ้ำโดยไม่จำเป็น
+- ค่าที่เกี่ยวกับ auth และการรัน service ควรมาจาก root `.env` เป็นหลัก
+
+### 5.10 จุดที่ควรรู้เวลาเพิ่ม API ใหม่
+
+เมื่อจะเพิ่ม endpoint ใหม่ใน backend ควรเช็ค 4 จุดนี้ก่อน:
+
+1. Route ควรอยู่ใน feature ที่เหมาะสมหรือไม่
+2. ต้องใช้ auth หรือ role guard หรือไม่
+3. ต้องอ่าน/เขียนข้อมูลผ่าน Prisma model ไหน
+4. Endpoint นี้มีผลกับ blockchain, dashboard หรือ side effect อื่นหรือไม่
 
 ---
 

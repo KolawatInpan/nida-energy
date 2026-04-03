@@ -17,7 +17,6 @@ import {
     CreditCardOutlined,
     FileDoneOutlined,
     PercentageOutlined,
-    DeleteOutlined,
 } from '@ant-design/icons';
 import Key from '../../global/key';
 import { useDispatch, useSelector } from 'react-redux';
@@ -153,6 +152,12 @@ const DEFAULT_USER_MEMBER = {
     role: 'USER',
 };
 
+const NO_BUILDING_MENU_KEYS = {
+    dashboard: '__NO_BUILDING_DASHBOARD__',
+    wallet: '__NO_BUILDING_WALLET__',
+    energy: '__NO_BUILDING_ENERGY__',
+};
+
 const slugify = (name) => {
     if (!name) return '';
     return name.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
@@ -190,7 +195,7 @@ const LeftMenu = ({ history, location }) => {
     const authStore = useSelector((store) => store.auth.isAuthenticate);
     const memberStore = useSelector((store) => store.member.all);
 
-    const [member, setMember] = useState(DEFAULT_MEMBER);
+    const [member, setMember] = useState(DEFAULT_USER_MEMBER);
     const [buildings, setBuildings] = useState([]);
     const [meters, setMeters] = useState([]);
 
@@ -226,7 +231,7 @@ const LeftMenu = ({ history, location }) => {
             return;
         }
 
-        setMember(process.env.REACT_APP_DEV_DEFAULT_ROLE === 'USER' ? DEFAULT_USER_MEMBER : DEFAULT_MEMBER);
+        setMember(DEFAULT_USER_MEMBER);
     }, [memberStore]);
 
     useEffect(() => {
@@ -265,7 +270,7 @@ const LeftMenu = ({ history, location }) => {
 
     const logoutAction = () => {
         dispatch(Logout());
-        window.location.reload();
+        window.location.replace(ROUTE_PATHS.login);
     };
 
     const menuItems = useMemo(() => {
@@ -275,10 +280,17 @@ const LeftMenu = ({ history, location }) => {
         const firstProducerMeterId = meters.find(isProducerMeter)?.snid || meters.find(isProducerMeter)?.meterNumber || '';
         const firstConsumerMeterId = meters.find(isConsumerMeter)?.snid || meters.find(isConsumerMeter)?.meterNumber || '';
         const firstBatteryMeterId = meters.find(isBatteryMeter)?.snid || meters.find(isBatteryMeter)?.meterNumber || '';
-        const roleName = normalizeRoleName(member);
+        const roleFromMember = normalizeRoleName(member);
+        const storedRoleName = getStoredRoleName(localStorage, Key.UserRole);
+        const roleName = (roleFromMember === 'ADMIN' && !member?.role && !member?.userRole && !member?.type)
+            ? (storedRoleName || 'USER')
+            : roleFromMember;
         const isUserMenu = roleName === 'USER' || roleName === 'CONSUMER';
         const memberBuildingSlug = slugify(memberBuilding?.name || '');
-        const walletBuildingSlug = memberBuildingSlug || firstBuildingSlug;
+        const userHasBuilding = Boolean(memberBuildingSlug);
+        const userDashboardKey = userHasBuilding ? ROUTE_PATHS.home : NO_BUILDING_MENU_KEYS.dashboard;
+        const userWalletKey = userHasBuilding ? routeToWallet(memberBuildingSlug) : NO_BUILDING_MENU_KEYS.wallet;
+        const userEnergyKey = userHasBuilding ? routeToBuilding(memberBuildingSlug) : NO_BUILDING_MENU_KEYS.energy;
 
         const buildingChildren = (visibleBuildings.length ? visibleBuildings : buildings).map((building) => ({
             label: building.name,
@@ -291,9 +303,9 @@ const LeftMenu = ({ history, location }) => {
                     type: 'group',
                     label: 'User Menu',
                     children: [
-                        { label: 'Dashboard', key: ROUTE_PATHS.home, icon: <DashboardOutlined /> },
-                        { label: 'Wallet & Top-up', key: walletBuildingSlug ? routeToWallet(walletBuildingSlug) : ROUTE_PATHS.wallet, icon: <WalletOutlined /> },
-                        { label: 'Energy Usage', key: walletBuildingSlug ? routeToBuilding(walletBuildingSlug) : ROUTE_PATHS.home, icon: <ApartmentOutlined /> },
+                        { label: 'Dashboard', key: userDashboardKey, icon: <DashboardOutlined /> },
+                        { label: 'Wallet & Top-up', key: userWalletKey, icon: <WalletOutlined /> },
+                        { label: 'Energy Usage', key: userEnergyKey, icon: <ApartmentOutlined /> },
                         { label: '3D Smart Grid', key: ROUTE_PATHS.energySelling, icon: <DotChartOutlined /> },
                         { label: 'Energy Marketplace', key: ROUTE_PATHS.market, icon: <ShoppingCartOutlined /> },
                         { label: 'Meter Registration', key: ROUTE_PATHS.meterRegistration, icon: <ExperimentOutlined /> },
@@ -412,12 +424,18 @@ const LeftMenu = ({ history, location }) => {
         if (path.startsWith('/rate-management')) return '/rate-management?category=energy';
         if (path.startsWith('/mock-energy')) return '/mock-energy';
         if (path.startsWith('/home') || path === '/') return '/home';
+        if (path.startsWith('/no-building-assigned')) {
+            const source = new URLSearchParams(search).get('source');
+            if (source === 'wallet') return NO_BUILDING_MENU_KEYS.wallet;
+            if (source === 'energy') return NO_BUILDING_MENU_KEYS.energy;
+            return NO_BUILDING_MENU_KEYS.dashboard;
+        }
         if (path.startsWith('/building/')) {
             return path;
         }
 
         return '/home';
-    }, [location?.pathname, location?.search, history, buildings]);
+    }, [location?.pathname, location?.search, history]);
 
     if (!isAuthenticated) {
         return null;
@@ -431,6 +449,18 @@ const LeftMenu = ({ history, location }) => {
                     mode="inline"
                     selectedKeys={[currentKey]}
                     onClick={({ key }) => {
+                        if (key === NO_BUILDING_MENU_KEYS.dashboard) {
+                            history.push(`${ROUTE_PATHS.noBuildingAssigned}?source=dashboard`);
+                            return;
+                        }
+                        if (key === NO_BUILDING_MENU_KEYS.wallet) {
+                            history.push(`${ROUTE_PATHS.noBuildingAssigned}?source=wallet`);
+                            return;
+                        }
+                        if (key === NO_BUILDING_MENU_KEYS.energy) {
+                            history.push(`${ROUTE_PATHS.noBuildingAssigned}?source=energy`);
+                            return;
+                        }
                         if (typeof key === 'string' && key.startsWith('/')) {
                             history.push(key);
                         }

@@ -6,6 +6,7 @@ import { Transaction, TradingHistory, TransactionDetail } from "../pages/transac
 import { Wallet, Receipts, ReceiptDetail, Invoice, InvoicePayment } from "../pages/billing";
 import { EnergySelling, Market, MockEnergy } from "../pages/trading";
 import { BlockExplorer, BlockExplorerTransactionDetail, BlockchainValidators, TransactionBlockchainCompare } from "../pages/blockchain";
+import { NoBuildingAssignedPage } from "../components/shared";
 import { ROUTE_PATHS } from "./routePaths";
 
 export const publicRoutes = [
@@ -32,6 +33,7 @@ export const authenticatedRoutes = [
   { path: ROUTE_PATHS.quota, exact: true, component: Quota },
   { path: ROUTE_PATHS.wallet, exact: true, component: Wallet },
   { path: ROUTE_PATHS.walletByBuilding, exact: true, component: Wallet },
+  { path: ROUTE_PATHS.noBuildingAssigned, exact: true, component: NoBuildingAssignedPage },
   { path: ROUTE_PATHS.building, exact: true, component: Building },
   { path: ROUTE_PATHS.meter, exact: true, component: Meter },
   { path: ROUTE_PATHS.approvedRequest, exact: true, component: ApprovedRequest },
