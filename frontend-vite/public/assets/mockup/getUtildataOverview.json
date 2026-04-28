@@ -1,0 +1,30 @@
+{
+    "result": "success",
+    "lable": [
+      "Navamin",
+      "Siam"
+    ],
+    "building_data": [
+      {
+        "building_name": "Auditorium",
+        "value": [131, 123, 125, 121, 149],
+        "datetime": ["1 JAN", "2 JAN", "3 JAN", "4 JAN", "5 JAN"]
+      },
+      {
+        "building_name": "Ratchaphruek",
+        "value": [130, 122, 121, 120, 140],
+        "datetime": ["1 JAN", "2 JAN", "3 JAN", "4 JAN", "5 JAN"]
+      },
+      {
+        "building_name": "Naradhip",
+        "value": [123, 124, 125, 122, 110],
+        "datetime": ["1 JAN", "2 JAN", "3 JAN", "4 JAN", "5 JAN"]
+      },
+      {
+        "building_name": "Nidasumpun",
+        "value": [124, 121, 120, 130, 111],
+        "datetime": ["1 JAN", "2 JAN", "3 JAN", "4 JAN", "5 JAN"]
+      }
+    ],
+    "unit": "kW"
+  }

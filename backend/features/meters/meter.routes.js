@@ -4,7 +4,7 @@ const MeterController = require('./meter.controller');
 
 /**
  * @openapi
- * /meters:
+ * /api/meters:
  *   get:
  *     summary: Get list of meters
  *     tags:
@@ -12,6 +12,22 @@ const MeterController = require('./meter.controller');
  *     responses:
  *       '200':
  *         description: Array of meters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 meters:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       snid:
+ *                         type: string
+ *             example:
+ *               meters: [{ "id": 1, "snid": "SN123" }]
  */
 router.get('/', MeterController.getMeters);
 
@@ -115,7 +131,7 @@ router.get('/rejected', MeterController.getRejectedMeters);
 
 /**
  * @openapi
- * /meters/register:
+ * /api/meters/register:
  *   post:
  *     summary: Register a new meter (request)
  *     tags:
@@ -125,26 +141,19 @@ router.get('/rejected', MeterController.getRejectedMeters);
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - buildingId
- *               - meterType
- *               - meterNumber
- *             properties:
- *               buildingId:
- *                 type: string
- *               meterType:
- *                 type: string
- *               meterNumber:
- *                 type: string
- *               capacity:
- *                 type: number
- *               dateInstalled:
- *                 type: string
- *                 format: date
+ *             $ref: '#/components/schemas/MeterRegister'
  *     responses:
  *       '201':
  *         description: Meter created (pending approval)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *             example:
+ *               id: 123
  *       '400':
  *         description: Bad request
  */

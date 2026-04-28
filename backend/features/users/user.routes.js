@@ -149,6 +149,83 @@ router.post('/register', UserController.register);
  *         description: Invalid credentials
  */
 router.post('/login', UserController.login);
+/**
+ * Example register request:
+ * {
+ *   "name": "Admin User",
+ *   "email": "admin@example.com",
+ *   "password": "UEBzc3cwcmQ="
+ * }
+ * Example register response:
+ * {
+ *   "id": "0",
+ *   "email": "admin@example.com",
+ *   "name": "Admin User"
+ * }
+ */
+
+/**
+ * @openapi
+ * /v1/login:
+ *   post:
+ *     summary: Authenticate user and return JWT
+ *     tags:
+ *       - Auth
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 description: username
+ *                 example: admin
+ *               password:
+ *                 type: string
+ *                 description: base64 encoded password
+ *                 example: UEBzc3cwcmQ=
+ *             required:
+ *               - username
+ *               - password
+ *     responses:
+ *       '200':
+ *         description: Authentication successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                 result:
+ *                   type: object
+ *                   properties:
+ *                     user_id:
+ *                       type: string
+ *                       description: id
+ *                     username:
+ *                       type: string
+ *                       description: Username
+ *                     role:
+ *                       type: string
+ *                       description: Role Template [admin,...]
+ *                     allows:
+ *                       type: string
+ *                       description: Module Permission
+ *                     token:
+ *                       type: string
+ *                       description: JWT Token
+ *             example:
+ *               status: "OK"
+ *               result:
+ *                 user_id: "0"
+ *                 username: "admin"
+ *                 role: "admin"
+ *                 allows: "*"
+ *                 token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiYWRtaW4iLCJyb2xlIjoiYWRtaW4iLCJhbGxvd3MiOiIqIn0.mHBLeBZ_UeSNvEdelf-5k8vo01hLh4RBF9F8GHJCS-k"
+ */
 router.put('/:id', auth, requireRole('ADMIN'), UserController.updateUser);
 router.delete('/:id', auth, requireRole('ADMIN'), UserController.deleteUser);
 

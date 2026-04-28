@@ -105,13 +105,13 @@ async function getRecentBlockchainTransactions(limit = 50) {
     const take = Math.max(1, Math.min(Number(limit) || 50, 200));
     const rows = await prisma.$queryRawUnsafe(`
         SELECT
-            t."txid",
+            t."id" AS "txid",
             t."timestamp",
             t."buildingName",
             t."snid",
             t."walletId",
             t."type",
-            t."tokenAmount",
+            t."amount" AS "tokenAmount",
             t."status",
             t."verificationStatus",
             t."verificationMethod",
@@ -148,6 +148,8 @@ async function getBlockchainTransactionByHash(txHash) {
     const rows = await prisma.$queryRawUnsafe(`
         SELECT
             t.*,
+            t."id" AS "txid",
+            t."amount" AS "tokenAmount",
             bt."id" AS "blockTransactionId",
             bt."blockHash" AS "chainBlockHash",
             bt."parentHash" AS "chainParentHash",

@@ -7,8 +7,11 @@ function normalizeRoleName(user = {}) {
 
   if (roleValue && typeof roleValue === 'object') {
     if (roleValue.role_admin || roleValue.admin) return 'ADMIN';
-    if (roleValue.role_consumer || roleValue.consumer) return 'CONSUMER';
+    if (roleValue.role_consumer || roleValue.consumer) return 'USER';
     if (roleValue.role_user || roleValue.user) return 'USER';
+    // legacy role flags that conceptually map to a normal user
+    if (roleValue.role_producer || roleValue.producer) return 'USER';
+    if (roleValue.role_battery || roleValue.battery) return 'USER';
   }
 
   return '';

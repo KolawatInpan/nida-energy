@@ -48,7 +48,8 @@ async function createOffer(req, res) {
         console.error('createOffer error', err);
         if (
             err.message?.includes('meter not found') ||
-            err.message?.includes('Cannot create offer exceeding')
+            err.message?.includes('Cannot create offer exceeding') ||
+            err.message?.includes('Manual sell is disabled')
         ) {
             return res.status(400).json({ error: err.message });
         }

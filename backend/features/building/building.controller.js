@@ -78,6 +78,13 @@ async function updateBuilding(req, res) {
     if (err.message === 'Invalid building id') {
       return res.status(400).json({ error: err.message });
     }
+    if (
+      err.message?.includes('Invalid tradeMode') ||
+      err.message?.includes('Invalid tradeMeterType') ||
+      err.message?.includes('batterySellThreshold must be')
+    ) {
+      return res.status(400).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   }
 }

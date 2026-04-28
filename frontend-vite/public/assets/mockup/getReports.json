@@ -1,0 +1,50 @@
+{
+	"@odata.context": "http://wabi-south-east-asia-redirect.analysis.windows.net/v1.0/myorg/groups/fd03eec7-cca0-4cd8-9bc2-05ad62886542/$metadata#reports",
+	"value": [
+		{
+			"id": "4d88abee-d8f4-4924-a512-6c98c07b290e",
+			"reportType": "PowerBIReport",
+			"name": "testreport",
+			"webUrl": "https://app.powerbi.com/groups/fd03eec7-cca0-4cd8-9bc2-05ad62886542/reports/4d88abee-d8f4-4924-a512-6c98c07b290e",
+			"embedUrl": "https://app.powerbi.com/reportEmbed?reportId=4d88abee-d8f4-4924-a512-6c98c07b290e&groupId=fd03eec7-cca0-4cd8-9bc2-05ad62886542&w=2&config=eyJjbHVzdGVyVXJsIjoiaHR0cHM6Ly9XQUJJLVNPVVRILUVBU1QtQVNJQS1yZWRpcmVjdC5hbmFseXNpcy53aW5kb3dzLm5ldCIsImVtYmVkRmVhdHVyZXMiOnsibW9kZXJuRW1iZWQiOnRydWUsInVzYWdlTWV0cmljc1ZOZXh0Ijp0cnVlLCJza2lwUXVlcnlEYXRhU2FhU0VtYmVkIjp0cnVlLCJza2lwUXVlcnlEYXRhUGFhU0VtYmVkIjp0cnVlLCJza2lwUXVlcnlEYXRhRXhwb3J0VG8iOnRydWV9fQ%3d%3d",
+			"isFromPbix": false,
+			"isOwnedByMe": true,
+			"datasetId": "02936f1b-c11f-4b4d-b6b7-95173b01ff29",
+			"datasetWorkspaceId": "fd03eec7-cca0-4cd8-9bc2-05ad62886542",
+			"users": [
+			],
+			"subscriptions": [
+			]
+		},
+		{
+			"id": "f17a2617-4d28-43da-9332-29fb88afa5d1",
+			"reportType": "PowerBIReport",
+			"name": "Smart city - All in one Dashboard beta version",
+			"webUrl": "https://app.powerbi.com/groups/fd03eec7-cca0-4cd8-9bc2-05ad62886542/reports/f17a2617-4d28-43da-9332-29fb88afa5d1",
+			"embedUrl": "https://app.powerbi.com/reportEmbed?reportId=f17a2617-4d28-43da-9332-29fb88afa5d1&groupId=fd03eec7-cca0-4cd8-9bc2-05ad62886542&w=2&config=eyJjbHVzdGVyVXJsIjoiaHR0cHM6Ly9XQUJJLVNPVVRILUVBU1QtQVNJQS1yZWRpcmVjdC5hbmFseXNpcy53aW5kb3dzLm5ldCIsImVtYmVkRmVhdHVyZXMiOnsibW9kZXJuRW1iZWQiOnRydWUsInVzYWdlTWV0cmljc1ZOZXh0Ijp0cnVlLCJza2lwUXVlcnlEYXRhU2FhU0VtYmVkIjp0cnVlLCJza2lwUXVlcnlEYXRhUGFhU0VtYmVkIjp0cnVlLCJza2lwUXVlcnlEYXRhRXhwb3J0VG8iOnRydWV9fQ%3d%3d",
+			"isFromPbix": true,
+			"isOwnedByMe": true,
+			"datasetId": "6f5ee934-b91b-4fa6-aa9c-cb1667f285fd",
+			"datasetWorkspaceId": "fd03eec7-cca0-4cd8-9bc2-05ad62886542",
+			"users": [
+			],
+			"subscriptions": [
+			]
+		},
+		{
+			"id": "37fb8576-6d29-4ca3-940e-d98aeba98b65",
+			"reportType": "PowerBIReport",
+			"name": "2022-09-08_Draft-Nida",
+			"webUrl": "https://app.powerbi.com/groups/fd03eec7-cca0-4cd8-9bc2-05ad62886542/reports/37fb8576-6d29-4ca3-940e-d98aeba98b65",
+			"embedUrl": "https://app.powerbi.com/reportEmbed?reportId=37fb8576-6d29-4ca3-940e-d98aeba98b65&groupId=fd03eec7-cca0-4cd8-9bc2-05ad62886542&w=2&config=eyJjbHVzdGVyVXJsIjoiaHR0cHM6Ly9XQUJJLVNPVVRILUVBU1QtQVNJQS1yZWRpcmVjdC5hbmFseXNpcy53aW5kb3dzLm5ldCIsImVtYmVkRmVhdHVyZXMiOnsibW9kZXJuRW1iZWQiOnRydWUsInVzYWdlTWV0cmljc1ZOZXh0Ijp0cnVlLCJza2lwUXVlcnlEYXRhU2FhU0VtYmVkIjp0cnVlLCJza2lwUXVlcnlEYXRhUGFhU0VtYmVkIjp0cnVlLCJza2lwUXVlcnlEYXRhRXhwb3J0VG8iOnRydWV9fQ%3d%3d",
+			"isFromPbix": true,
+			"isOwnedByMe": true,
+			"datasetId": "5c7767f2-93b6-4fa0-870f-8d0f291d4e68",
+			"datasetWorkspaceId": "fd03eec7-cca0-4cd8-9bc2-05ad62886542",
+			"users": [
+			],
+			"subscriptions": [
+			]
+		}
+	]
+}

@@ -735,12 +735,14 @@ export default function Building() {
                                             style={{ width: `${Math.max(0, Math.min(100, storagePercent))}%` }}
                                         ></div>
                                     </div>
-                                    <div className="text-xs text-orange-600 mt-1 flex justify-between">
-                                        <span>● Orange</span>
-                                        <span>{storagePercentLabel}%</span>
-                                    </div>
-                                    <div className="text-[11px] text-orange-700 mt-1">
-                                        {storageRatioLabel}
+                                    <div className="mt-1 grid grid-cols-2 items-baseline gap-x-2 text-xs">
+                                        <div className="flex min-w-0 items-baseline gap-2 text-orange-600 whitespace-nowrap">
+                                            <span>● Orange</span>
+                                            <span>{storagePercentLabel}%</span>
+                                        </div>
+                                        <div className="min-w-0 text-right text-[11px] text-orange-700 whitespace-nowrap">
+                                            {storageRatioLabel}
+                                        </div>
                                     </div>
                                 </div>
                             </div>

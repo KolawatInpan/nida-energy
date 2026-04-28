@@ -1,0 +1,65 @@
+{
+    "result": "success",
+    "data": {
+        "power": {
+            "consumption": 12854,
+            "unit": "kW",
+            "growth": -185.53889048965402
+        },
+        "energy": {
+            "consumption": 900733,
+            "unit": "kWh",
+            "growth": 0.015320845142226293
+        },
+        "water": {
+            "consumption": 240,
+            "unit": "m3",
+            "growth": 44.65461865540637
+        },
+        "flow": {
+            "consumption": 120,
+            "unit": "kW",
+            "growth": -5.0
+        },
+        "waterinfo": {
+            "water_max": 31,
+            "vol": 13,
+            "unit": "m3"
+        },
+        "pm25": {
+            "value": 38,
+            "unit": "g/m3",
+            "growth": 0.0
+        },
+        "parking": {
+            "car_in": 10,
+            "car_out": 12,
+            "vip": [
+                {
+                  "title": "NAVAMIN",
+                  "cap": 12,
+                  "used": 12,
+                  "status": "Full"
+                },
+                {
+                  "title": "SIAM",
+                  "cap": 12,
+                  "used": 12,
+                  "status": "Full"
+                },
+                {
+                  "title": "EV Station",
+                  "cap": 12,
+                  "used": 12,
+                  "status": "Full"
+                }
+              ],
+            "park_normal_cap": 41,
+            "park_normal_used": 12
+        },
+        "people": {
+            "people_in": 134,
+            "growth": 4.76
+        }
+    }
+}

@@ -98,6 +98,16 @@ async function syncMeterSnapshotAndBuildingEnergy({ snid, timestamp, kW, kWH }, 
     await syncBuildingEnergyForBuilding(meter.buildingName, prismaClient);
   }
 
+  // For live meter updates on default prisma client, evaluate auto marketplace posting policy.
+  if (prismaClient === prisma) {
+    try {
+      const OfferModel = require('../trading/offer.model');
+      await OfferModel.autoPostBatterySurplusOffer(meter.buildingName);
+    } catch (err) {
+      console.error('autoPostBatterySurplusOffer error', err);
+    }
+  }
+
   return meter;
 }
 

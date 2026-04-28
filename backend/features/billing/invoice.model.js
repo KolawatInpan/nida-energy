@@ -1,3 +1,15 @@
+// แจ้งเตือน invoice ใหม่
+async function notifyInvoice({ userId, invoiceId, amount, buildingId }) {
+    try {
+        const { createNotification } = require('../notification/notification.service');
+        await createNotification({
+            type: 'invoice',
+            message: `มีใบแจ้งหนี้ใหม่ จำนวน ${amount} บาท (Invoice: ${invoiceId})`,
+            userId,
+            buildingId
+        });
+    } catch (e) { console.error('Notification error:', e.message); }
+}
 const { prisma } = require('../../utils/prisma');
 const { randomUUID } = require('crypto');
 

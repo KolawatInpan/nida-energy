@@ -1,0 +1,2 @@
+ALTER TABLE "Building"
+  ADD COLUMN IF NOT EXISTS "tradeMeterType" TEXT NOT NULL DEFAULT 'produce';

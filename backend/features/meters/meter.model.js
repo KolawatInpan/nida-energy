@@ -61,6 +61,23 @@ async function getPendingMeters() {
   return meters;
 }
 
+// เพิ่มฟังก์ชันสร้างมิเตอร์ (ตัวอย่าง)
+async function createMeter(data) {
+  const meter = await prisma.meterInfo.create({ data });
+  // สร้าง notification สำหรับ admin
+  try {
+    const { createNotification } = require('../notification/notification.service');
+    await createNotification({
+      type: 'meter_added',
+      message: `มีการเพิ่มมิเตอร์ใหม่: ${meter.meterName || meter.snid}`,
+      userId: null,
+      meterId: meter.id,
+      buildingId: meter.buildingId
+    });
+  } catch (e) { console.error('Notification error:', e.message); }
+  return meter;
+}
+
 async function getRejectedMeters() {
   const meters = await prisma.meterInfo.findMany({ 
     where: { approveStatus: "rejected" }, 

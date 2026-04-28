@@ -4,7 +4,7 @@ const BuildingController = require("./building.controller");
 
 /**
  * @openapi
- * /buildings:
+ * /api/buildings:
  *   get:
  *     summary: Get list of buildings
  *     tags:
@@ -12,12 +12,19 @@ const BuildingController = require("./building.controller");
  *     responses:
  *       '200':
  *         description: Array of buildings
+ *         content:
+ *           application/json:
+ *             example:
+ *               { "buildings": [{ "id":1, "name":"Main" }] }
  */
 router.get("/", BuildingController.getBuildings);
+/**
+ * (Example response shown in the @openapi block above)
+ */
 
 /**
  * @openapi
- * /buildings/{id}:
+ * /api/buildings/{id}:
  *   get:
  *     summary: Get building by id
  *     tags:
@@ -31,6 +38,10 @@ router.get("/", BuildingController.getBuildings);
  *     responses:
  *       '200':
  *         description: Building object
+ *         content:
+ *           application/json:
+ *             example:
+ *               { "id":1, "name":"Main" }
  *       '404':
  *         description: Building not found
  */
@@ -109,6 +120,18 @@ router.get("/email/:email", BuildingController.getBuildingByEmail);
  *         description: Validation error
  */
 router.post("/register", BuildingController.createBuilding);
+/**
+ * Example request:
+ *   {
+ *     "name": "New Building",
+ *     "email": "owner@example.com"
+ *   }
+ * Example response:
+ *   {
+ *     "id": 123,
+ *     "name": "New Building"
+ *   }
+ */
 router.put("/:id", BuildingController.updateBuilding);
 router.delete("/:id", BuildingController.deleteBuilding);
 

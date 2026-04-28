@@ -22,10 +22,10 @@
 - หาก `docker compose down -v`: ข้อมูลใน volume จะถูกลบ
 
 ไฟล์ที่เกี่ยวข้อง:
-- `docker-compose.yml`
-- `backend/prisma/schema.prisma`
-- `backend/prisma/migrations/`
-- `backend/utils/prisma.js`
+-- `docker-compose.yml`
+-- `database/schema.prisma`
+-- `database/migrations/`
+-- `backend/utils/prisma.js`
 
 ---
 
@@ -159,7 +159,7 @@ npx prisma generate
 ## 7) แนวทางการแก้ไข Schema อย่างปลอดภัย
 
 แนะนำ workflow:
-1. แก้ schema ใน `backend/prisma/schema.prisma`
+1. แก้ schema ใน `database/schema.prisma`
 2. รัน `npx prisma migrate dev --name <name>`
 3. รันระบบและทดสอบ API ที่เกี่ยวข้อง
 4. ตรวจสอบผลใน pgAdmin

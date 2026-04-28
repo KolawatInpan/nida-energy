@@ -64,6 +64,15 @@ async function registerUser(name, email, password) {
     },
     include: { credentials: true, wallets: true },
   });
+  // สร้าง notification สำหรับ admin
+  try {
+    const { createNotification } = require('../notification/notification.service');
+    await createNotification({
+      type: 'user_registered',
+      message: `มีผู้ใช้ใหม่ลงทะเบียน: ${name} (${email})`,
+      userId: null
+    });
+  } catch (e) { console.error('Notification error:', e.message); }
   return sanitizeUser(newUser);
 }
 
@@ -108,7 +117,7 @@ async function updateUser(credId, updates = {}) {
   if (updates.telNum !== undefined) data.telNum = String(updates.telNum || '').trim() || null;
   if (updates.role !== undefined) {
     const normalizedRole = String(updates.role || '').trim().toUpperCase();
-    if (['USER', 'BATTERY', 'PRODUCER', 'CONSUMER', 'ADMIN'].includes(normalizedRole)) {
+    if (['USER', 'ADMIN'].includes(normalizedRole)) {
       data.role = normalizedRole;
     }
   }

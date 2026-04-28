@@ -4,7 +4,7 @@ const OfferController = require('./offer.controller');
 
 /**
  * @openapi
- * /offers:
+ * /api/offers:
  *   get:
  *     summary: Get list of energy offers
  *     tags:
@@ -12,12 +12,21 @@ const OfferController = require('./offer.controller');
  *     responses:
  *       '200':
  *         description: Array of offers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 offers:
+ *                   type: array
+ *             example:
+ *               offers: [{ "id":1, "sellerWalletId":"w_123", "kwh":10 }]
  */
 router.get('/', OfferController.getOffers);
 
 /**
  * @openapi
- * /offers:
+ * /api/offers:
  *   post:
  *     summary: Create a new energy offer (sell energy)
  *     tags:
@@ -27,24 +36,26 @@ router.get('/', OfferController.getOffers);
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required: [sellerWalletId, kwh, ratePerKwh]
- *             properties:
- *               sellerWalletId:
- *                 type: string
- *               kwh:
- *                 type: number
- *               ratePerKwh:
- *                 type: number
+ *             $ref: '#/components/schemas/OfferCreate'
  *     responses:
  *       '201':
  *         description: Offer created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/OfferResponse'
+ *             examples:
+ *               created:
+ *                 value:
+ *                   id: 1
+ *                   sellerWalletId: w_123
+ *                   kwh: 10
  */
 router.post('/', OfferController.createOffer);
 
 /**
  * @openapi
- * /offers/{id}:
+ * /api/offers/{id}:
  *   get:
  *     summary: Get offer by id
  *     tags:
@@ -58,6 +69,10 @@ router.post('/', OfferController.createOffer);
  *     responses:
  *       '200':
  *         description: Offer object
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/OfferResponse'
  *       '404':
  *         description: Offer not found
  */
@@ -65,7 +80,7 @@ router.get('/:id', OfferController.getOfferById);
 
 /**
  * @openapi
- * /offers/building/{walletId}:
+ * /api/offers/building/{walletId}:
  *   get:
  *     summary: Get building by walletId (used in market mapping)
  *     tags:

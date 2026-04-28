@@ -1,0 +1,2719 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "NIDA API",
+    "version": "1.0.0",
+    "description": "API documentation for NIDA project"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000/api",
+      "description": "Local development server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "username",
+            "example": "admin"
+          },
+          "password": {
+            "type": "string",
+            "description": "base64 encoded password",
+            "example": "UEBzc3cwcmQ="
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "UserResult": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "id",
+            "example": "0"
+          },
+          "username": {
+            "type": "string",
+            "example": "admin",
+            "description": "Username"
+          },
+          "role": {
+            "type": "string",
+            "example": "admin",
+            "description": "Role Template [admin,...]"
+          },
+          "allows": {
+            "type": "string",
+            "example": "*",
+            "description": "Module Permission"
+          },
+          "token": {
+            "type": "string",
+            "description": "JWT token example"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "OK",
+            "description": "Status string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/UserResult",
+            "description": "Parameter",
+            "type": "string"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "ERROR",
+            "description": "Status string"
+          },
+          "message": {
+            "type": "string",
+            "example": "Invalid credentials",
+            "description": "Error or status message"
+          }
+        }
+      },
+      "WalletCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Main Wallet",
+            "description": "Name"
+          },
+          "ownerEmail": {
+            "type": "string",
+            "example": "owner@example.com",
+            "description": "Email address of the wallet owner"
+          }
+        },
+        "required": [
+          "name",
+          "ownerEmail"
+        ]
+      },
+      "WalletBalance": {
+        "type": "object",
+        "properties": {
+          "walletId": {
+            "type": "string",
+            "example": "w_123",
+            "description": "Wallet identifier"
+          },
+          "balance": {
+            "type": "number",
+            "example": 123.45,
+            "description": "Current wallet token balance (numeric amount)"
+          }
+        }
+      },
+      "TopupRequest": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "example": 50,
+            "description": "Amount (numeric)"
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      },
+      "OfferCreate": {
+        "type": "object",
+        "properties": {
+          "sellerWalletId": {
+            "type": "string",
+            "example": "w_123",
+            "description": "Seller wallet identifier"
+          },
+          "kwh": {
+            "type": "number",
+            "example": 10,
+            "description": "Energy in kWh"
+          },
+          "ratePerKwh": {
+            "type": "number",
+            "example": 1.5,
+            "description": "Rate per kWh (token)"
+          }
+        },
+        "required": [
+          "sellerWalletId",
+          "kwh",
+          "ratePerKwh"
+        ]
+      },
+      "OfferResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1,
+            "description": "Identifier"
+          },
+          "sellerWalletId": {
+            "type": "string",
+            "description": "Seller wallet identifier"
+          },
+          "kwh": {
+            "type": "number",
+            "description": "Energy in kWh"
+          },
+          "ratePerKwh": {
+            "type": "number",
+            "description": "Rate per kWh (token)"
+          }
+        }
+      },
+      "TransactionCreate": {
+        "type": "object",
+        "properties": {
+          "fromWallet": {
+            "type": "string",
+            "description": "Sender wallet identifier (required)"
+          },
+          "toWallet": {
+            "type": "string",
+            "description": "Recipient wallet identifier (required)"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Amount (numeric)"
+          }
+        },
+        "required": [
+          "fromWallet",
+          "toWallet",
+          "amount"
+        ]
+      },
+      "RunningMeterEntry": {
+        "type": "object",
+        "properties": {
+          "meterSnid": {
+            "type": "string",
+            "description": "Identifier"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp (ISO 8601 date-time)"
+          },
+          "value": {
+            "type": "number",
+            "description": "Value"
+          }
+        },
+        "required": [
+          "meterSnid",
+          "timestamp",
+          "value"
+        ]
+      },
+      "MeterRegister": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string",
+            "description": "Building identifier"
+          },
+          "meterType": {
+            "type": "string",
+            "description": "Type of meter"
+          },
+          "meterNumber": {
+            "type": "string",
+            "description": "Meter number"
+          },
+          "capacity": {
+            "type": "number",
+            "description": "Capacity"
+          }
+        },
+        "required": [
+          "buildingId",
+          "meterType",
+          "meterNumber"
+        ]
+      }
+    }
+  },
+  "paths": {
+    "/api/invoices/summary": {
+      "get": {
+        "summary": "Get invoice summary for a given month and year",
+        "description": "ดึงข้อมูลสรุปยอดเงินรวมของใบแจ้งหนี้ทั้งหมดในเดือนและปีที่ระบุ เหมาะสำหรับการแสดงภาพรวมรายรับหรือวิเคราะห์ข้อมูลรายเดือน",
+        "tags": [
+          "Invoice"
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoice summary for the specified month and year.\n- month: เดือนและปีในรูปแบบ YYYY-MM\n- total: ยอดรวมเงินทั้งหมดของใบแจ้งหนี้ในเดือนนั้น (หน่วย: token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "month": { "type": "string", "description": "เดือนและปี (YYYY-MM)" },
+                    "total": { "type": "number", "description": "ยอดรวมเงินทั้งหมด (token)" }
+                  }
+                },
+                "example": {
+                  "month": "2026-04",
+                  "total": 1234.5
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invoices/quota-warnings": {
+      "get": {
+        "summary": "Get quota warning overview for all buildings",
+        "description": "ดึงข้อมูลภาพรวมของอาคารที่มีการเตือนเรื่องโควต้าการใช้พลังงาน (เช่น ใช้เกินกำหนด) เหมาะสำหรับการแจ้งเตือนหรือวิเคราะห์การใช้พลังงาน",
+        "tags": [
+          "Invoice"
+        ],
+        "responses": {
+          "200": {
+            "description": "Quota warnings for all buildings.\n- buildingId: ไอดีอาคาร\n- warning: true หากมีการเตือนโควต้า",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "buildingId": { "type": "integer", "description": "รหัสอาคาร" },
+                      "warning": { "type": "boolean", "description": "สถานะเตือนโควต้า (true = มีการเตือน)" }
+                    }
+                  }
+                },
+                "example": [
+                  { "buildingId": 1, "warning": true }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invoices/generate": {
+      "post": {
+        "summary": "Generate monthly invoices for all consuming buildings",
+        "description": "สร้างใบแจ้งหนี้ประจำเดือนสำหรับอาคารที่มีการใช้พลังงานในระบบทั้งหมด ใช้สำหรับรันรอบบิลอัตโนมัติ",
+        "tags": [
+          "Invoice"
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoices generated.\n- generated: จำนวนใบแจ้งหนี้ที่ถูกสร้างขึ้นในรอบนี้",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generated": { "type": "integer", "description": "จำนวนใบแจ้งหนี้ที่สร้าง" }
+                  }
+                },
+                "example": { "generated": 120 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invoices/purchase": {
+      "post": {
+        "summary": "Purchase energy and create invoice and receipt",
+        "description": "ซื้อพลังงานจาก marketplace offer และสร้างใบแจ้งหนี้พร้อมใบเสร็จในขั้นตอนเดียว เหมาะสำหรับการซื้อขายพลังงานแบบ peer-to-peer",
+        "tags": [
+          "Invoice"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "offerId": {
+                    "type": "integer",
+                    "description": "รหัสข้อเสนอ (Offer ID) ที่ต้องการซื้อจากตลาดพลังงาน"
+                  },
+                  "buyerWalletId": {
+                    "type": "string",
+                    "description": "รหัสกระเป๋าเงินของผู้ซื้อ (Wallet ID)"
+                  },
+                  "targetBuildingId": {
+                    "type": "integer",
+                    "description": "รหัสอาคารที่จะได้รับพลังงานที่ซื้อ (Building ID)"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "จำนวนพลังงาน (kWh) ที่ต้องการซื้อ (ถ้าไม่ระบุจะซื้อทั้งหมดตามข้อเสนอ)"
+                  }
+                },
+                "required": [
+                  "offerId",
+                  "buyerWalletId",
+                  "targetBuildingId"
+                ]
+              },
+              "example": {
+                "offerId": 12,
+                "buyerWalletId": "w_123",
+                "targetBuildingId": 45,
+                "amount": 10
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Purchase processed.\n- invoiceId: หมายเลขใบแจ้งหนี้ที่สร้างขึ้น\n- receiptId: หมายเลขใบเสร็จที่สร้างขึ้น",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "invoiceId": { "type": "integer", "description": "หมายเลขใบแจ้งหนี้ที่สร้างขึ้น" },
+                    "receiptId": { "type": "integer", "description": "หมายเลขใบเสร็จที่สร้างขึ้น" }
+                  }
+                },
+                "example": {
+                  "invoiceId": 45,
+                  "receiptId": 77
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invoices/{id}/pay": {
+      "post": {
+        "summary": "Pay invoice",
+        "description": "ชำระเงินใบแจ้งหนี้ตามหมายเลขที่ระบุ ใช้สำหรับอัปเดตสถานะใบแจ้งหนี้เป็นชำระแล้ว (PAID)",
+        "tags": [
+          "Invoice"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "หมายเลขใบแจ้งหนี้ (Invoice ID) ที่ต้องการชำระ"
+            },
+            "description": "หมายเลขใบแจ้งหนี้ (Invoice ID) ที่ต้องการชำระ"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoice paid.\n- status: สถานะใบแจ้งหนี้หลังชำระเงิน (PAID)\n- invoiceId: หมายเลขใบแจ้งหนี้ที่ถูกชำระ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "description": "สถานะใบแจ้งหนี้หลังชำระเงิน (PAID)" },
+                    "invoiceId": { "type": "integer", "description": "หมายเลขใบแจ้งหนี้ที่ถูกชำระ" }
+                  }
+                },
+                "example": {
+                  "status": "PAID",
+                  "invoiceId": 45
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invoices": {
+      "get": {
+        "summary": "Get all invoices",
+        "description": "ดึงรายการใบแจ้งหนี้ทั้งหมดในระบบ เหมาะสำหรับการแสดงผลในหน้ารายการบิลหรือการวิเคราะห์ข้อมูล",
+        "tags": [
+          "Invoice"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of invoices.\n- id: หมายเลขใบแจ้งหนี้\n- amount: จำนวนเงินในใบแจ้งหนี้ (token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": { "type": "integer", "description": "หมายเลขใบแจ้งหนี้" },
+                      "amount": { "type": "number", "description": "จำนวนเงินในใบแจ้งหนี้ (token)" }
+                    }
+                  }
+                },
+                "example": [
+                  { "id": 45, "amount": 100 }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invoices/{id}": {
+      "get": {
+        "summary": "Get invoice by ID",
+        "description": "ดึงรายละเอียดใบแจ้งหนี้ตามหมายเลขที่ระบุ เหมาะสำหรับการดูรายละเอียดบิลแต่ละใบ",
+        "tags": [
+          "Invoice"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "หมายเลขใบแจ้งหนี้ (Invoice ID) ที่ต้องการดูรายละเอียด"
+            },
+            "description": "หมายเลขใบแจ้งหนี้ (Invoice ID) ที่ต้องการดูรายละเอียด"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoice object.\n- id: หมายเลขใบแจ้งหนี้\n- amount: จำนวนเงินในใบแจ้งหนี้ (token)\n- status: สถานะใบแจ้งหนี้ (เช่น DUE, PAID)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "integer", "description": "หมายเลขใบแจ้งหนี้" },
+                    "amount": { "type": "number", "description": "จำนวนเงินในใบแจ้งหนี้ (token)" },
+                    "status": { "type": "string", "description": "สถานะใบแจ้งหนี้ (DUE = ค้างชำระ, PAID = ชำระแล้ว)" }
+                  }
+                },
+                "example": { "id": 45, "amount": 100, "status": "DUE" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/receipts": {
+      "get": {
+        "summary": "List receipts",
+        "description": "ดึงรายการใบเสร็จรับเงินทั้งหมดในระบบ เหมาะสำหรับการแสดงผลในหน้ารายการหรือการตรวจสอบการชำระเงิน",
+        "tags": [
+          "Receipt"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of receipts.\n- id: หมายเลขใบเสร็จ\n- invoiceId: หมายเลขใบแจ้งหนี้ที่เกี่ยวข้อง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": { "type": "integer", "description": "หมายเลขใบเสร็จ" },
+                      "invoiceId": { "type": "integer", "description": "หมายเลขใบแจ้งหนี้ที่เกี่ยวข้อง" }
+                    }
+                  }
+                },
+                "example": [
+                  { "id": 77, "invoiceId": 12 }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create receipt",
+        "description": "สร้างใบเสร็จรับเงินใหม่หลังจากมีการชำระเงินใบแจ้งหนี้",
+        "tags": [
+          "Receipt"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "invoiceId": { "type": "integer", "description": "หมายเลขใบแจ้งหนี้ที่ต้องการออกใบเสร็จ" },
+                  "amount": { "type": "number", "description": "จำนวนเงินที่ชำระ (token)" }
+                },
+                "required": ["invoiceId", "amount"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Receipt created.\n- id: หมายเลขใบเสร็จ\n- invoiceId: หมายเลขใบแจ้งหนี้\n- amount: จำนวนเงินที่ชำระ (token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "integer", "description": "หมายเลขใบเสร็จ" },
+                    "invoiceId": { "type": "integer", "description": "หมายเลขใบแจ้งหนี้" },
+                    "amount": { "type": "number", "description": "จำนวนเงินที่ชำระ (token)" }
+                  }
+                },
+                "example": { "id": 77, "invoiceId": 12, "amount": 100.5 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/receipts/{id}": {
+      "get": {
+        "summary": "Get receipt by id",
+        "tags": [
+          "Receipt"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Identifier"
+            },
+            "description": "Identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt object",
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": 77,
+                  "invoiceId": 12,
+                  "amount": 100.5
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a receipt",
+        "tags": [
+          "Receipt"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Identifier"
+            },
+            "description": "Identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt deleted",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "deleted",
+                  "id": "77"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/buildings": {
+      "get": {
+        "summary": "Get list of buildings",
+        "description": "ดึงรายการอาคารทั้งหมดในระบบ เหมาะสำหรับการแสดงผลในหน้ารายการอาคารหรือการเลือกอาคารในฟอร์มต่าง ๆ",
+        "tags": [
+          "Building"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of buildings.\n- id: หมายเลขอาคาร\n- name: ชื่ออาคาร",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "buildings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "integer", "description": "หมายเลขอาคาร" },
+                          "name": { "type": "string", "description": "ชื่ออาคาร" }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "buildings": [
+                    { "id": 1, "name": "Main" }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/buildings/{id}": {
+      "get": {
+        "summary": "Get building by id",
+        "description": "ดึงรายละเอียดอาคารตามหมายเลขที่ระบุ เหมาะสำหรับการดูรายละเอียดหรือแก้ไขข้อมูลอาคาร",
+        "tags": [
+          "Building"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "หมายเลขอาคาร (Building ID) ที่ต้องการดูรายละเอียด"
+            },
+            "description": "หมายเลขอาคาร (Building ID) ที่ต้องการดูรายละเอียด"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Building object.\n- id: หมายเลขอาคาร\n- name: ชื่ออาคาร",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "integer", "description": "หมายเลขอาคาร" },
+                    "name": { "type": "string", "description": "ชื่ออาคาร" }
+                  }
+                },
+                "example": { "id": 1, "name": "Main" }
+              }
+            }
+          },
+          "404": {
+            "description": "Building not found"
+          }
+        }
+      }
+    },
+    "/buildings/{buildingId}/meters/count": {
+      "get": {
+        "summary": "Get total meters count for a building",
+        "description": "ดึงจำนวนมิเตอร์ทั้งหมดที่เชื่อมโยงกับอาคารที่ระบุ เหมาะสำหรับการแสดงสถิติหรือวิเคราะห์การใช้งาน",
+        "tags": [
+          "Building"
+        ],
+        "parameters": [
+          {
+            "name": "buildingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "หมายเลขอาคาร (Building ID) ที่ต้องการนับจำนวนมิเตอร์"
+            },
+            "description": "หมายเลขอาคาร (Building ID) ที่ต้องการนับจำนวนมิเตอร์"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Total meters count for the building.\n- totalMeters: จำนวนมิเตอร์ทั้งหมดในอาคารนี้",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalMeters": { "type": "number", "description": "จำนวนมิเตอร์ทั้งหมดในอาคารนี้" }
+                  }
+                },
+                "example": { "totalMeters": 5 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/buildings/email/{email}": {
+      "get": {
+        "summary": "Get building by owner email",
+        "description": "ดึงข้อมูลอาคารโดยใช้ email ของเจ้าของอาคาร เหมาะสำหรับการค้นหาอาคารจากอีเมลผู้ใช้",
+        "tags": [
+          "Building"
+        ],
+        "parameters": [
+          {
+            "name": "email",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "อีเมลของเจ้าของอาคาร"
+            },
+            "description": "อีเมลของเจ้าของอาคาร"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Building object.\n- id: หมายเลขอาคาร\n- name: ชื่ออาคาร",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "integer", "description": "หมายเลขอาคาร" },
+                    "name": { "type": "string", "description": "ชื่ออาคาร" }
+                  }
+                },
+                "example": { "id": 1, "name": "Main" }
+              }
+            }
+          },
+          "404": {
+            "description": "Building not found"
+          }
+        }
+      }
+    },
+    "/buildings/register": {
+      "post": {
+        "summary": "Create a new building",
+        "description": "สร้างอาคารใหม่ในระบบ โดยต้องระบุข้อมูลสำคัญ เช่น ชื่ออาคาร ที่อยู่ จังหวัด รหัสไปรษณีย์ และอีเมลเจ้าของอาคาร",
+        "tags": [
+          "Building"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "description": "ชื่ออาคาร" },
+                  "mapURL": { "type": "string", "description": "ลิงก์แผนที่ (Map URL)" },
+                  "address": { "type": "string", "description": "ที่อยู่" },
+                  "province": { "type": "string", "description": "จังหวัด" },
+                  "postalCode": { "type": "string", "description": "รหัสไปรษณีย์" },
+                  "email": { "type": "string", "description": "อีเมลเจ้าของอาคาร" }
+                },
+                "required": ["name", "address", "province", "postalCode", "email"]
+              },
+              "example": {
+                "name": "Main Building",
+                "mapURL": "https://maps.example.com/abc",
+                "address": "123 Main St",
+                "province": "Bangkok",
+                "postalCode": "10110",
+                "email": "owner@example.com"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Building created.\n- id: หมายเลขอาคาร\n- name: ชื่ออาคาร",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "integer", "description": "หมายเลขอาคาร" },
+                    "name": { "type": "string", "description": "ชื่ออาคาร" }
+                  }
+                },
+                "example": { "id": 2, "name": "Main Building" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (ข้อมูลไม่ครบถ้วนหรือไม่ถูกต้อง)"
+          }
+        }
+      }
+    },
+    "/api/dashboard/getBuildingById": {
+      "get": {
+        "summary": "Get building by meter id",
+        "description": "ดึงข้อมูลอาคารที่เชื่อมโยงกับหมายเลขมิเตอร์ที่ระบุ เหมาะสำหรับการค้นหาความสัมพันธ์ระหว่างมิเตอร์กับอาคาร",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Building data.\n- id: หมายเลขอาคาร\n- name: ชื่ออาคาร",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "integer", "description": "หมายเลขอาคาร" },
+                    "name": { "type": "string", "description": "ชื่ออาคาร" }
+                  }
+                },
+                "example": { "id": 1, "name": "Main" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard/getMeterTypeById": {
+      "get": {
+        "summary": "Get meter type by meter id",
+        "description": "ดึงประเภทของมิเตอร์จากหมายเลขมิเตอร์ที่ระบุ เหมาะสำหรับการแสดงรายละเอียดหรือวิเคราะห์ข้อมูลมิเตอร์",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Meter type.\n- meterType: ประเภทของมิเตอร์ (เช่น consumption, production, battery)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "meterType": { "type": "string", "description": "ประเภทของมิเตอร์" }
+                  }
+                },
+                "example": { "meterType": "consumption" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard/getAllMetersByBuildingName": {
+      "get": {
+        "summary": "Get all meters for a building (by name)",
+        "description": "ดึงรายการมิเตอร์ทั้งหมดที่เชื่อมโยงกับอาคารตามชื่อที่ระบุ เหมาะสำหรับการแสดงผลหรือวิเคราะห์การใช้พลังงานในแต่ละอาคาร",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of meters.\n- id: หมายเลขมิเตอร์\n- snid: หมายเลข SNID ของมิเตอร์",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": { "type": "integer", "description": "หมายเลขมิเตอร์" },
+                      "snid": { "type": "string", "description": "หมายเลข SNID ของมิเตอร์" }
+                    }
+                  }
+                },
+                "example": [ { "id": 1, "snid": "SN123" } ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard/getTypeAndBuildingByMeterId": {
+      "get": {
+        "summary": "Get type and building by meter id",
+        "description": "ดึงข้อมูลประเภทมิเตอร์และอาคารที่เชื่อมโยงกับหมายเลขมิเตอร์ที่ระบุ เหมาะสำหรับการตรวจสอบความสัมพันธ์ของมิเตอร์",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Type and building.\n- meterType: ประเภทของมิเตอร์\n- building: ข้อมูลอาคารที่เชื่อมโยง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "meterType": { "type": "string", "description": "ประเภทของมิเตอร์" },
+                    "building": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "integer", "description": "หมายเลขอาคาร" },
+                        "name": { "type": "string", "description": "ชื่ออาคาร" }
+                      }
+                    }
+                  }
+                },
+                "example": { "meterType": "consumption", "building": { "id": 1, "name": "Main" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard/getAllConsumeMeters": {
+      "get": {
+        "summary": "Get all consumption meters",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of consumption meters"
+          }
+        }
+      }
+    },
+    "/api/dashboard/getAllProduceMeters": {
+      "get": {
+        "summary": "Get all producer meters",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of producer meters"
+          }
+        }
+      }
+    },
+    "/api/dashboard/getAllBatteryMeters": {
+      "get": {
+        "summary": "Get all battery meters",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of battery meters"
+          }
+        }
+      }
+    },
+    "/api/dashboard/hourly": {
+      "get": {
+        "summary": "Hourly aggregated energy",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Hourly energy data"
+          }
+        }
+      }
+    },
+    "/api/dashboard/daily": {
+      "get": {
+        "summary": "Daily aggregated energy",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Daily energy data"
+          }
+        }
+      }
+    },
+    "/api/dashboard/weekly": {
+      "get": {
+        "summary": "Weekly aggregated energy",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Weekly energy data"
+          }
+        }
+      }
+    },
+    "/api/dashboard/monthly": {
+      "get": {
+        "summary": "Monthly aggregated energy",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Monthly energy data"
+          }
+        }
+      }
+    },
+    "/api/dashboard/search": {
+      "get": {
+        "summary": "Search building energy",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results"
+          }
+        }
+      }
+    },
+    "/energy/battery": {
+      "get": {
+        "summary": "Battery endpoints placeholder",
+        "tags": [
+          "Energy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Battery endpoints info"
+          }
+        }
+      }
+    },
+    "/api/energy/buildings": {
+      "get": {
+        "summary": "Get aggregated building energy",
+        "tags": [
+          "Energy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Aggregated energy data",
+            "content": {
+              "application/json": {
+                "example": [
+                  {
+                    "buildingId": 1,
+                    "kwh": 123.4
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runningMeters/create": {
+      "post": {
+        "summary": "Create a running meter entry (ingest)",
+        "description": "สร้างข้อมูลการอ่านมิเตอร์แบบ real-time (running meter) สำหรับแต่ละมิเตอร์\nใช้สำหรับ ingest ข้อมูลจากอุปกรณ์ IoT หรือระบบอ่านมิเตอร์\n\n**Request body:**\n- meterSnid: รหัส SNID ของมิเตอร์ (string, required)\n- timestamp: เวลาที่อ่านค่า (ISO 8601, string, required)\n- value: ค่าที่อ่านได้ (number, required)",
+        "tags": [
+          "RunningMeter"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunningMeterEntry"
+              },
+              "example": {
+                "meterSnid": "SN123456",
+                "timestamp": "2026-04-23T14:00:00Z",
+                "value": 123.45
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "สร้างข้อมูล running meter สำเร็จ\n- id: หมายเลข entry ที่ถูกสร้าง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "example": 1,
+                      "description": "หมายเลข entry ที่ถูกสร้าง"
+                    }
+                  }
+                },
+                "example": {
+                  "id": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runningMeters/generate-hourly": {
+      "post": {
+        "summary": "Generate hourly entries from running data",
+        "description": "ประมวลผลข้อมูล running meter เพื่อสร้างข้อมูลแบบรายชั่วโมง (hourly aggregation)\nใช้สำหรับสรุปข้อมูลพลังงานที่ใช้ในแต่ละชั่วโมง\n\n**ไม่ต้องมี request body**",
+        "tags": [
+          "RunningMeter"
+        ],
+        "responses": {
+          "200": {
+            "description": "เริ่มต้นกระบวนการสร้างข้อมูลรายชั่วโมงสำเร็จ"
+          }
+        }
+      }
+    },
+    "/api/runningMeters/insert-log": {
+      "post": {
+        "summary": "Insert a single running log",
+        "description": "เพิ่มข้อมูล log ของการอ่านมิเตอร์แบบเดี่ยว (single entry)\nใช้สำหรับกรณีที่ต้องการบันทึกข้อมูลย้อนหลังหรือแก้ไขข้อมูล\n\n**Request body:**\n- meterSnid: รหัส SNID ของมิเตอร์ (string, required)\n- timestamp: เวลาที่อ่านค่า (ISO 8601, string, required)\n- value: ค่าที่อ่านได้ (number, required)",
+        "tags": [
+          "RunningMeter"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunningMeterEntry"
+              },
+              "example": {
+                "meterSnid": "SN123456",
+                "timestamp": "2026-04-23T15:00:00Z",
+                "value": 124.56
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "เพิ่ม log สำเร็จ\n- ไม่มีข้อมูลเพิ่มเติม (หรืออาจคืน id entry ที่เพิ่ม)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": 2
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runningMeters/insert-logs-bulk": {
+      "post": {
+        "summary": "Bulk insert running logs",
+        "description": "เพิ่มข้อมูล log ของการอ่านมิเตอร์แบบหลายรายการในครั้งเดียว (bulk insert)\nใช้สำหรับ import ข้อมูลย้อนหลังหรือกรณีที่มีข้อมูลจำนวนมาก\n\n**Request body:**\n- array ของ RunningMeterEntry (ดู schema)\n\n**ตัวอย่าง:**\n[
+  { "meterSnid": "SN123456", "timestamp": "2026-04-23T14:00:00Z", "value": 123.45 },
+  { "meterSnid": "SN123456", "timestamp": "2026-04-23T15:00:00Z", "value": 124.56 }
+]
+",
+        "tags": [
+          "RunningMeter"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RunningMeterEntry"
+                }
+              },
+              "example": [
+                { "meterSnid": "SN123456", "timestamp": "2026-04-23T14:00:00Z", "value": 123.45 },
+                { "meterSnid": "SN123456", "timestamp": "2026-04-23T15:00:00Z", "value": 124.56 }
+              ]
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "เพิ่มข้อมูล log หลายรายการสำเร็จ (bulk insert accepted)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "inserted": 2
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runningMeters/reset-energy-logs": {
+      "post": {
+        "summary": "Reset energy logs",
+        "description": "ลบหรือรีเซ็ตข้อมูล log ของ running meter ทั้งหมด\nใช้สำหรับกรณีที่ต้องการล้างข้อมูลเพื่อเริ่มต้นใหม่ (admin only)\n\n**ไม่ต้องมี request body**",
+        "tags": [
+          "RunningMeter"
+        ],
+        "responses": {
+          "200": {
+            "description": "รีเซ็ตข้อมูล log ทั้งหมดสำเร็จ"
+          }
+        }
+      }
+    },
+    "/api/meters": {
+      "get": {
+        "summary": "Get list of meters",
+        "tags": [
+          "Meter"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of meters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "meters": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "description": "Meter identifier (required)"
+                          },
+                          "snid": {
+                            "type": "string",
+                            "description": "Meter SNID (serial number, required)"
+                          }
+                        }
+                      },
+                      "description": "List of meters"
+                    }
+                  }
+                },
+                "example": {
+                  "meters": [
+                    {
+                      "id": 1,
+                      "snid": "SN123"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/meters/building/{buildingId}": {
+      "get": {
+        "summary": "Get meters by building id",
+        "tags": [
+          "Meter"
+        ],
+        "parameters": [
+          {
+            "name": "buildingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "Building identifier"
+            },
+            "description": "Building identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of meters for the building"
+          }
+        }
+      }
+    },
+    "/meters/snid/{snid}": {
+      "get": {
+        "summary": "Get meter by SNID",
+        "tags": [
+          "Meter"
+        ],
+        "parameters": [
+          {
+            "name": "snid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Identifier"
+            },
+            "description": "Identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Meter object"
+          },
+          "404": {
+            "description": "Meter not found"
+          }
+        }
+      }
+    },
+    "/meters/approved": {
+      "get": {
+        "summary": "Get approved meters",
+        "tags": [
+          "Meter"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of approved meters"
+          }
+        }
+      }
+    },
+    "/meters/approved/building/{buildingId}": {
+      "get": {
+        "summary": "Get approved meters by building id",
+        "tags": [
+          "Meter"
+        ],
+        "parameters": [
+          {
+            "name": "buildingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "Building identifier"
+            },
+            "description": "Building identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of approved meters for building"
+          }
+        }
+      }
+    },
+    "/meters/pending": {
+      "get": {
+        "summary": "Get pending meters",
+        "tags": [
+          "Meter"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of pending meters"
+          }
+        }
+      }
+    },
+    "/meters/rejected": {
+      "get": {
+        "summary": "Get rejected meters",
+        "tags": [
+          "Meter"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of rejected meters"
+          }
+        }
+      }
+    },
+    "/api/meters/register": {
+      "post": {
+        "summary": "Register a new meter (request)",
+        "tags": [
+          "Meter"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeterRegister"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Meter created (pending approval)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "description": "Identifier"
+                    }
+                  }
+                },
+                "example": {
+                  "id": 123
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          }
+        }
+      }
+    },
+    "/rates/token": {
+      "post": {
+        "summary": "Create token rate (admin)",
+        "tags": [
+          "Rates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Token rate created"
+          }
+        }
+      },
+      "get": {
+        "summary": "List token rates",
+        "tags": [
+          "Rates"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of token rates"
+          }
+        }
+      }
+    },
+    "/rates/energy": {
+      "post": {
+        "summary": "Create energy rate (admin)",
+        "tags": [
+          "Rates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Energy rate created"
+          }
+        }
+      },
+      "get": {
+        "summary": "List energy rates",
+        "tags": [
+          "Rates"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of energy rates"
+          }
+        }
+      }
+    },
+    "/system/notifications": {
+      "post": {
+        "summary": "Create a system notification (admin)",
+        "tags": [
+          "System"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Notification created"
+          }
+        }
+      },
+      "get": {
+        "summary": "List system notifications (admin)",
+        "tags": [
+          "System"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of notifications"
+          }
+        }
+      }
+    },
+    "/system/notifications/{id}": {
+      "delete": {
+        "summary": "Delete a system notification (admin)",
+        "tags": [
+          "System"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "Identifier"
+            },
+            "description": "Identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification deleted"
+          }
+        }
+      }
+    },
+    "/system/activity": {
+      "post": {
+        "summary": "Log system activity (admin)",
+        "tags": [
+          "System"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Activity logged"
+          }
+        }
+      }
+    },
+    "/system/reset-database": {
+      "post": {
+        "summary": "Reset the database (admin)",
+        "tags": [
+          "System"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Database reset"
+          }
+        }
+      }
+    },
+    "/api/offers": {
+      "get": {
+        "summary": "Get list of energy offers",
+        "tags": [
+          "Offer"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of offers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "offers": {
+                      "type": "array",
+                      "description": "List of energy offers"
+                    }
+                  }
+                },
+                "example": {
+                  "offers": [
+                    {
+                      "id": 1,
+                      "sellerWalletId": "w_123",
+                      "kwh": 10
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new energy offer (sell energy)",
+        "tags": [
+          "Offer"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OfferCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Offer created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferResponse"
+                },
+                "examples": {
+                  "created": {
+                    "value": {
+                      "id": 1,
+                      "sellerWalletId": "w_123",
+                      "kwh": 10
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/offers/{id}": {
+      "get": {
+        "summary": "Get offer by id",
+        "tags": [
+          "Offer"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "Identifier"
+            },
+            "description": "Identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Offer object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Offer not found"
+          }
+        }
+      }
+    },
+    "/api/offers/building/{walletId}": {
+      "get": {
+        "summary": "Get building by walletId (used in market mapping)",
+        "tags": [
+          "Offer"
+        ],
+        "parameters": [
+          {
+            "name": "walletId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Wallet identifier"
+            },
+            "description": "Wallet identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Building object"
+          },
+          "404": {
+            "description": "Building not found for wallet"
+          }
+        }
+      }
+    },
+    "/api/transactions": {
+      "get": {
+        "summary": "List transactions",
+        "tags": [
+          "Transactions"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of transactions",
+            "content": {
+              "application/json": {
+                "example": {
+                  "transactions": [
+                    {
+                      "id": 1,
+                      "amount": 12.5
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create transaction",
+        "tags": [
+          "Transactions"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransactionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Transaction created",
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": 123,
+                  "status": "created"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transactions/blockchain/recent": {
+      "get": {
+        "summary": "Get recent blockchain transactions",
+        "tags": [
+          "Transactions"
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent blockchain transactions",
+            "content": {
+              "application/json": {
+                "example": [
+                  {
+                    "txHash": "0xabc",
+                    "status": "confirmed"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transactions/blockchain/tx/{txHash}": {
+      "get": {
+        "summary": "Get blockchain transaction by hash",
+        "tags": [
+          "Transactions"
+        ],
+        "parameters": [
+          {
+            "name": "txHash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Blockchain transaction hash"
+            },
+            "description": "Blockchain transaction hash"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Blockchain transaction",
+            "content": {
+              "application/json": {
+                "example": {
+                  "txHash": "0xabc",
+                  "blockNumber": 12345
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transactions/wallet/{walletId}": {
+      "get": {
+        "summary": "Get transactions by wallet",
+        "tags": [
+          "Transactions"
+        ],
+        "parameters": [
+          {
+            "name": "walletId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Wallet identifier"
+            },
+            "description": "Wallet identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of transactions",
+            "content": {
+              "application/json": {
+                "example": [
+                  {
+                    "id": 1,
+                    "amount": 10
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transactions/building/{buildingName}": {
+      "get": {
+        "summary": "Get transactions by building",
+        "tags": [
+          "Transactions"
+        ],
+        "parameters": [
+          {
+            "name": "buildingName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Building name"
+            },
+            "description": "Building name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of transactions",
+            "content": {
+              "application/json": {
+                "example": [
+                  {
+                    "id": 2,
+                    "amount": 20
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transactions/{id}/verification-preview": {
+      "get": {
+        "summary": "Get transaction verification preview",
+        "tags": [
+          "Transactions"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Identifier"
+            },
+            "description": "Identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verification preview",
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": 123,
+                  "preview": "..."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transactions/{id}/verify": {
+      "post": {
+        "summary": "Publish transaction verification",
+        "tags": [
+          "Transactions"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Identifier"
+            },
+            "description": "Identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verification published",
+            "content": {
+              "application/json": {
+                "example": {
+                  "status": "published",
+                  "id": 123
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transactions/{id}": {
+      "get": {
+        "summary": "Get transaction by id",
+        "tags": [
+          "Transactions"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Identifier"
+            },
+            "description": "Identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transaction object",
+            "content": {
+              "application/json": {
+                "example": {
+                  "id": 123,
+                  "amount": 12.5
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users": {
+      "get": {
+        "summary": "Get user list",
+        "tags": [
+          "User"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response with user list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/{id}": {
+      "get": {
+        "summary": "Get a single user by credId or email",
+        "tags": [
+          "User"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Identifier"
+            },
+            "description": "credId or email (if contains @)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User object"
+          },
+          "404": {
+            "description": "User not found"
+          }
+        }
+      }
+    },
+    "/users/building/{buildingName}": {
+      "get": {
+        "summary": "Get user by building name",
+        "tags": [
+          "User"
+        ],
+        "parameters": [
+          {
+            "name": "buildingName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Building name"
+            },
+            "description": "Building name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User object for building owner"
+          },
+          "404": {
+            "description": "User not found"
+          }
+        }
+      }
+    },
+    "/users/building/id/{buildingId}": {
+      "get": {
+        "summary": "Get user by building id",
+        "tags": [
+          "User"
+        ],
+        "parameters": [
+          {
+            "name": "buildingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "description": "Building identifier"
+            },
+            "description": "Building identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User object for building owner"
+          },
+          "404": {
+            "description": "User not found"
+          }
+        }
+      }
+    },
+    "/users/register": {
+      "post": {
+        "summary": "Register a new user",
+        "tags": [
+          "User"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "email",
+                  "password"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Name"
+                  },
+                  "email": {
+                    "type": "string",
+                    "description": "Email address"
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": "Password"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User created"
+          },
+          "400": {
+            "description": "Bad request / validation error"
+          }
+        }
+      }
+    },
+    "/users/login": {
+      "post": {
+        "summary": "Login with email and password",
+        "tags": [
+          "User"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "password"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "description": "Email address"
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": "Password"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful with JWT token"
+          },
+          "401": {
+            "description": "Invalid credentials"
+          }
+        }
+      }
+    },
+    "/v1/login": {
+      "post": {
+        "summary": "Authenticate user and return JWT",
+        "tags": [
+          "Auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "description": "username",
+                    "example": "admin"
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": "base64 encoded password",
+                    "example": "UEBzc3cwcmQ="
+                  }
+                },
+                "required": [
+                  "username",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "description": "Status string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "user_id": {
+                          "type": "string",
+                          "description": "id"
+                        },
+                        "username": {
+                          "type": "string",
+                          "description": "Username"
+                        },
+                        "role": {
+                          "type": "string",
+                          "description": "Role Template [admin,...]"
+                        },
+                        "allows": {
+                          "type": "string",
+                          "description": "Module Permission"
+                        },
+                        "token": {
+                          "type": "string",
+                          "description": "JWT Token"
+                        }
+                      },
+                      "description": "Parameter"
+                    }
+                  }
+                },
+                "example": {
+                  "status": "OK",
+                  "result": {
+                    "user_id": "0",
+                    "username": "admin",
+                    "role": "admin",
+                    "allows": "*",
+                    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiYWRtaW4iLCJyb2xlIjoiYWRtaW4iLCJhbGxvd3MiOiIqIn0.mHBLeBZ_UeSNvEdelf-5k8vo01hLh4RBF9F8GHJCS-k"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallets": {
+      "get": {
+        "summary": "Get list of wallets",
+        "tags": [
+          "Wallet"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of wallets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "wallets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      },
+                      "description": "List of wallets"
+                    }
+                  }
+                },
+                "example": {
+                  "wallets": [
+                    {
+                      "walletId": "w_123",
+                      "ownerEmail": "owner@example.com"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallets/{id}": {
+      "get": {
+        "summary": "Get wallet by id",
+        "tags": [
+          "Wallet"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Identifier"
+            },
+            "description": "Identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallet object"
+          },
+          "404": {
+            "description": "Wallet not found"
+          }
+        }
+      }
+    },
+    "/wallets/{id}": {
+      "get": {
+        "summary": "Get wallet by id",
+        "tags": [
+          "Wallet"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Identifier"
+            },
+            "description": "Identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallet object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletBalance"
+                },
+                "examples": {
+                  "success": {
+                    "value": {
+                      "walletId": "w_123",
+                      "balance": 123.45
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Wallet not found"
+          }
+        }
+      }
+    },
+    "/wallets/by-email/{email}": {
+      "get": {
+        "summary": "Get wallet by owner email",
+        "tags": [
+          "Wallet"
+        ],
+        "parameters": [
+          {
+            "name": "email",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Parameter"
+            },
+            "description": "Parameter"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallet object"
+          }
+        }
+      }
+    },
+    "/wallets/{walletId}/balance": {
+      "get": {
+        "summary": "Get wallet balance",
+        "tags": [
+          "Wallet"
+        ],
+        "parameters": [
+          {
+            "name": "walletId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Wallet identifier"
+            },
+            "description": "Wallet identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": {
+              "walletId": null,
+              "balance": null
+            }
+          },
+          "404": {
+            "description": "Wallet not found"
+          }
+        }
+      }
+    },
+    "/wallets": {
+      "post": {
+        "summary": "Create a new wallet",
+        "tags": [
+          "Wallet"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Name"
+                  },
+                  "ownerEmail": {
+                    "type": "string",
+                    "description": "Parameter"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Wallet created"
+          }
+        }
+      }
+    },
+    "/api/wallets/register": {
+      "post": {
+        "summary": "Create a new wallet",
+        "tags": [
+          "Wallet"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Wallet created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "walletId": {
+                      "type": "string",
+                      "example": "w_123",
+                      "description": "Wallet identifier"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wallets/{email}/add-balance": {
+      "post": {
+        "summary": "Add balance to wallet (internal)",
+        "tags": [
+          "Wallet"
+        ],
+        "parameters": [
+          {
+            "name": "email",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Parameter"
+            },
+            "description": "Parameter"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "amount": {
+                    "type": "number",
+                    "description": "Amount (numeric)"
+                  }
+                },
+                "$ref": "#/components/schemas/TopupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Balance updated"
+          }
+        }
+      }
+    },
+    "/wallets/by-email/{email}/topup": {
+      "post": {
+        "summary": "Top-up wallet by email",
+        "tags": [
+          "Wallet"
+        ],
+        "parameters": [
+          {
+            "name": "email",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Parameter"
+            },
+            "description": "Parameter"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "amount": {
+                    "type": "number",
+                    "description": "Amount (numeric)"
+                  }
+                },
+                "$ref": "#/components/schemas/TopupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Top-up processed"
+          }
+        }
+      }
+    },
+    "/wallets/{walletId}/transactions": {
+      "get": {
+        "summary": "Get wallet transactions",
+        "tags": [
+          "Wallet"
+        ],
+        "parameters": [
+          {
+            "name": "walletId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Wallet identifier"
+            },
+            "description": "Wallet identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of transactions"
+          }
+        }
+      }
+    },
+    "/wallets/{walletId/recalculate-balance}": {
+      "post": {
+        "summary": "Recalculate wallet balance",
+        "tags": [
+          "Wallet"
+        ],
+        "parameters": [
+          {
+            "name": "walletId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Wallet identifier"
+            },
+            "description": "Wallet identifier"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recalculation triggered"
+          }
+        }
+      }
+    }
+  },
+  "tags": []
+}

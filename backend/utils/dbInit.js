@@ -30,23 +30,20 @@ async function ensureCredIdColumn() {
 
 async function ensureUserRoleDefault() {
   await withClient(async (client) => {
+    // Ensure 'USER' and 'ADMIN' enum values exist; adding without position is safe
     await client.query(`
       DO $$
       BEGIN
-        IF EXISTS (
-          SELECT 1
-          FROM pg_type t
-          JOIN pg_enum e ON t.oid = e.enumtypid
-          WHERE t.typname = 'UserRole'
-            AND e.enumlabel = 'USER'
-        ) THEN
-          RETURN;
-        END IF;
-
-        ALTER TYPE "UserRole" ADD VALUE 'USER' BEFORE 'BATTERY';
-      EXCEPTION
-        WHEN duplicate_object THEN
+        BEGIN
+          ALTER TYPE "UserRole" ADD VALUE 'USER';
+        EXCEPTION WHEN duplicate_object THEN
           NULL;
+        END;
+        BEGIN
+          ALTER TYPE "UserRole" ADD VALUE 'ADMIN';
+        EXCEPTION WHEN duplicate_object THEN
+          NULL;
+        END;
       END $$;
     `);
 

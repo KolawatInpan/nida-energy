@@ -20,6 +20,8 @@ const { routes: dashboardRoutes } = features.dashboard;
 const { routes: rateRoutes } = features.rates;
 const { routes: systemRoutes } = features.system;
 
+const notificationRoutes = require('./features/notification/notification.route');
+
 function createApp() {
   const app = express();
   const FRONTEND_ORIGIN = process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -40,6 +42,7 @@ function createApp() {
   };
 
   const swaggerSpec = swaggerJSDoc(swaggerOptions);
+  app.get('/api-docs.json', (req, res) => res.json(swaggerSpec));
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
   app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
@@ -58,6 +61,7 @@ function createApp() {
   app.use('/api/receipts', receiptRoutes);
   app.use('/api/transactions', transactionRoutes);
   app.use('/api/dashboard', dashboardRoutes);
+  app.use('/api/notifications', notificationRoutes);
   app.use('/api/rates', rateRoutes);
   app.use('/api/system', systemRoutes);
 

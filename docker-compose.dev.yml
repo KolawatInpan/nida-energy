@@ -18,7 +18,7 @@ services:
       retries: 20
 
   pgadmin:
-    image: dpage/pgadmin4:8
+    image: dpage/pgadmin4:9
     container_name: nida-pgadmin-dev
     restart: unless-stopped
     depends_on:
@@ -35,6 +35,20 @@ services:
       - pgadmin_data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
 
+  prisma:
+    build:
+      context: ./database
+      dockerfile: Dockerfile
+    container_name: nida-prisma-dev
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-admin123}@db:5432/${POSTGRES_DB:-energy_trading}?schema=public
+    ports:
+      - "5555:5555"
+
   blockchain:
     build:
       context: ./blockchain
@@ -50,8 +64,8 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: backend/Dockerfile.dev
     container_name: nida-backend-dev
     restart: unless-stopped
     depends_on:
@@ -74,16 +88,17 @@ services:
       ETH_EXPLORER_BASE_URL: ${ETH_EXPLORER_BASE_URL:-}
       ETH_VERIFICATION_CONTRACT_ADDRESS: ${ETH_VERIFICATION_CONTRACT_ADDRESS:-}
       CHOKIDAR_USEPOLLING: "true"
-    command: sh -c "npx prisma db push --accept-data-loss && npx prisma generate && npx nodemon -L --watch . --ext js,json --exec 'node server.js'"
+    command: sh -c "npm install --legacy-peer-deps --no-audit --no-fund && ./node_modules/.bin/prisma db push --accept-data-loss --schema=./prisma/schema.prisma && ./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma && ./node_modules/.bin/nodemon -L --watch . --ext js,json --exec 'node server.js'"
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
+      - ./database:/app/prisma:ro
       - backend_node_modules:/app/node_modules
 
   frontend:
     build:
-      context: ./frontend
+      context: ./frontend-vite
       dockerfile: Dockerfile.dev
     container_name: nida-frontend-dev
     restart: unless-stopped
@@ -108,11 +123,11 @@ services:
       REACT_APP_PARKINGAPI: ${REACT_APP_PARKINGAPI:-}
       REACT_APP_PARKINGURL: ${REACT_APP_PARKINGURL:-}
       REACT_APP_DEFAULT_DATA_MODE: ${DEFAULT_DATA_MODE:-real}
-    command: sh -c "npm run dev -- --host 0.0.0.0 --port 3000"
+    command: sh -c "npm install --legacy-peer-deps --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 3000"
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     volumes:
-      - ./frontend-vue:/app
+      - ./frontend-vite:/app
       - frontend_node_modules:/app/node_modules
 
 volumes:

@@ -1,0 +1,31 @@
+<PublicParkingInfoList xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://schemas.datacontract.org/2004/07/JPMSAPI.Models">
+<PageAll>1</PageAll>
+<PageNo>1</PageNo>
+<ParkingInfoList>
+<PublicParkingInfo>
+<CardID>00000000</CardID>
+<Entrancedatetime>2022-03-24 10:35:32</Entrancedatetime>
+<Exitdatetime i:nil="true" />
+<ParkingTime>10647</ParkingTime>
+<Price>0</Price>
+<TranRef>2203241035320002463</TranRef>
+<licenseplate>000       </licenseplate>
+</PublicParkingInfo>
+<PublicParkingInfo>
+<CardID>00000000</CardID>
+<Entrancedatetime>2022-03-24 13:34:01</Entrancedatetime>
+<Exitdatetime i:nil="true" />
+<ParkingTime>10469</ParkingTime>
+<Price>0</Price>
+<TranRef>2203241334010002463</TranRef>
+<licenseplate>000       </licenseplate>
+</PublicParkingInfo>
+<PublicParkingInfo>
+<CardID>00000000</CardID>
+<Entrancedatetime>2022-03-24 14:33:09</Entrancedatetime>
+<Exitdatetime i:nil="true" />
+<ParkingTime>10410</ParkingTime>
+<Price>0</Price>
+<TranRef>2203241433090002463</TranRef>
+<licenseplate>3ฒฆ1614</licenseplate>
+</PublicParkingInfo></ParkingInfoList></PublicParkingInfoList>
