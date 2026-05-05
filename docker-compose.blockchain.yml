@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  blockchain:
+    image: diaboliccz/nida-blockchain:latest
+    container_name: nida-blockchain
+    restart: unless-stopped
+    ports:
+      - "${BLOCKCHAIN_PORT:-8545}:8545"
