@@ -3,11 +3,11 @@ import { useHistory } from 'react-router-dom';
 import { useDispatch, useSelector } from "react-redux";
 import { validateAuth } from "../../store/auth/auth.action";
 import { getMember } from '../../store/member/member.action';
-import { useTOR } from '../../global/TORContext';
 import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/register';
 import { searchBuildingEnergy } from '../../core/data_connecter/dashboard';
 import Key from '../../global/key';
 import { buildThreeHourSeries, formatDateLocal, getLatestMeterDate, toNumeric } from '../../utils/energyAnalytics';
+import TORReport from '../../components/TOR/TORReport';
 
 const buildEmptyChartData = (days) => Array.from({ length: days }, (_, index) => ({
     day: `Day ${index + 1}`,
@@ -206,7 +206,6 @@ export default function Report() {
     const history = useHistory();
     const dispatch = useDispatch();
     const memberStore = useSelector((store) => store.member.all);
-    const { showTOR } = useTOR();
     const [timeRange, setTimeRange] = useState('7days');
     const [chartData, setChartData] = useState(buildEmptyChartData(7));
     const [buildingOptions, setBuildingOptions] = useState([]);
@@ -937,30 +936,7 @@ export default function Report() {
             <div className="max-w-7xl mx-auto">
 
                 {/* TOR Requirements Panel */}
-                {showTOR && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-5 mb-6">
-                        <h2 className="text-sm font-bold text-blue-800 mb-4 flex items-center gap-2">
-                            <span>📋</span> TOR Requirements — Report
-                        </h2>
-                        <div className="space-y-4 text-sm text-blue-900">
-                            <div>
-                                <span className="font-bold text-blue-700">7.2.1</span>
-                                <p className="mt-1 leading-relaxed">ติดตั้งระบบเทคโนโลยี Blockchain ใช้งานกับระบบผลิตพลังงานไฟฟ้า</p>
-                                <ul className="mt-2 ml-4 list-disc space-y-1 text-blue-800">
-                                    <li>สามารถดูรายงานสรุปข้อมูลการผลิตไฟฟ้าแยกตาม วัน เดือน ปี ที่กำหนดได้</li>
-                                </ul>
-                            </div>
-                            <div>
-                                <span className="font-bold text-blue-700">7.3.8</span>
-                                <p className="mt-1 leading-relaxed">สามารถแสดงผลการวิเคราะห์ข้อมูล (Energy Data Visualization) บนส่วนแสดงผลข้อมูล (Dashboard) การวิเคราะห์ข้อมูลการผลิตพลังงานไฟฟ้าจากแสงอาทิตย์</p>
-                            </div>
-                            <div>
-                                <span className="font-bold text-blue-700">7.3.9</span>
-                                <p className="mt-1 leading-relaxed">สามารถนำผลการวิเคราะห์ข้อมูลในรูปแบบของรายงานได้ (Summary Report)</p>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                <TORReport />
 
                 {/* Header */}
                 <div className="mb-6 flex items-center justify-between">
@@ -1693,4 +1669,3 @@ export default function Report() {
         </div>
     );
 }
-

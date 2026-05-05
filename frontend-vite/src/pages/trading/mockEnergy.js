@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getMeters, insertRunningLogsBulk, resetEnergyLogs } from '../../core/data_connecter/mockEnergy';
 import * as mockService from '../../core/mockEnergyService';
+import TORHistory from '../../components/TOR/TORHistory';
 
 export default function MockEnergy() {
   const [meters, setMeters] = useState([]);
@@ -173,6 +174,9 @@ export default function MockEnergy() {
   return (
     <div className="max-w-6xl mx-auto p-6 md:p-8 bg-gradient-to-br from-sky-50 via-cyan-50 to-emerald-50 rounded-2xl border border-cyan-100 shadow-lg">
 
+      {/* TOR Requirements Panel */}
+      <TORHistory />
+
       <div className="mb-6 bg-white/80 backdrop-blur rounded-xl border border-cyan-100 p-4 shadow-sm">
         <label className="block text-sm font-semibold text-slate-700">Select meters (multiple)</label>
         <div className="mt-3 overflow-x-auto">
@@ -319,4 +323,3 @@ export default function MockEnergy() {
     </div>
   );
 }
-

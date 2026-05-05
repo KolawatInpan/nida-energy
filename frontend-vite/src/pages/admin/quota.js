@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { getQuotaWarnings } from '../../core/data_connecter/invoice';
+import TORQuota from '../../components/TOR/TORQuota';
 
 function toNumber(value) {
   const numeric = Number(value);
@@ -113,6 +114,7 @@ export default function QuotaWarning() {
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 lg:p-6">
+      <TORQuota />
       <div className="max-w-[1500px] mx-auto">
         <div className="bg-white border border-gray-200 rounded-xl p-4 lg:p-5 shadow-sm mb-4">
           <div className="flex items-start justify-between gap-4">

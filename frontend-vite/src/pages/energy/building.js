@@ -11,6 +11,7 @@ import { ROUTE_PATHS } from '../../routes/routePaths';
 import Key from '../../global/key';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import TORDashboard from '../../components/TOR/TORDashboard';
 
 const formatDateLocal = (date) => {
     const year = date.getFullYear();
@@ -548,6 +549,9 @@ export default function Building() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
             <div className="max-w-7xl mx-auto">
+                {/* TOR Requirements Panel */}
+                <TORDashboard />
+
                 {/* Header and Building Title */}
                 <div className="mb-6 flex items-center gap-4">
                     <button 
@@ -575,45 +579,6 @@ export default function Building() {
                                 maxDate={new Date()}
                             />
                                 </div>
-                                <select 
-                                    value={tradeMode} 
-                                    onChange={(e) => handleTradeModeChange(e.target.value)}
-                                    className="px-3 py-1 bg-white border border-gray-300 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    title="Trading Mode"
-                                >
-                                    <option value="SELF_CONSUME">💡 Self Consume</option>
-                                    <option value="MANUAL">📊 Manual</option>
-                                    <option value="AUTO_BATTERY_THRESHOLD">⚡ Auto Sell</option>
-                                </select>
-                                <select
-                                    value={tradeMode === 'AUTO_BATTERY_THRESHOLD' ? 'battery' : tradeMode === 'SELF_CONSUME' ? 'produce' : tradeMeterType}
-                                    onChange={(e) => setTradeMeterType(e.target.value)}
-                                    disabled={tradeMode !== 'MANUAL'}
-                                    className="px-3 py-1 bg-white border border-gray-300 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
-                                    title="Meter Scope"
-                                >
-                                    <option value="consume">Consume</option>
-                                    <option value="produce">Produce</option>
-                                    <option value="battery">Battery</option>
-                                </select>
-                                {tradeMode === 'AUTO_BATTERY_THRESHOLD' && (
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        max="100"
-                                        value={batterySellThreshold}
-                                        onChange={(e) => setBatterySellThreshold(Number(e.target.value || 0))}
-                                        className="w-24 px-2 py-1 bg-white border border-gray-300 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        title="Auto Sell level (%)"
-                                    />
-                                )}
-                                <button
-                                    onClick={handleSaveTradeSettings}
-                                    disabled={isSavingTrade}
-                                    className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:bg-gray-400 transition-colors"
-                                >
-                                    {isSavingTrade ? 'Saving...' : 'Save'}
-                                </button>
                                 <button
                                     onClick={() => history.push(`/wallet/${encodeURIComponent((building?.name || buildingId || '').toString().toLowerCase())}`)}
                                     className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors flex items-center gap-2"
@@ -622,11 +587,6 @@ export default function Building() {
                                     <span>{walletBalance ?? 0} Token</span>
                                 </button>
                             </div>
-                            {tradeMode === 'AUTO_BATTERY_THRESHOLD' && (
-                                <p className="text-xs text-gray-600 text-right">
-                                    Energy above the threshold is sold automatically.
-                                </p>
-                            )}
                     </div>
                 </div>
 
@@ -999,4 +959,3 @@ export default function Building() {
         </div>
     );
 }
-

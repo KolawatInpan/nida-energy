@@ -13,7 +13,7 @@ export default function TORMeter() {
             </h2>
             <div className="space-y-4 text-sm text-blue-900">
                 <div>
-                    <span className="font-bold text-blue-700">3.1)</span>
+                    <span className="font-bold text-blue-700">7.2.2)</span>
                     <p className="mt-1 leading-relaxed font-semibold">ส่วนของหน่วยบริการประเภทผู้ผลิตไฟฟ้า มีคุณสมบัติอย่างน้อย ดังนี้</p>
                     <ul className="mt-2 ml-4 list-disc space-y-1 text-blue-800">
                         <li>สามารถเชื่อมโยงกับหน่วยผลิตไฟฟ้าผ่าน IOT Gateway ในโครงการ</li>
@@ -23,7 +23,7 @@ export default function TORMeter() {
                     </ul>
                 </div>
                 <div>
-                    <span className="font-bold text-blue-700">3.2)</span>
+                    <span className="font-bold text-blue-700">7.2.3)</span>
                     <p className="mt-1 leading-relaxed font-semibold">ส่วนของหน่วยบริการประเภทผู้ใช้ไฟฟ้า มีคุณสมบัติอย่างน้อย ดังนี้</p>
                     <ul className="mt-2 ml-4 list-disc space-y-1 text-blue-800">
                         <li>สามารถดูรายงานข้อมูลการใช้ไฟฟ้าของหน่วยบริการประเภทผู้ใช้ไฟฟ้า แยกตาม ผู้ใช้ไฟฟ้า วัน เดือน ปี ที่กำหนดได้</li>
@@ -33,7 +33,7 @@ export default function TORMeter() {
                     </ul>
                 </div>
                 <div>
-                    <span className="font-bold text-blue-700">3.3)</span>
+                    <span className="font-bold text-blue-700">7.2.4)</span>
                     <p className="mt-1 leading-relaxed font-semibold">ส่วนของหน่วยบริการคลังแบตเตอรี่สำรองเพื่อจ่ายไฟฟ้า มีคุณสมบัติอย่างน้อย ดังนี้</p>
                     <ul className="mt-2 ml-4 list-disc space-y-1 text-blue-800">
                         <li>สามารถเชื่อมโยงกับหน่วยผลิตไฟฟ้าผ่าน IOT Gateway ในโครงการฯ ได้</li>

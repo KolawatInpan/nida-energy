@@ -8,6 +8,7 @@ import { formatCurrency, formatEntityId, formatToken, formatVerificationStatus, 
 import { normalizeRoleName } from '../../utils/authSession';
 import { calculateQuotaStatus } from '../../utils/walletQuota';
 import { NoBuildingAssignedPage } from '../../components/shared';
+import TORWallet from '../../components/TOR/TORWallet';
 import Key from '../../global/key';
 
 function shortenValue(value, start = 10, end = 8) {
@@ -224,6 +225,7 @@ export default function Wallet() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-yellow-50 p-6">
+      <TORWallet />
       <div className="max-w-7xl mx-auto">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8 pb-6 border-b border-gray-200">

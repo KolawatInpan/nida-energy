@@ -4,6 +4,7 @@ import { getOffers, getBuildingByWalletId } from '../../core/data_connecter/mark
 import { purchaseEnergy } from '../../core/data_connecter/purchase';
 import { getBuildings, getMeters, getMetersByBuilding } from '../../core/data_connecter/register';
 import { getWalletByEmail } from '../../core/data_connecter/wallet';
+import TORSell from '../../components/TOR/TORSell';
 
 export default function Market() {
   const history = useHistory();
@@ -278,6 +279,9 @@ export default function Market() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 p-6">
       <div className="max-w-7xl mx-auto">
+        {/* TOR Requirements Panel */}
+        <TORSell />
+
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-2">Energy Marketplace</h1>
@@ -508,4 +512,3 @@ export default function Market() {
     </div>
   );
 }
-

@@ -12,6 +12,7 @@ import { getWalletByEmail } from '../../core/data_connecter/wallet';
 import { useTOR } from '../../global/TORContext';
 import { TradingOverlay } from './components';
 import Key from '../../global/key';
+import TORSell from '../../components/TOR/TORSell';
 
 export default function EnergySelling() {
     const [bid, setBID] = useState(0);
@@ -1198,6 +1199,7 @@ export default function EnergySelling() {
             totalToken={totalToken}
             canSellFromSelectedBuilding={selectedBuildingOwnedByUser}
             canManualSell={selectedBuildingOwnedByUser && isManualMode}
+            showTradePolicyControls
             tradeMode={tradeMode}
             setTradeMode={handleTradeModeChange}
             batterySellThreshold={batterySellThreshold}
@@ -1220,29 +1222,10 @@ export default function EnergySelling() {
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 200,
-          background: '#eff6ff',
-          border: '1px solid #bfdbfe',
-          borderRadius: 8,
-          padding: '16px 20px',
           width: '560px',
           maxWidth: 'calc(100vw - 440px)',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-          maxHeight: '60vh',
-          overflowY: 'auto',
         }}>
-          <h2 style={{ fontSize: 13, fontWeight: 700, color: '#1e40af', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>📋</span> TOR Requirements — Energy Selling
-          </h2>
-          <div style={{ fontSize: 13, color: '#1e3a8a', display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div>
-              <span style={{ fontWeight: 700, color: '#1d4ed8' }}>7.2.1</span>
-              <p style={{ marginTop: 4, lineHeight: 1.6 }}>ติดตั้งระบบเทคโนโลยี Blockchain ใช้งานกับระบบผลิตพลังงานไฟฟ้า</p>
-            </div>
-            <div>
-              <span style={{ fontWeight: 700, color: '#1d4ed8' }}>3)</span>
-              <p style={{ marginTop: 4, lineHeight: 1.6 }}>ระบบบริหารจัดการซื้อ ขาย ไฟฟ้า มีคุณสมบัติอย่างน้อย ดังนี้</p>
-            </div>
-          </div>
+              <TORSell />
         </div>
       )}
 
@@ -1289,4 +1272,3 @@ export default function EnergySelling() {
     </div>
   );
 }
-

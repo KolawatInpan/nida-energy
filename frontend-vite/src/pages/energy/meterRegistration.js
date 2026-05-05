@@ -8,6 +8,7 @@ import {
   registerWallet,
 } from '../../core/data_connecter/register';
 import { useTOR } from '../../global/TORContext';
+import TORRegister from '../../components/TOR/TORRegister';
 
 const REGISTRATION_MODES = {
   USER_ONLY: 'user-only',
@@ -15,6 +16,45 @@ const REGISTRATION_MODES = {
   FULL: 'full',
   METER_ONLY: 'meter-only',
 };
+
+const BUILDING_PRESETS = [
+  {
+    id: 'ratchaphruek',
+    label: 'Ratchaphruek',
+    name: 'Ratchaphruek Building',
+    address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi',
+    city: 'Bangkok',
+    postalCode: '10240',
+    mapUrl: 'https://maps.app.goo.gl/TGTXyK34yCovJinC7'
+  },
+  {
+    id: 'malai',
+    label: 'Malai',
+    name: 'Malai Building',
+    address: 'สถาบันบัณฑิตพัฒนบริหารศาสตร์ นิด้า 118, อาคารมาลัยหุวะนันท์ ชั้น 1',
+    city: 'Bangkok',
+    postalCode: '10240',
+    mapUrl: 'https://maps.app.goo.gl/Z18Qw8KoDC6rZNcV6'
+  },
+  {
+    id: 'auditorium',
+    label: 'Auditorium',
+    name: 'Auditorium Building',
+    address: '148 ถนนเสรีไทย แขวงคลองจั่น เขตบางกะปิ',
+    city: 'Bangkok',
+    postalCode: '10240',
+    mapUrl: 'https://maps.google.com/?q=13.771579509456485,100.65443996963269'
+  },
+  {
+    id: 'nidasumpan',
+    label: 'Nida Sumpan',
+    name: 'Nida Sumpan Building',
+    address: '148 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi',
+    city: 'Bangkok',
+    postalCode: '10240',
+    mapUrl: 'https://maps.app.goo.gl/Fhtz7rWTBYtvmqZN9'
+  }
+];
 
 const INITIAL_FORM = {
   contactName: '',
@@ -98,6 +138,31 @@ export default function MeterRegistration() {
     });
   };
   const handleCheckboxChange = (field) => setFormData((prev) => ({ ...prev, [field]: !prev[field] }));
+
+  const handleApplyPreset = (preset) => {
+    setFormData((prev) => ({
+      ...prev,
+      buildingName: preset.name,
+      address: preset.address,
+      city: preset.city,
+      postalCode: preset.postalCode,
+      googleMapsUrl: preset.mapUrl,
+    }));
+  };
+
+  const handleAddStandardMeters = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const prefix = formData.buildingName ? formData.buildingName.replace(/ /g, '').substring(0, 3).toUpperCase() : 'MTR';
+    const rand = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    setFormData((prev) => ({
+      ...prev,
+      meters: [
+        { serviceType: 'producer', meterSNID: `${prefix}-PRD-${rand}`, capacity: '30', dateInstalled: today },
+        { serviceType: 'consumer', meterSNID: `${prefix}-CON-${rand}`, capacity: '100', dateInstalled: today },
+        { serviceType: 'battery', meterSNID: `${prefix}-BAT-${rand}`, capacity: '50', dateInstalled: today },
+      ],
+    }));
+  };
 
   const needsBuildingSection = registrationMode === REGISTRATION_MODES.BUILDING_ONLY || registrationMode === REGISTRATION_MODES.FULL || registrationMode === REGISTRATION_MODES.METER_ONLY;
   const needsUserSection = registrationMode === REGISTRATION_MODES.USER_ONLY || registrationMode === REGISTRATION_MODES.FULL;
@@ -302,6 +367,7 @@ export default function MeterRegistration() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <TORRegister />
       <div className="mx-auto max-w-4xl p-6 lg:p-12">
         <div className="mb-6 flex flex-col gap-2">
           <h1 className="text-2xl font-bold">Registration Portal</h1>
@@ -437,6 +503,21 @@ export default function MeterRegistration() {
 
           {needsBuildingSection && registrationMode !== REGISTRATION_MODES.METER_ONLY ? (
             <SectionCard title="Building / Organization Information" icon="🏢">
+              <div className="mb-2">
+                <label className="mb-2 block text-sm font-medium text-gray-700">Quick Fill (Presets)</label>
+                <div className="flex flex-wrap gap-2">
+                  {BUILDING_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => handleApplyPreset(preset)}
+                      className="rounded border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">Building Name *</label>
                 <input
@@ -582,9 +663,14 @@ export default function MeterRegistration() {
                   </div>
                 </div>
               ))}
-              <button type="button" onClick={handleAddMeter} className="rounded bg-blue-100 text-blue-700 px-4 py-2 font-semibold hover:bg-blue-200">
-                + เพิ่ม Meter
-              </button>
+              <div className="flex flex-wrap gap-3 mt-2">
+                <button type="button" onClick={handleAddMeter} className="rounded bg-blue-100 text-blue-700 px-4 py-2 text-sm font-semibold hover:bg-blue-200 transition-colors">
+                  + Add Single Meter
+                </button>
+                <button type="button" onClick={handleAddStandardMeters} className="rounded border border-green-200 bg-green-50 text-green-700 px-4 py-2 text-sm font-semibold hover:bg-green-100 flex items-center gap-1 transition-colors">
+                  <span>⚡</span> Auto-fill Standard 3 Meters (Produce, Consume, Battery)
+                </button>
+              </div>
             </SectionCard>
           ) : null}
 
@@ -670,4 +756,3 @@ export default function MeterRegistration() {
     </div>
   );
 }
-
