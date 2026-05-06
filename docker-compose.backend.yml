@@ -1,8 +1,9 @@
-version: '3.8'
-
 services:
   backend:
-    image: diaboliccz/nida-backend:latest
+    image: nida-backend:latest
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: nida-backend
     restart: unless-stopped
     environment:
@@ -21,3 +22,13 @@ services:
       ETH_VERIFICATION_CONTRACT_ADDRESS: ${ETH_VERIFICATION_CONTRACT_ADDRESS:-}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
+
+  blockchain:
+    image: nida-blockchain:latest
+    build:
+      context: ./blockchain
+      dockerfile: Dockerfile
+    container_name: nida-blockchain
+    restart: unless-stopped
+    ports:
+      - "${BLOCKCHAIN_PORT:-8545}:8545"
