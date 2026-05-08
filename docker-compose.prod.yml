@@ -38,7 +38,7 @@ services:
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
 
   prisma:
-    image: diaboliccz/nida-database:latest
+    image: nida-database:latest
     container_name: nida-prisma
     restart: unless-stopped
     depends_on:
@@ -50,14 +50,14 @@ services:
       - "5555:5555"
 
   blockchain:
-    image: diaboliccz/nida-blockchain:latest
+    image: nida-blockchain:latest
     container_name: nida-blockchain
     restart: unless-stopped
     ports:
       - "${BLOCKCHAIN_PORT:-8545}:8545"
 
   backend:
-    image: diaboliccz/nida-backend:latest
+    image: nida-backend:latest
     container_name: nida-backend
     restart: unless-stopped
     depends_on:
@@ -83,7 +83,7 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
 
   frontend:
-    image: diaboliccz/nida-frontend-vite:latest
+    image: nida-frontend-vite:latest
     container_name: nida-frontend
     restart: unless-stopped
     depends_on:

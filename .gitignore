@@ -7,3 +7,4 @@
 /usecaseDiagram/
 /blockchain/node_modules
 .env
+/legacy

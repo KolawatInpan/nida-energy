@@ -6,6 +6,8 @@ import TORMeter from '../../components/TOR/TORMeter';
 import { getHourlyEnergyByMeter, getDailyEnergyByMeter, getMeters, getMeterBySnid } from '../../core/data_connecter/register';
 import { getEnergyRates } from '../../core/data_connecter/rate';
 import { buildHourlyTrend, buildTrailingDailyTrend, buildXAxisLabels, formatLocalDate } from '../../utils/meterAnalytics';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
 const slugify = (name) => {
     if (!name) return '';
@@ -135,6 +137,8 @@ export default function Meter() {
     const [allMeters, setAllMeters] = useState([]);
     const [selectedBuildingName, setSelectedBuildingName] = useState('');
     const [trendMode, setTrendMode] = useState('today');
+    const [customDateRange, setCustomDateRange] = useState([null, null]);
+    const [startDate, endDate] = customDateRange;
     const [hourlyTrend, setHourlyTrend] = useState({
         labels: Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`),
         values: Array(24).fill(0),
@@ -183,6 +187,9 @@ export default function Meter() {
         }
         if (mode === 'month') {
             return buildTrailingDailyTrend([], 30, now);
+        }
+        if (mode === 'custom') {
+            return { labels: [], values: [], maxValue: 0, total: 0, peak: 0 };
         }
         return buildHourlyTrend([]);
     };
@@ -376,7 +383,89 @@ export default function Meter() {
                 let nextTrend = buildEmptyTrendForMode(trendMode, anchorDate);
                 const energyMeterId = String(meter?.raw?.snid || meter?.id || meterId || '');
 
-                if (trendMode === 'week' || trendMode === 'month') {
+                if (trendMode === 'custom') {
+                    if (startDate && endDate) {
+                        const startMonth = startDate.getMonth() + 1;
+                        const startYear = startDate.getFullYear();
+                        const endMonth = endDate.getMonth() + 1;
+                        const endYear = endDate.getFullYear();
+
+                        const monthsToFetch = [];
+                        let currY = startYear;
+                        let currM = startMonth;
+                        while (currY < endYear || (currY === endYear && currM <= endMonth)) {
+                            monthsToFetch.push({ year: currY, month: currM });
+                            currM++;
+                            if (currM > 12) {
+                                currM = 1;
+                                currY++;
+                            }
+                        }
+
+                        const allRows = await Promise.all(
+                            monthsToFetch.map(async ({ year, month }) => {
+                                const rows = await getDailyEnergyByMeter(energyMeterId, month, year).catch(()=>[]);
+                                return { year, month, rows };
+                            })
+                        );
+
+                        const points = [];
+                        let currDate = new Date(startDate);
+                        currDate.setHours(0,0,0,0);
+                        const endDateZero = new Date(endDate);
+                        endDateZero.setHours(0,0,0,0);
+
+                        while (currDate <= endDateZero) {
+                            const d = currDate.getDate();
+                            const m = currDate.getMonth() + 1;
+                            const y = currDate.getFullYear();
+
+                            const monthData = allRows.find(r => r.year === y && r.month === m);
+                            const latestRow = Array.isArray(monthData?.rows) && monthData.rows.length > 0 ? monthData.rows[0] : null;
+                            const val = Number(latestRow?.days?.[`d${d}`] || 0);
+
+                            points.push({
+                                label: `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`,
+                                value: val,
+                                date: new Date(currDate)
+                            });
+                            currDate.setDate(currDate.getDate() + 1);
+                        }
+
+                        const labels = points.map(p => p.label);
+                        const values = points.map(p => p.value);
+                        const total = values.reduce((s, v) => s + v, 0);
+                        const maxValue = Math.max(...values, 0);
+                        const peak = Math.max(...values, 0);
+                        nextTrend = { labels, values, maxValue, total, peak };
+
+                        if (!hasMeaningfulTrendData(nextTrend)) {
+                            const diffDaysCalc = Math.ceil((endDateZero.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                            if (diffDaysCalc <= 31) {
+                                 const hourlyPoints = [];
+                                 for (const p of points) {
+                                     const dateLabel = formatLocalDate(p.date);
+                                     const hRows = await getHourlyEnergyByMeter(energyMeterId, dateLabel).catch(() => []);
+                                     const hourly = buildHourlyTrend(Array.isArray(hRows) ? hRows : []);
+                                     hourlyPoints.push(Number(hourly.total || 0));
+                                 }
+                                 const hValues = hourlyPoints;
+                                 const hTotal = hValues.reduce((s, v) => s + v, 0);
+                                 nextTrend = {
+                                     labels: points.map(p => p.label),
+                                     values: hValues,
+                                     maxValue: Math.max(...hValues, 0),
+                                     total: hTotal,
+                                     peak: Math.max(...hValues, 0)
+                                 };
+                            }
+                        }
+                    } else {
+                        if (!mounted) return;
+                        setHourlyTrend({ labels: [], values: [], maxValue: 0, total: 0, peak: 0 });
+                        return;
+                    }
+                } else if (trendMode === 'week' || trendMode === 'month') {
                     const currentMonth = anchorDate.getMonth() + 1;
                     const currentYear = anchorDate.getFullYear();
                     const previousDate = new Date(anchorDate);
@@ -423,7 +512,7 @@ export default function Meter() {
 
         loadTrend();
         return () => { mounted = false; };
-    }, [meter?.id, trendMode]);
+    }, [meter?.id, trendMode, startDate, endDate]);
 
     const buildingOptions = useMemo(() => {
         const seen = new Set();
@@ -452,7 +541,26 @@ export default function Meter() {
     const yAxisLabels = [yAxisMax, yAxisStep * 2, yAxisStep, 0].map((value) => Math.round(value * 100) / 100);
     const trendPath = buildTrendPath(trendChart.values);
     const areaPath = buildAreaPath(trendChart.values);
-    const xAxisLabels = buildXAxisLabels(trendChart.labels, trendMode);
+    let xAxisLabels = buildXAxisLabels(trendChart.labels, trendMode);
+    if (trendMode === 'custom') {
+        const totalLabels = trendChart.labels.length;
+        if (totalLabels <= 7 && totalLabels > 0) {
+            xAxisLabels = trendChart.labels.map((label, index) => ({
+                label,
+                x: 30 + (index * (770 / Math.max(totalLabels - 1, 1))),
+                index
+            }));
+        } else if (totalLabels > 0) {
+            const step = Math.ceil(totalLabels / 7);
+            xAxisLabels = [];
+            for (let i = 0; i < totalLabels; i += step) {
+                xAxisLabels.push({ label: trendChart.labels[i], x: 30 + (i * (770 / (totalLabels - 1))), index: i });
+            }
+            if (xAxisLabels[xAxisLabels.length - 1].index !== totalLabels - 1) {
+                xAxisLabels.push({ label: trendChart.labels[totalLabels - 1], x: 800, index: totalLabels - 1 });
+            }
+        }
+    }
     const rawMeter = meter?.raw || {};
     const activePanel = new URLSearchParams(location.search).get('panel') || '';
     const isGridPanel = activePanel === 'grid';
@@ -495,7 +603,7 @@ export default function Meter() {
     const latestEnergyRate = Number(energyRates?.[0]?.rate ?? energyRates?.[0]?.value ?? 3.85);
     const gridImportedTotal = Number(trendChart.total || 0);
     const estimatedGridCost = gridImportedTotal * latestEnergyRate;
-    const timeframeLabel = trendMode === 'month' ? '30 Days' : trendMode === 'week' ? '7 Days' : 'Today';
+    const timeframeLabel = trendMode === 'month' ? '30 Days' : trendMode === 'week' ? '7 Days' : trendMode === 'custom' ? 'Custom Range' : 'Today';
     const trendTitle = isGridPanel ? 'Real-time Grid Import Trend' : 'Real-time Production Trend';
     const trendSubtitle = isGridPanel
         ? 'Energy drawn from the utility grid'
@@ -599,6 +707,27 @@ export default function Meter() {
                     >
                         Back to Dashboard
                     </button>
+                    <button
+                        type="button"
+                        onClick={() => setTrendMode('custom')}
+                        className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${trendMode === 'custom' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                    >
+                        Custom
+                    </button>
+                    {trendMode === 'custom' && (
+                        <div className="ml-2 flex items-center">
+                            <DatePicker
+                                selectsRange={true}
+                                startDate={startDate}
+                                endDate={endDate}
+                                maxDate={new Date()}
+                                onChange={(update) => setCustomDateRange(update)}
+                                isClearable={true}
+                                placeholderText="Select date range"
+                                className="px-2 py-1 text-xs border border-gray-300 rounded w-48"
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -1196,4 +1325,3 @@ export default function Meter() {
         </div>
     );
 }
-

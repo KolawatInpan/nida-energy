@@ -46,7 +46,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-admin123}@db:5432/${POSTGRES_DB:-energy_trading}?schema=public}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:admin123@db:5432/energy_trading?schema=public}
     ports:
       - "5555:5555"
 
@@ -79,8 +79,8 @@ services:
       SECRET_KEY: ${SECRET_KEY:-dev-only-secret-change-me}
       RUN_PRISMA_MIGRATE: ${RUN_PRISMA_MIGRATE:-false}
       DEFAULT_DATA_MODE: ${DEFAULT_DATA_MODE:-real}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-admin123}@db:5432/${POSTGRES_DB:-energy_trading}?schema=public}
-      DATABASE_URL_DEMO: ${DATABASE_URL_DEMO:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-admin123}@db:5432/${POSTGRES_DB_DEMO:-energy_trading_demo}?schema=public}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:admin123@db:5432/energy_trading?schema=public}
+      DATABASE_URL_DEMO: ${DATABASE_URL_DEMO:-postgresql://postgres:admin123@db:5432/energy_trading_demo?schema=public}
       ETH_RPC_URL: ${ETH_RPC_URL:-http://blockchain:8545}
       ETH_PRIVATE_KEY: ${ETH_PRIVATE_KEY:-}
       ETH_CHAIN_ID: ${ETH_CHAIN_ID:-31337}
