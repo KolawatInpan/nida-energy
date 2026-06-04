@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useDispatch, useSelector } from "react-redux";
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import { validateAuth } from "../../store/auth/auth.action";
 import { getMember } from '../../store/member/member.action';
 import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/register';
@@ -16,11 +18,10 @@ const buildEmptyChartData = (days) => Array.from({ length: days }, (_, index) =>
     batterySoC: 0,
 }));
 
+// Backend uses LOWER() for comparison — case is irrelevant
+// Send the exact name from getBuildings() (which is the Building.name, same as MeterInfo.buildingName via FK)
 const normalizeBackendBuildingName = (name) => {
-    const bname = (name || '').toString().toLowerCase();
-    if (bname === 'nidasumpan') return 'nidasumpun';
-    if (bname === 'narathip') return 'naradhip';
-    return bname;
+    return (name || '').toString().trim();
 };
 
 const slugify = (name) => String(name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
@@ -46,6 +47,10 @@ const describeArc = (cx, cy, radius, startAngle, endAngle) => {
         'A', radius, radius, 0, largeArcFlag, 0, end.x, end.y,
         'Z',
     ].join(' ');
+};
+
+const diamondPoints = (cx, cy, size) => {
+    return `${cx},${cy - size} ${cx + size},${cy} ${cx},${cy + size} ${cx - size},${cy}`;
 };
 
 const downloadBlobFile = (content, filename, mimeType) => {
@@ -81,7 +86,12 @@ const getMemberInitials = (member) => {
     return parts.slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 };
 
-const getDaysForRange = (range) => (range === '7days' ? 7 : range === '30days' ? 30 : 90);
+const getDaysForRange = (range, customStart, customEnd) => {
+  if (range === 'custom' && customStart && customEnd) {
+    return Math.max(1, Math.ceil((customEnd - customStart) / (1000 * 60 * 60 * 24)) + 1);
+  }
+  return range === '7days' ? 7 : range === '30days' ? 30 : 90;
+};
 
 // Export functions
 const exportToExcel = () => {
@@ -202,11 +212,16 @@ const exportToPDF = () => {
     printWindow.document.close();
 };
 
+// Color palette for per-building chart lines
+const BUILDING_COLORS = ['#22c55e','#ef4444','#3b82f6','#f97316','#8b5cf6','#ec4899','#14b8a6','#eab308','#06b6d4','#f43f5e'];
+
 export default function Report() {
     const history = useHistory();
     const dispatch = useDispatch();
     const memberStore = useSelector((store) => store.member.all);
     const [timeRange, setTimeRange] = useState('7days');
+    const [customDateRange, setCustomDateRange] = useState([null, null]);
+    const [customStart, customEnd] = customDateRange;
     const [chartData, setChartData] = useState(buildEmptyChartData(7));
     const [buildingOptions, setBuildingOptions] = useState([]);
     const [buildingStats, setBuildingStats] = useState({});
@@ -215,6 +230,9 @@ export default function Report() {
     const [compareWithoutBattery, setCompareWithoutBattery] = useState('');
     const [comparisonCharts, setComparisonCharts] = useState({});
     const [member, setMember] = useState(DEFAULT_MEMBER);
+    const [selectedBuildings, setSelectedBuildings] = useState([]); // empty = all
+    const [perBuildingChart, setPerBuildingChart] = useState({}); // { buildingName: [{day,pvProduction,consumption}] }
+    const [chartToggle, setChartToggle] = useState({ showProduce: true, showConsume: true, showSoC: true });
 
     useEffect(() => {
         dispatch(validateAuth());
@@ -238,10 +256,11 @@ export default function Report() {
     useEffect(() => {
         const fetchReportMetrics = async () => {
             try {
-                const days = getDaysForRange(timeRange);
-                const endDate = new Date();
-                const startDate = new Date(endDate);
-                startDate.setDate(startDate.getDate() - (days - 1));
+                const isCustom = timeRange === 'custom' && customStart && customEnd;
+                const days = getDaysForRange(timeRange, customStart, customEnd);
+                const endDate = isCustom ? new Date(customEnd) : new Date();
+                const startDate = isCustom ? new Date(customStart) : new Date(endDate);
+                if (!isCustom) startDate.setDate(startDate.getDate() - (days - 1));
                 const start = formatDateLocal(startDate);
                 const end = formatDateLocal(endDate);
 
@@ -272,6 +291,7 @@ export default function Report() {
                     try {
                         const eres = await searchBuildingEnergy({
                             building: backendName,
+                            buildingId: b.id,
                             start,
                             end,
                             timeunit: 'day'
@@ -326,15 +346,16 @@ export default function Report() {
         };
 
         fetchReportMetrics();
-    }, [timeRange, compareWithBattery, compareWithoutBattery]);
+    }, [timeRange, compareWithBattery, compareWithoutBattery, customStart, customEnd]);
 
     useEffect(() => {
         const fetchChartData = async () => {
             try {
-                const days = getDaysForRange(timeRange);
-                const endDate = new Date();
-                const startDate = new Date(endDate);
-                startDate.setDate(startDate.getDate() - (days - 1));
+                const isCustom = timeRange === 'custom' && customStart && customEnd;
+                const days = getDaysForRange(timeRange, customStart, customEnd);
+                const endDate = isCustom ? new Date(customEnd) : new Date();
+                const startDate = isCustom ? new Date(customStart) : new Date(endDate);
+                if (!isCustom) startDate.setDate(startDate.getDate() - (days - 1));
                 const start = formatDateLocal(startDate);
                 const end = formatDateLocal(endDate);
 
@@ -346,15 +367,68 @@ export default function Report() {
                     return;
                 }
 
+                const labels = Array.from({ length: days }, (_, index) => {
+                    const date = new Date(startDate);
+                    date.setDate(startDate.getDate() + index);
+                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                });
+
+                console.log('[report] Buildings from API:', buildings.map(b => b?.name));
                 const energyResponses = await Promise.all(
-                    buildings.map((building) =>
-                        searchBuildingEnergy({
-                            building: normalizeBackendBuildingName(building?.name),
-                            start,
-                            end,
-                            timeunit: 'day',
-                        }).catch(() => null)
-                    )
+                    buildings.map(async (building) => {
+                        const backendName = normalizeBackendBuildingName(building?.name);
+                        const buildingId = building?.id || null;
+                        console.log(`[report:agg] Fetching "${building?.name}" → backend "${backendName}" id=${buildingId}`);
+                        try {
+                            let res = await searchBuildingEnergy({
+                                building: backendName,
+                                buildingId,
+                                start,
+                                end,
+                                timeunit: 'day',
+                            });
+                            let payload = res?.data || {};
+                            console.log(`[report:agg] "${building?.name}" daily response keys:`, Object.keys(payload), 'result:', payload?.result);
+                            let pv = Array.isArray(payload?.production?.value) ? payload.production.value : [];
+                            let con = Array.isArray(payload?.consumption?.value) ? payload.consumption.value : [];
+
+                            // Fallback: aggregate from hourly if daily is empty
+                            if (pv.length === 0 && con.length === 0) {
+                                console.log(`[report:agg] "${building?.name}" daily empty → trying hourly`);
+                                res = await searchBuildingEnergy({
+                                    building: backendName,
+                                    buildingId,
+                                    start,
+                                    end,
+                                    timeunit: 'hour',
+                                }).catch(() => null);
+                                payload = res?.data || {};
+                                const hpv = Array.isArray(payload?.production?.value) ? payload.production.value : [];
+                                const hcon = Array.isArray(payload?.consumption?.value) ? payload.consumption.value : [];
+                                const hdates = Array.isArray(payload?.production?.datetime) ? payload.production.datetime : [];
+
+                                // Aggregate hourly → daily
+                                const dailyMap = {};
+                                labels.forEach((l) => { dailyMap[l] = { pv: 0, con: 0 }; });
+                                hdates.forEach((dt, i) => {
+                                    const d = new Date(dt);
+                                    const dayLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                                    if (dailyMap[dayLabel] !== undefined) {
+                                        dailyMap[dayLabel].pv += toNumeric(hpv[i]);
+                                        dailyMap[dayLabel].con += toNumeric(hcon[i]);
+                                    }
+                                });
+                                pv = labels.map((l) => dailyMap[l].pv);
+                                con = labels.map((l) => dailyMap[l].con);
+                                // Wrap in expected format
+                                payload = { ...payload, production: { value: pv }, consumption: { value: con } };
+                            }
+                            return { data: payload };
+                        } catch (e) {
+                            console.error(`[report:agg] "${building?.name}" fetch error:`, e.message);
+                            return null;
+                        }
+                    })
                 );
 
                 const batteryRows = await Promise.all(
@@ -377,19 +451,17 @@ export default function Report() {
                     ? batteryValues.reduce((sum, value) => sum + toNumeric(value), 0) / batteryValues.length
                     : 0;
 
-                const labels = Array.from({ length: days }, (_, index) => {
-                    const date = new Date(startDate);
-                    date.setDate(startDate.getDate() + index);
-                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                });
-
                 const productionMap = new Map(labels.map((label) => [label, 0]));
                 const consumptionMap = new Map(labels.map((label) => [label, 0]));
 
-                energyResponses.forEach((response) => {
+                energyResponses.forEach((response, idx) => {
                     const payload = response?.data || {};
+                    const buildingName = payload?.building || buildings[idx]?.name || `unknown-${idx}`;
                     const productionValues = Array.isArray(payload?.production?.value) ? payload.production.value : [];
                     const consumptionValues = Array.isArray(payload?.consumption?.value) ? payload.consumption.value : [];
+                    const pvSum = productionValues.reduce((s, v) => s + toNumeric(v), 0);
+                    const conSum = consumptionValues.reduce((s, v) => s + toNumeric(v), 0);
+                    console.log(`[report:agg] "${buildingName}" → prod=${pvSum} kWh, cons=${conSum} kWh, pvLen=${productionValues.length}`);
 
                     labels.forEach((label, index) => {
                         productionMap.set(label, toNumeric(productionMap.get(label)) + toNumeric(productionValues[index]));
@@ -405,12 +477,189 @@ export default function Report() {
                 })));
             } catch (error) {
                 console.error('Failed to load report chart data:', error);
-                setChartData(buildEmptyChartData(getDaysForRange(timeRange)));
+                setChartData(buildEmptyChartData(getDaysForRange(timeRange, customStart, customEnd)));
             }
         };
 
         fetchChartData();
-    }, [timeRange]);
+    }, [timeRange, customStart, customEnd]);
+
+    // Fetch per-building chart data when buildings are selected
+    useEffect(() => {
+        if (!selectedBuildings.length) {
+            setPerBuildingChart({});
+            return;
+        }
+
+        const fetchPerBuilding = async () => {
+            const isCustom = timeRange === 'custom' && customStart && customEnd;
+            const days = getDaysForRange(timeRange, customStart, customEnd);
+            const endDate = isCustom ? new Date(customEnd) : new Date();
+            const startDate = isCustom ? new Date(customStart) : new Date(endDate);
+            if (!isCustom) startDate.setDate(startDate.getDate() - (days - 1));
+            const start = formatDateLocal(startDate);
+            const end = formatDateLocal(endDate);
+
+            // Get buildings to resolve IDs from names
+            const bres = await getBuildings();
+            const buildings = Array.isArray(bres) ? bres : (bres?.data || bres?.buildings || []);
+            const nameToId = {};
+            buildings.forEach((b) => { if (b?.name && b?.id) nameToId[b.name] = b.id; });
+            console.log('[report] nameToId map:', nameToId);
+            console.log('[report] selectedBuildings:', selectedBuildings);
+
+            const labels = Array.from({ length: days }, (_, index) => {
+                const date = new Date(startDate);
+                date.setDate(startDate.getDate() + index);
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            });
+
+            const result = {};
+
+            const entries = await Promise.all(
+                selectedBuildings.map(async (buildingName) => {
+                    const backendName = normalizeBackendBuildingName(buildingName);
+                    const buildingId = nameToId[buildingName] || null;
+                    console.log(`[report] Fetching building "${buildingName}" → backend "${backendName}" id=${buildingId}`);
+                    try {
+                        // Try daily data first
+                        let res = await searchBuildingEnergy({
+                            building: backendName,
+                            buildingId,
+                            start,
+                            end,
+                            timeunit: 'day',
+                        });
+                        let payload = res?.data || {};
+                        console.log(`[report] "${buildingName}" daily response keys:`, Object.keys(payload));
+                        let pv = Array.isArray(payload?.production?.value) ? payload.production.value : [];
+                        let con = Array.isArray(payload?.consumption?.value) ? payload.consumption.value : [];
+
+                        // Fallback: if daily data is empty, aggregate from hourly
+                        if (pv.length === 0 && con.length === 0) {
+                            console.log(`[report] "${buildingName}" daily empty → trying hourly fallback`);
+                            res = await searchBuildingEnergy({
+                                building: backendName,
+                                buildingId,
+                                start,
+                                end,
+                                timeunit: 'hour',
+                            }).catch(() => null);
+                            payload = res?.data || {};
+                            const hpv = Array.isArray(payload?.production?.value) ? payload.production.value : [];
+                            const hcon = Array.isArray(payload?.consumption?.value) ? payload.consumption.value : [];
+                            const hdates = Array.isArray(payload?.production?.datetime) ? payload.production.datetime : [];
+
+                            // Aggregate hourly into daily buckets
+                            const dailyMap = {};
+                            labels.forEach((l) => { dailyMap[l] = { pv: 0, con: 0 }; });
+                            hdates.forEach((dt, i) => {
+                                const d = new Date(dt);
+                                const dayLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                                if (dailyMap[dayLabel] !== undefined) {
+                                    dailyMap[dayLabel].pv += toNumeric(hpv[i]);
+                                    dailyMap[dayLabel].con += toNumeric(hcon[i]);
+                                }
+                            });
+                            pv = labels.map((l) => dailyMap[l].pv);
+                            con = labels.map((l) => dailyMap[l].con);
+                        }
+
+                        const pvSum = pv.reduce((s, v) => s + toNumeric(v), 0);
+                        const conSum = con.reduce((s, v) => s + toNumeric(v), 0);
+
+                        // === Battery SoC: forward-accumulated from EARLIEST available data ===
+                        // Query from far-past date to accumulate the FULL SoC history,
+                        // not just within the selected time frame.
+                        let batteryPct = null;
+                        let batterySoCSeries = null;
+                        let hasBattery = false;
+                        let bCap = 0;
+                        if (buildingId) {
+                            try {
+                                const metersRes = await getMetersByBuilding(buildingId);
+                                const meters = Array.isArray(metersRes) ? metersRes : (metersRes?.data || []);
+                                const batteryMeter = meters.find(hasBatteryMeter);
+                                if (batteryMeter) {
+                                    hasBattery = true;
+                                    const bVal = toNumeric(batteryMeter?.value ?? batteryMeter?.kwh ?? 0);
+                                    bCap = toNumeric(batteryMeter?.capacity ?? 0);
+                                    batteryPct = bCap > 0 ? Math.max(0, Math.min(100, Math.round((bVal / bCap) * 100))) : null;
+
+                                    // Query from far-past date to get FULL accumulation
+                                    const farPast = '2024-01-01'; // earliest possible data
+                                    const batFlowRes = await searchBuildingEnergy({
+                                        building: backendName,
+                                        buildingId,
+                                        start: farPast,
+                                        end,
+                                        timeunit: 'day',
+                                    }).catch(() => null);
+                                    const batPayload = batFlowRes?.data || {};
+                                    const batFlowDates = Array.isArray(batPayload?.battery?.datetime) ? batPayload.battery.datetime : [];
+                                    const batFlowVals = Array.isArray(batPayload?.battery?.value) ? batPayload.battery.value : [];
+
+                                    // Forward accumulate from earliest data
+                                    const fullMap = {}; // date string -> accumulated SoC%
+                                    if (bCap > 0 && batFlowVals.length > 0) {
+                                        let soc = 0;
+                                        for (let i = 0; i < batFlowDates.length; i++) {
+                                            const dt = batFlowDates[i];
+                                            const flowKwh = toNumeric(batFlowVals[i] || 0);
+                                            soc += (flowKwh / bCap) * 100;
+                                            soc = Math.min(100, Math.max(0, soc));
+                                            // Store the accumulated SoC at this date
+                                            fullMap[dt.substring(0, 10)] = Math.round(soc);
+                                        }
+                                    }
+
+                                    // Map accumulated SoC to chart labels
+                                    batterySoCSeries = labels.map((label) => {
+                                        // labels are "MMM DD" format. Need to map to "YYYY-MM-DD"
+                                        // Find the matching accumulated SoC by date proximity
+                                        // Simple: iterate fullMap entries that match this label
+                                        const monthNames = { Jan:1, Feb:2, Mar:3, Apr:4, May:5, Jun:6, Jul:7, Aug:8, Sep:9, Oct:10, Nov:11, Dec:12 };
+                                        const parts = label.split(' ');
+                                        const m = monthNames[parts[0]];
+                                        const d = parseInt(parts[1]);
+                                        if (!m || !d) return null;
+                                        // Try current year first, then previous year
+                                        for (const yr of [2026, 2025]) {
+                                            const key = `${yr}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                                            if (fullMap[key] !== undefined) return fullMap[key];
+                                        }
+                                        return null;
+                                    });
+                                }
+                            } catch (e) {
+                                console.warn(`[report] "${buildingName}" battery fetch failed:`, e.message);
+                            }
+                        }
+                        console.log(`[report] "${buildingName}" result: pv=${pvSum} con=${conSum} batterySoC=${batteryPct}%${hasBattery ? ` accumulated=${batterySoCSeries?.[0]}→${batterySoCSeries?.[labels.length-1]}%` : ''}`);
+
+                        return [buildingName, {
+                            data: labels.map((label, i) => ({
+                                day: label,
+                                pvProduction: toNumeric(pv[i]),
+                                consumption: toNumeric(con[i]),
+                                batterySoC: hasBattery && batterySoCSeries ? batterySoCSeries[i] : null, // forward accumulated
+                            })),
+                            hasBattery,
+                            batterySoC: batteryPct,
+                        }];
+                    } catch (e) {
+                        console.error(`[report] "${buildingName}" fetch error:`, e.message || e);
+                        return [buildingName, buildEmptyChartData(days)];
+                    }
+                })
+            );
+
+            entries.forEach(([name, data]) => { result[name] = data; });
+            setPerBuildingChart(result);
+        };
+
+        fetchPerBuilding();
+    }, [selectedBuildings, timeRange, customStart, customEnd]);
 
     useEffect(() => {
         const fetchComparisonCharts = async () => {
@@ -714,219 +963,132 @@ export default function Report() {
         );
     };
 
-    // SVG Chart Component
-    const EnergyChart = ({ data }) => {
-        const width = 800;
+    // SVG Chart Component — supports multi-building series
+    const EnergyChart = ({ data, series = [], showBattery = true, showProduce = true, showConsume = true, showSoC = true }) => {
+        const hasSeries = series.length > 0;
+        const sampleData = hasSeries ? series[0].data : data;
+        const dataLen = Math.max(sampleData.length, 1);
+        const width = 880;
         const height = 400;
-        const padding = { top: 20, right: 60, bottom: 40, left: 60 };
+        const padding = { top: 20, right: 140, bottom: 40, left: 60 };
         const chartWidth = width - padding.left - padding.right;
         const chartHeight = height - padding.top - padding.bottom;
 
-        // Calculate scales
-        const maxEnergy = 450;
-        const minEnergy = 0;
-        const maxSoC = 70;
-        const minSoC = 45;
+        // Dynamic scale from actual data
+        const allValues = hasSeries
+            ? series.flatMap((s) => s.data.flatMap((d) => [toNumeric(d.pvProduction), toNumeric(d.consumption)]))
+            : data.flatMap((d) => [toNumeric(d.pvProduction), toNumeric(d.consumption)]);
+        const maxVal = Math.max(10, ...allValues);
+        const roundedMax = Math.ceil(maxVal / 100) * 100;
 
-        const xScale = (index) => padding.left + (index / (data.length - 1)) * chartWidth;
-        const yScaleEnergy = (value) => padding.top + chartHeight - ((value - minEnergy) / (maxEnergy - minEnergy)) * chartHeight;
-        const yScaleSoC = (value) => padding.top + chartHeight - ((value - minSoC) / (maxSoC - minSoC)) * chartHeight;
+        const maxSoC = hasSeries ? 100 : 70;
+        const minSoC = hasSeries ? 0 : 45;
 
-        // Create path strings
-        const createPath = (dataKey, scale) => {
-            return data.map((d, i) => {
+        const xScale = (index) => padding.left + (index / (dataLen - 1)) * chartWidth;
+        const yScaleEnergy = (value) => padding.top + chartHeight - (toNumeric(value) / roundedMax) * chartHeight;
+        const yScaleSoC = (value) => padding.top + chartHeight - ((toNumeric(value) - minSoC) / (maxSoC - minSoC)) * chartHeight;
+
+        const createPath = (dataArr, key, scale) => {
+            return dataArr.map((d, i) => {
                 const x = xScale(i);
-                const y = scale(d[dataKey]);
+                const y = scale(d[key]);
                 return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
             }).join(' ');
         };
 
-        const pvPath = createPath('pvProduction', yScaleEnergy);
-        const consumptionPath = createPath('consumption', yScaleEnergy);
-        const batteryPath = createPath('batterySoC', yScaleSoC);
-
-        // Create fill area for PV Production
-        const pvFillPath = pvPath + ` L ${xScale(data.length - 1)} ${padding.top + chartHeight} L ${padding.left} ${padding.top + chartHeight} Z`;
+        const gridLines = [0, 1, 2, 3, 4];
+        const yTicks = gridLines.map((i) => Math.round((roundedMax / 4) * i));
 
         return (
             <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
                 {/* Grid lines */}
-                {[0, 1, 2, 3, 4].map((i) => {
+                {gridLines.map((i) => {
                     const y = padding.top + (i * chartHeight / 4);
                     return (
-                        <line
-                            key={`grid-${i}`}
-                            x1={padding.left}
-                            y1={y}
-                            x2={padding.left + chartWidth}
-                            y2={y}
-                            stroke="#e5e7eb"
-                            strokeWidth="1"
-                        />
+                        <line key={`grid-${i}`} x1={padding.left} y1={y} x2={padding.left + chartWidth} y2={y} stroke="#e5e7eb" strokeWidth="1" />
                     );
                 })}
 
-                {/* Fill area for PV Production */}
-                <path
-                    d={pvFillPath}
-                    fill="rgba(34, 197, 94, 0.1)"
-                    stroke="none"
-                />
-
-                {/* PV Production line (green) */}
-                <path
-                    d={pvPath}
-                    fill="none"
-                    stroke="#22c55e"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                />
-
-                {/* Consumption line (red) */}
-                <path
-                    d={consumptionPath}
-                    fill="none"
-                    stroke="#ef4444"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                />
-
-                {/* Battery SoC line (orange dotted) */}
-                <path
-                    d={batteryPath}
-                    fill="none"
-                    stroke="#f97316"
-                    strokeWidth="2.5"
-                    strokeDasharray="8,4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                />
-
-                {/* Data points for PV Production */}
-                {data.map((d, i) => (
-                    <circle
-                        key={`pv-${i}`}
-                        cx={xScale(i)}
-                        cy={yScaleEnergy(d.pvProduction)}
-                        r="4"
-                        fill="#22c55e"
-                        stroke="white"
-                        strokeWidth="2"
-                    />
-                ))}
-
-                {/* Data points for Consumption */}
-                {data.map((d, i) => (
-                    <circle
-                        key={`con-${i}`}
-                        cx={xScale(i)}
-                        cy={yScaleEnergy(d.consumption)}
-                        r="4"
-                        fill="#ef4444"
-                        stroke="white"
-                        strokeWidth="2"
-                    />
-                ))}
-
-                {/* Data points for Battery SoC */}
-                {data.map((d, i) => (
-                    <circle
-                        key={`bat-${i}`}
-                        cx={xScale(i)}
-                        cy={yScaleSoC(d.batterySoC)}
-                        r="4"
-                        fill="#f97316"
-                        stroke="white"
-                        strokeWidth="2"
-                    />
-                ))}
+                {!hasSeries ? (
+                    <>
+                        {/* AGGREGATED VIEW */}
+                        {showProduce && <>
+                            <path d={createPath(data, 'pvProduction', yScaleEnergy) + ` L ${xScale(data.length - 1)} ${padding.top + chartHeight} L ${padding.left} ${padding.top + chartHeight} Z`} fill="rgba(34, 197, 94, 0.1)" stroke="none" />
+                            <path d={createPath(data, 'pvProduction', yScaleEnergy)} fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                        </>}
+                        {showConsume && <path d={createPath(data, 'consumption', yScaleEnergy)} fill="none" stroke="#ef4444" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />}
+                        {showProduce && data.map((d, i) => (
+                            <circle key={`pv-${i}`} cx={xScale(i)} cy={yScaleEnergy(d.pvProduction)} r="4" fill="#22c55e" stroke="white" strokeWidth="2" />
+                        ))}
+                        {showConsume && data.map((d, i) => (
+                            <circle key={`con-${i}`} cx={xScale(i)} cy={yScaleEnergy(d.consumption)} r="4" fill="#ef4444" stroke="white" strokeWidth="2" />
+                        ))}
+                    </>
+                ) : (
+                    <>
+                        {/* PER-BUILDING VIEW — PV production (solid) + consumption (dashed) + battery SoC (dotted) */}
+                        {series.map((s, si) => {
+                            const col = BUILDING_COLORS[si % BUILDING_COLORS.length];
+                            const hasBat = s.hasBattery === true;
+                            const validBatSoC = hasBat && s.data.some(d => d.batterySoC != null);
+                            return (
+                                <g key={`series-${si}`}>
+                                    {/* PV Production - solid line */}
+                                    {showProduce && <path d={createPath(s.data, 'pvProduction', yScaleEnergy)} fill="none" stroke={col} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+                                    {/* Consumption - dashed line */}
+                                    {showConsume && <path d={createPath(s.data, 'consumption', yScaleEnergy)} fill="none" stroke={col} strokeWidth="2" strokeDasharray="6,3" strokeLinecap="round" strokeLinejoin="round" />}
+                                    {/* Battery SoC - dotted line (clearly distinct from solid/dashed Produce/Consume) */}
+                                    {validBatSoC && showSoC && (
+                                        <path d={createPath(s.data, 'batterySoC', yScaleSoC)} fill="none" stroke={col} strokeWidth="4" strokeDasharray="1,6" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
+                                    )}
+                                    {/* Data points */}
+                                    {showProduce && s.data.map((d, i) => (
+                                        <circle key={`s${si}-pv-${i}`} cx={xScale(i)} cy={yScaleEnergy(d.pvProduction)} r="3" fill={col} stroke="white" strokeWidth="1.5" />
+                                    ))}
+                                    {showConsume && s.data.map((d, i) => (
+                                        <circle key={`s${si}-con-${i}`} cx={xScale(i)} cy={yScaleEnergy(d.consumption)} r="3" fill="white" stroke={col} strokeWidth="1.5" />
+                                    ))}
+                                    {/* Battery SoC diamonds + label */}
+                                    {validBatSoC && showSoC && (
+                                        <>
+                                            {s.data.map((d, i) => d.batterySoC != null && (
+                                                <polygon key={`s${si}-bat-${i}`} points={diamondPoints(xScale(i), yScaleSoC(d.batterySoC), 3.5)} fill={col} stroke="white" strokeWidth="1" />
+                                            ))}
+                                            {s.data[s.data.length - 1]?.batterySoC != null && (
+                                                <text x={xScale(s.data.length - 1) + 8} y={yScaleSoC(s.data[s.data.length - 1].batterySoC)} fill={col} fontSize="9" dominantBaseline="middle" fontWeight="bold">
+                                                    SoC {Math.round(s.data[s.data.length - 1].batterySoC)}%
+                                                </text>
+                                            )}
+                                        </>
+                                    )}
+                                </g>
+                            );
+                        })}
+                    </>
+                )}
 
                 {/* Y-axis labels (left - Energy) */}
-                {[0, 100, 200, 300, 400].map((value, i) => (
-                    <text
-                        key={`y-energy-${i}`}
-                        x={padding.left - 10}
-                        y={yScaleEnergy(value)}
-                        textAnchor="end"
-                        fontSize="12"
-                        fill="#6b7280"
-                        dominantBaseline="middle"
-                    >
-                        {value}
-                    </text>
+                {yTicks.map((value, i) => (
+                    <text key={`y-energy-${i}`} x={padding.left - 10} y={yScaleEnergy(value)} textAnchor="end" fontSize="12" fill="#6b7280" dominantBaseline="middle">{value}</text>
                 ))}
 
-                {/* Y-axis labels (right - Battery SoC) */}
-                {[46, 50, 55, 60, 65].map((value, i) => (
-                    <text
-                        key={`y-soc-${i}`}
-                        x={padding.left + chartWidth + 10}
-                        y={yScaleSoC(value)}
-                        textAnchor="start"
-                        fontSize="12"
-                        fill="#6b7280"
-                        dominantBaseline="middle"
-                    >
-                        {value}
-                    </text>
+                {/* Y-axis labels (right - Battery SoC) — aggregated mode has fixed 45-70 range, per-building has 0-100 */}
+                {showSoC && hasSeries && series.some(s => s.hasBattery) && [0, 25, 50, 75, 100].map((value, i) => (
+                    <text key={`y-soc-${i}`} x={padding.left + chartWidth + 35} y={yScaleSoC(value)} textAnchor="start" fontSize="12" fill="#f97316" fontWeight="500" dominantBaseline="middle">{value}</text>
                 ))}
 
                 {/* X-axis labels */}
-                {data.map((d, i) => {
-                    // Show fewer labels for longer time ranges
-                    const showLabel = data.length <= 7 ? true : i % Math.ceil(data.length / 7) === 0;
+                {sampleData.map((d, i) => {
+                    const showLabel = dataLen <= 7 ? true : i % Math.ceil(dataLen / 7) === 0;
                     if (!showLabel) return null;
                     return (
-                        <text
-                            key={`x-${i}`}
-                            x={xScale(i)}
-                            y={padding.top + chartHeight + 25}
-                            textAnchor="middle"
-                            fontSize="12"
-                            fill="#6b7280"
-                        >
-                            {d.day}
-                        </text>
+                        <text key={`x-${i}`} x={xScale(i)} y={padding.top + chartHeight + 25} textAnchor="middle" fontSize="12" fill="#6b7280">{d.day}</text>
                     );
                 })}
 
-                {/* Y-axis label (left) */}
-                <text
-                    x={padding.left - 45}
-                    y={padding.top + chartHeight / 2}
-                    textAnchor="middle"
-                    fontSize="12"
-                    fill="#6b7280"
-                    transform={`rotate(-90 ${padding.left - 45} ${padding.top + chartHeight / 2})`}
-                >
-                    Energy (kWH)
-                </text>
-
-                {/* Y-axis label (right) */}
-                <text
-                    x={padding.left + chartWidth + 45}
-                    y={padding.top + chartHeight / 2}
-                    textAnchor="middle"
-                    fontSize="12"
-                    fill="#6b7280"
-                    transform={`rotate(90 ${padding.left + chartWidth + 45} ${padding.top + chartHeight / 2})`}
-                >
-                    Battery SoC (%)
-                </text>
-
-                {/* X-axis label */}
-                <text
-                    x={padding.left + chartWidth / 2}
-                    y={height - 5}
-                    textAnchor="middle"
-                    fontSize="13"
-                    fill="#6b7280"
-                    fontWeight="500"
-                >
-                    Timeline
-                </text>
+                <text x={padding.left - 45} y={padding.top + chartHeight / 2} textAnchor="middle" fontSize="12" fill="#6b7280" transform={`rotate(-90 ${padding.left - 45} ${padding.top + chartHeight / 2})`}>Energy (kWH)</text>
+                {showSoC && hasSeries && series.some(s => s.hasBattery) && <text x={padding.left + chartWidth + 100} y={padding.top + chartHeight / 2} textAnchor="middle" fontSize="12" fill="#f97316" fontWeight="600" transform={`rotate(90 ${padding.left + chartWidth + 100} ${padding.top + chartHeight / 2})`}>State of Charge (SoC) (%)</text>}
+                <text x={padding.left + chartWidth / 2} y={height - 5} textAnchor="middle" fontSize="13" fill="#6b7280" fontWeight="500">Timeline</text>
             </svg>
         );
     };
@@ -1009,32 +1171,158 @@ export default function Report() {
                             >
                                 90 Days
                             </button>
-                            <button className="px-4 py-2 rounded-lg font-semibold text-sm bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex items-center gap-2">
+                            <button
+                                onClick={() => setTimeRange('custom')}
+                                className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors flex items-center gap-2 ${
+                                    timeRange === 'custom'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                }`}
+                            >
                                 <span>📅</span>
                                 <span>Custom</span>
                             </button>
+                            {timeRange === 'custom' && (
+                                <DatePicker
+                                    selectsRange={true}
+                                    startDate={customStart}
+                                    endDate={customEnd}
+                                    maxDate={new Date()}
+                                    onChange={(update) => { setCustomDateRange(update); }}
+                                    isClearable={true}
+                                    placeholderText="Select date range"
+                                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg w-56"
+                                />
+                            )}
                         </div>
                     </div>
 
                     {/* Legend */}
-                    <div className="flex items-center gap-6 mb-4 justify-center">
-                        <div className="flex items-center gap-2">
-                            <div className="w-4 h-1 bg-green-500 rounded"></div>
-                            <span className="text-sm text-gray-700 font-medium">PV Production (kWH)</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <div className="w-4 h-1 bg-red-500 rounded"></div>
-                            <span className="text-sm text-gray-700 font-medium">Consumption (kWH)</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <div className="w-4 h-1 border-2 border-dashed border-orange-500 rounded"></div>
-                            <span className="text-sm text-gray-700 font-medium">Battery SoC (%)</span>
-                        </div>
+                    <div className="flex items-center gap-6 mb-4 justify-center flex-wrap">
+                        {selectedBuildings.length === 0 ? (
+                            <>
+                                <div className={`flex items-center gap-2 transition-opacity ${chartToggle.showProduce ? 'opacity-100' : 'opacity-30'}`}>
+                                    <div className="w-4 h-1 bg-green-500 rounded"></div>
+                                    <span className="text-sm text-gray-700 font-medium">PV Production (kWH)</span>
+                                </div>
+                                <div className={`flex items-center gap-2 transition-opacity ${chartToggle.showConsume ? 'opacity-100' : 'opacity-30'}`}>
+                                    <div className="w-4 h-1 bg-red-500 rounded"></div>
+                                    <span className="text-sm text-gray-700 font-medium">Consumption (kWH)</span>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                {selectedBuildings.map((name, idx) => {
+                                    const col = BUILDING_COLORS[idx % BUILDING_COLORS.length];
+                                    const entry = perBuildingChart[name] || {};
+                                    const hasBat = entry.hasBattery === true;
+                                    return (
+                                        <div key={`leg-${name}`} className="flex items-center gap-2">
+                                            <div className={`w-4 h-1 rounded transition-opacity ${chartToggle.showProduce ? 'opacity-100' : 'opacity-30'}`} style={{ backgroundColor: col }}></div>
+                                            <span className={`text-xs font-medium transition-opacity ${chartToggle.showProduce ? 'text-gray-700 opacity-100' : 'text-gray-400 opacity-30'}`}>{name} (Produce)</span>
+                                            <div className={`w-4 h-1 rounded border-2 border-dashed transition-opacity ${chartToggle.showConsume ? 'opacity-100' : 'opacity-30'}`} style={{ borderColor: col, backgroundColor: 'transparent' }}></div>
+                                            <span className={`text-xs font-medium transition-opacity ${chartToggle.showConsume ? 'text-gray-700 opacity-100' : 'text-gray-400 opacity-30'}`}>(Consume)</span>
+                                            {hasBat && (
+                                                <span className={`text-xs ml-1 flex items-center gap-1 transition-opacity ${chartToggle.showSoC ? 'text-gray-500 opacity-100' : 'text-gray-300 opacity-30'}`}>
+                                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[6px] font-bold border" style={{ borderColor: col, color: col, backgroundColor: `${col}15` }}>SoC</span>
+                                                    <span>State of Charge (SoC) <span style={{ color: col }}>{entry.batterySoC ?? '?'}%</span></span>
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </>
+                        )}
+                    </div>
+
+                    {/* Building filter toggle */}
+                    <div className="flex items-center gap-2 mb-4 justify-center flex-wrap">
+                        <button
+                            onClick={() => setSelectedBuildings([])}
+                            className={`px-3 py-1.5 rounded-lg font-semibold text-xs transition-colors ${selectedBuildings.length === 0 ? 'bg-blue-600 text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                        >
+                            🌐 All Buildings
+                        </button>
+                        {buildingOptions.map((name) => {
+                            const active = selectedBuildings.includes(name);
+                            return (
+                                <button
+                                    key={`bld-${name}`}
+                                    onClick={() => {
+                                        if (active) {
+                                            const next = selectedBuildings.filter((n) => n !== name);
+                                            setSelectedBuildings(next);
+                                        } else {
+                                            setSelectedBuildings([...selectedBuildings, name]);
+                                        }
+                                    }}
+                                    className={`px-3 py-1.5 rounded-lg font-semibold text-xs transition-colors ${active ? 'bg-blue-600 text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                >
+                                    🏢 {name}
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Data Toggle Filters */}
+                    <div className="flex items-center gap-3 mb-4 justify-center flex-wrap">
+                        <span className="text-xs text-gray-500 font-medium mr-1">Show:</span>
+                        <button
+                            onClick={() => setChartToggle(prev => ({ ...prev, showProduce: !prev.showProduce }))}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                                chartToggle.showProduce
+                                    ? 'bg-green-50 border-green-400 text-green-700 shadow-sm'
+                                    : 'bg-gray-50 border-gray-200 text-gray-400'
+                            }`}
+                        >
+                            <span className={`w-2 h-2 rounded-full ${chartToggle.showProduce ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                            Produce
+                        </button>
+                        <button
+                            onClick={() => setChartToggle(prev => ({ ...prev, showConsume: !prev.showConsume }))}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                                chartToggle.showConsume
+                                    ? 'bg-red-50 border-red-400 text-red-700 shadow-sm'
+                                    : 'bg-gray-50 border-gray-200 text-gray-400'
+                            }`}
+                        >
+                            <span className={`w-2 h-2 rounded-full ${chartToggle.showConsume ? 'bg-red-500' : 'bg-gray-300'}`}></span>
+                            Consume
+                        </button>
+                        <button
+                            onClick={() => setChartToggle(prev => ({ ...prev, showSoC: !prev.showSoC }))}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                                chartToggle.showSoC
+                                    ? 'bg-orange-50 border-orange-400 text-orange-700 shadow-sm'
+                                    : 'bg-gray-50 border-gray-200 text-gray-400'
+                            }`}
+                        >
+                            <span className={`w-2 h-2 rounded-full ${chartToggle.showSoC ? 'bg-orange-500' : 'bg-gray-300'}`}></span>
+                            State of Charge (SoC)
+                        </button>
                     </div>
 
                     {/* Chart */}
                     <div className="w-full overflow-x-auto">
-                        <EnergyChart data={chartData} />
+                        <EnergyChart
+                            data={chartData}
+                            series={selectedBuildings.length > 0
+                                ? selectedBuildings.map((name) => {
+                                    const entry = perBuildingChart[name] || { data: buildEmptyChartData(getDaysForRange(timeRange, customStart, customEnd)), hasBattery: false, batterySoC: null };
+                                    return {
+                                        name,
+                                        data: entry.data || entry, // entry could be old format (array) or new format ({data,hasBattery,batterySoC})
+                                        hasBattery: entry.hasBattery === true,
+                                        batterySoC: entry.batterySoC != null ? entry.batterySoC : null,
+                                    };
+                                })
+                                : []
+                            }
+                            showBattery={selectedBuildings.length === 0}
+                            showProduce={chartToggle.showProduce}
+                            showConsume={chartToggle.showConsume}
+                            showSoC={chartToggle.showSoC}
+                        />
                     </div>
                 </div>
 

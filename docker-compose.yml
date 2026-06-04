@@ -3,6 +3,9 @@ services:
     image: postgres:16-alpine
     container_name: nida-db
     restart: unless-stopped
+    profiles: ["data", "fullnode"]
+    env_file:
+      - .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-energy_trading}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -21,6 +24,9 @@ services:
     image: dpage/pgadmin4:9
     container_name: nida-pgadmin
     restart: unless-stopped
+    profiles: ["data", "fullnode"]
+    env_file:
+      - .env
     depends_on:
       db:
         condition: service_healthy
@@ -36,12 +42,15 @@ services:
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
 
   prisma:
-    image: nida-database:latest
+    image: diaboliccz/nida-database:latest
     build:
       context: ./database
       dockerfile: Dockerfile
     container_name: nida-prisma
     restart: unless-stopped
+    profiles: ["data", "fullnode"]
+    env_file:
+      - .env
     depends_on:
       db:
         condition: service_healthy
@@ -51,25 +60,30 @@ services:
       - "5555:5555"
 
   blockchain:
-    image: nida-blockchain:latest
+    image: diaboliccz/nida-blockchain:latest
     build:
       context: ./blockchain
       dockerfile: Dockerfile
     container_name: nida-blockchain
     restart: unless-stopped
+    profiles: ["node", "fullnode"]
+    env_file:
+      - .env
     ports:
       - "${BLOCKCHAIN_PORT:-8545}:8545"
 
   backend:
-    image: nida-backend:latest
+    image: diaboliccz/nida-backend:latest
     build:
       context: .
       dockerfile: backend/Dockerfile
+    pull_policy: always
     container_name: nida-backend
     restart: unless-stopped
+    profiles: ["node", "fullnode"]
+    env_file:
+      - .env
     depends_on:
-      db:
-        condition: service_healthy
       blockchain:
         condition: service_started
     environment:
@@ -86,31 +100,24 @@ services:
       ETH_CHAIN_ID: ${ETH_CHAIN_ID:-31337}
       ETH_EXPLORER_BASE_URL: ${ETH_EXPLORER_BASE_URL:-}
       ETH_VERIFICATION_CONTRACT_ADDRESS: ${ETH_VERIFICATION_CONTRACT_ADDRESS:-}
+      GMAIL_USER: ${GMAIL_USER:-}
+      GMAIL_PASS: ${GMAIL_PASS:-}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
 
   frontend:
-    image: nida-frontend:latest
+    image: diaboliccz/nida-frontend:latest
     build:
-      context: .
-      dockerfile: frontend-vite/Dockerfile
-      args:
-        REACT_APP_MOCKUPMODE: ${REACT_APP_MOCKUPMODE:-false}
-        REACT_APP_APPAPI: ${REACT_APP_APPAPI:-http://localhost:8000/api}
-        REACT_APP_API: ${REACT_APP_API:-http://localhost:8000/api/}
-        REACT_APP_API_BASE: ${REACT_APP_API_BASE:-http://localhost:8000/api}
-        REACT_APP_APIURL: ${REACT_APP_APIURL:-http://localhost:8000/api/users}
-        REACT_APP_DATAAPI: ${REACT_APP_DATAAPI:-}
-        REACT_APP_MONGOAPI: ${REACT_APP_MONGOAPI:-}
-        REACT_APP_IOCCMDAPI: ${REACT_APP_IOCCMDAPI:-}
-        REACT_APP_FOCUSAPI: ${REACT_APP_FOCUSAPI:-}
-        REACT_APP_SPHINXAPI: ${REACT_APP_SPHINXAPI:-}
-        REACT_APP_PARKINGAPI: ${REACT_APP_PARKINGAPI:-}
-        REACT_APP_PARKINGURL: ${REACT_APP_PARKINGURL:-}
+      context: ./frontend-vite
+      dockerfile: Dockerfile
+    pull_policy: always
     container_name: nida-frontend
     restart: unless-stopped
-    depends_on:
-      - backend
+    profiles: ["proxy"]
+    env_file:
+      - .env
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://localhost:8000/api}
     ports:
       - "${FRONTEND_PORT:-3000}:80"
 

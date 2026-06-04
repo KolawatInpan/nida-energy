@@ -2,7 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { Button, TextField } from "@material-ui/core";
 import { useHistory } from "react-router-dom";
-import { login, validateAuth } from "../../store/auth/auth.action";
+import { login, loginAdmin, validateAuth } from "../../store/auth/auth.action";
+import { adminQuickRegister } from "../../core/data_connecter/register";
 
 const featureItems = [
     ["Smart Energy Priority", "Automatically prioritize solar, battery, then grid power for maximum savings"],
@@ -18,6 +19,36 @@ const LoginPage = () => {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [isCompact, setIsCompact] = useState(() => window.innerWidth < 960);
+    const [showAdminLogin, setShowAdminLogin] = useState(false);
+    const [quickCreateLoading, setQuickCreateLoading] = useState(null);
+
+    const BUILDING_PRESETS = [
+        { id: 'ratchaphruek', name: 'Ratchaphruek', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/TGTXyK34yCovJinC7' },
+        { id: 'malai', name: 'Malai', address: 'สถาบันบัณฑิตพัฒนบริหารศาสตร์ นิด้า 118, อาคารมาลัยหุวะนันท์ ชั้น 1', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Z18Qw8KoDC6rZNcV6' },
+        { id: 'auditorium', name: 'Auditorium', address: '148 ถนนเสรีไทย แขวงคลองจั่น เขตบางกะปิ', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=13.771579509456485,100.65443996963269' },
+        { id: 'nidasumpan', name: 'Nida Sumpan', address: '148 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Fhtz7rWTBYtvmqZN9' },
+    ];
+
+    const handleQuickCreate = async (preset, idx) => {
+        const emails = ['nida1@nida.com', 'nida2@nida.com', 'nida3@nida.com', 'nida4@nida.com'];
+        setQuickCreateLoading(preset.id);
+        try {
+            await adminQuickRegister({
+                buildingName: preset.name,
+                email: emails[idx],
+                password: 'nida123',
+                address: preset.address,
+                city: preset.city,
+                postalCode: preset.postalCode,
+                mapUrl: preset.mapUrl,
+            });
+            alert(`✅ Created: ${preset.name}\nEmail: ${emails[idx]} / Password: nida123`);
+        } catch (err) {
+            alert(`❌ ${preset.name}: ${err?.response?.data?.error || err.message}`);
+        } finally {
+            setQuickCreateLoading(null);
+        }
+    };
 
     useEffect(() => {
         dispatch(validateAuth());
@@ -31,10 +62,17 @@ const LoginPage = () => {
 
     const loginHandler = (event) => {
         event.preventDefault();
-        dispatch(login({ email: email.trim(), password }, () => {
-            dispatch(validateAuth());
-            history.replace("/");
-        }));
+        if (showAdminLogin) {
+            dispatch(loginAdmin({ password }, () => {
+                dispatch(validateAuth());
+                history.replace("/");
+            }));
+        } else {
+            dispatch(login({ email: email.trim(), password }, () => {
+                dispatch(validateAuth());
+                history.replace("/");
+            }));
+        }
     };
 
     return (
@@ -103,9 +141,9 @@ const LoginPage = () => {
                             ⚡
                         </div>
                         <div>
-                            <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1 }}>LEMS</div>
+                            <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1 }}>Nida Blockchain Platform</div>
                             <div style={{ marginTop: 6, fontSize: 15, color: "rgba(255,255,255,0.88)" }}>
-                                Local Energy Management System
+                                Local Energy Management System with Blockchain
                             </div>
                         </div>
                     </div>
@@ -180,6 +218,7 @@ const LoginPage = () => {
                     </div>
 
                     <form onSubmit={loginHandler} noValidate style={{ display: "grid", gap: 18 }}>
+                        {!showAdminLogin && (
                         <TextField
                             value={email}
                             onChange={(event) => setEmail(event.target.value)}
@@ -190,9 +229,9 @@ const LoginPage = () => {
                             label="Email or Username"
                             name="email"
                             autoComplete="email"
-                            autoFocus
-                            placeholder="Enter your email or username"
+                            placeholder="Enter your email"
                         />
+                        )}
                         <TextField
                             value={password}
                             onChange={(event) => setPassword(event.target.value)}
@@ -218,7 +257,7 @@ const LoginPage = () => {
                             type="submit"
                             fullWidth
                             variant="contained"
-                            disabled={!email.trim() || !password || authStore?.loading}
+                            disabled={(!showAdminLogin && !email.trim()) || !password || authStore?.loading}
                             style={{
                                 height: 50,
                                 borderRadius: 14,
@@ -230,8 +269,26 @@ const LoginPage = () => {
                                 boxShadow: "0 12px 28px rgba(45,125,210,0.24)",
                             }}
                         >
-                            {authStore?.loading ? "Logging in..." : "LOG IN  →"}
+                            {authStore?.loading ? "Logging in..." : showAdminLogin ? "LOGIN AS ADMIN  →" : "LOG IN  →"}
                         </Button>
+
+                        <button
+                            type="button"
+                            onClick={() => { setShowAdminLogin(!showAdminLogin); setEmail(''); setPassword(''); }}
+                            style={{
+                                width: "100%",
+                                height: 44,
+                                borderRadius: 12,
+                                border: "2px solid #d97706",
+                                background: showAdminLogin ? "#fef3c7" : "#ffffff",
+                                color: "#d97706",
+                                fontSize: 14,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                            }}
+                        >
+                            {showAdminLogin ? "⬅ Back to Normal Login" : "🔑 Login as Admin"}
+                        </button>
                     </form>
 
                     <div style={{

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const EnergyController = require('./energy.controller');
+const EnergyController = require('./energy.service');
 
 /**
  * @openapi

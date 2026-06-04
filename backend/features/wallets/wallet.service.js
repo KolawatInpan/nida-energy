@@ -1,3 +1,4 @@
+const { prisma } = require('../../utils/prisma');
 const Building = require('../building/building.model');
 const Transaction = require('../transactions/transaction.model');
 const Wallet = require('./wallet.model');
@@ -74,8 +75,21 @@ async function topupWalletByEmail(email, amount, snid) {
   }
 
   const updatedWallet = await Wallet.addBalance(email, numericAmount, 1);
+  
+  // Find building name: first by email, then by wallet's user relation
   const buildings = await Building.getBuildingByEmail(email);
-  const buildingName = Array.isArray(buildings) && buildings.length ? buildings[0].name : null;
+  let buildingName = (Array.isArray(buildings) && buildings.length && buildings[0]?.name) || null;
+  if (!buildingName) {
+    try {
+      const userWithBuildings = await prisma.user.findUnique({
+        where: { email },
+        include: { buildings: { select: { name: true } } },
+      });
+      if (userWithBuildings?.buildings?.length) {
+        buildingName = userWithBuildings.buildings[0].name;
+      }
+    } catch (e) { /* ignore */ }
+  }
 
   const tx = await Transaction.createTransaction({
     walletId: wallet.id,

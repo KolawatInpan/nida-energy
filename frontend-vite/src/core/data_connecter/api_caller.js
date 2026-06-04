@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getApiBase } from './apiBase';
 import XMLParser from 'react-xml-parser';
 const mockup = true
 
@@ -516,7 +517,7 @@ export function getBuildingEnergy(param) {
             })
         return res
     } else {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const res = axios.get(`${base}/energy/buildings`, { params: param })
             .then(ress => {
                 return ress;
@@ -530,10 +531,10 @@ export function getBuildingEnergy(param) {
 }
 
 export function getAllTransactions() {
-    const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
-    return axios.get(`${base}/transactions`)
-        .then(ress => ress)
-        .catch(err => { console.error('getAllTransactions error', err); return err; });
+    const base = getApiBase();
+    return axios.get(`${base}/transactions`, { timeout: 15000 })
+        .then(res => Array.isArray(res.data) ? res.data : (res.data?.data || []))
+        .catch(err => { console.error('getAllTransactions error', err?.message || err); return []; });
 }
 
 // Env page
@@ -626,23 +627,3 @@ export function getFlDetailData(param) {
     }
     //return res 
 }
-
-/**
- * Create a new energy offer (POST /api/offers)
- * @param {Object} offer - The offer data { sellerWalletId, kwh, ratePerKwh }
- * @returns {Promise} Axios promise
- */
-export function createOffer(offer) {
-    const apiBase = process.env.REACT_APP_API_BASE || 'http://localhost:8000/api';
-    const res = axios.post(apiBase + "/offers", offer)
-        .then(ress => {
-            console.log('createOffer response:', ress);
-            return ress;
-        })
-        .catch(error => {
-            console.error('createOffer error:', error);
-            return error;
-        });
-    return res;
-}
-

@@ -1,8 +1,10 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:16
     container_name: nida-db-dev
     restart: unless-stopped
+    env_file:
+      - .env.dev
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-energy_trading}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -21,6 +23,8 @@ services:
     image: dpage/pgadmin4:9
     container_name: nida-pgadmin-dev
     restart: unless-stopped
+    env_file:
+      - .env.dev
     depends_on:
       db:
         condition: service_healthy
@@ -36,6 +40,8 @@ services:
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
 
   prisma:
+    env_file:
+      - .env.dev
     build:
       context: ./database
       dockerfile: Dockerfile
@@ -55,6 +61,8 @@ services:
       dockerfile: Dockerfile.dev
     container_name: nida-blockchain-dev
     restart: unless-stopped
+    env_file:
+      - .env.dev
     command: sh -c "npm install && npx hardhat node --hostname 0.0.0.0"
     ports:
       - "${BLOCKCHAIN_PORT:-8545}:8545"
@@ -76,7 +84,6 @@ services:
     environment:
       NODE_ENV: development
       PORT: 8000
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       SECRET_KEY: ${SECRET_KEY:-dev-only-secret-change-me}
       RUN_PRISMA_MIGRATE: ${RUN_PRISMA_MIGRATE:-false}
       DEFAULT_DATA_MODE: ${DEFAULT_DATA_MODE:-real}
@@ -88,6 +95,11 @@ services:
       ETH_EXPLORER_BASE_URL: ${ETH_EXPLORER_BASE_URL:-}
       ETH_VERIFICATION_CONTRACT_ADDRESS: ${ETH_VERIFICATION_CONTRACT_ADDRESS:-}
       CHOKIDAR_USEPOLLING: "true"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    env_file:
+      - .env.dev
     command: sh -c "npm install --legacy-peer-deps --no-audit --no-fund && ./node_modules/.bin/prisma db push --accept-data-loss --schema=./prisma/schema.prisma && ./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma && ./node_modules/.bin/nodemon -L --watch . --ext js,json --exec 'node server.js'"
     ports:
       - "${BACKEND_PORT:-8000}:8000"
@@ -102,6 +114,8 @@ services:
       dockerfile: Dockerfile.dev
     container_name: nida-frontend-dev
     restart: unless-stopped
+    env_file:
+      - .env.dev
     depends_on:
       - backend
     environment:
@@ -110,19 +124,10 @@ services:
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
       WDS_SOCKET_PORT: 3000
+      BACKEND_URL: http://localhost:8000/api/
       REACT_APP_MOCKUPMODE: ${REACT_APP_MOCKUPMODE:-false}
-      REACT_APP_APPAPI: ${REACT_APP_APPAPI:-http://localhost:8000/api}
-      REACT_APP_API: ${REACT_APP_API:-http://localhost:8000/api/}
-      REACT_APP_API_BASE: ${REACT_APP_API_BASE:-http://localhost:8000/api}
-      REACT_APP_APIURL: ${REACT_APP_APIURL:-http://localhost:8000/api/users}
-      REACT_APP_DATAAPI: ${REACT_APP_DATAAPI:-}
-      REACT_APP_MONGOAPI: ${REACT_APP_MONGOAPI:-}
-      REACT_APP_IOCCMDAPI: ${REACT_APP_IOCCMDAPI:-}
-      REACT_APP_FOCUSAPI: ${REACT_APP_FOCUSAPI:-}
-      REACT_APP_SPHINXAPI: ${REACT_APP_SPHINXAPI:-}
-      REACT_APP_PARKINGAPI: ${REACT_APP_PARKINGAPI:-}
-      REACT_APP_PARKINGURL: ${REACT_APP_PARKINGURL:-}
-      REACT_APP_DEFAULT_DATA_MODE: ${DEFAULT_DATA_MODE:-real}
+      REACT_APP_ENABLE_STRIPE: ${REACT_APP_ENABLE_STRIPE:-false}
+      REACT_APP_STRIPE_PUBLIC_KEY: ${REACT_APP_STRIPE_PUBLIC_KEY:-}
     command: sh -c "npm install --legacy-peer-deps --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 3000"
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
@@ -136,3 +141,9 @@ volumes:
   frontend_node_modules:
   postgres_data_dev:
   pgadmin_data_dev:
+
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1350

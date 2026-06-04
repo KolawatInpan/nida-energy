@@ -6,17 +6,32 @@ export function toSafeNumber(value) {
 export function formatToken(value, options = {}) {
   const numeric = toSafeNumber(value);
   return numeric.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
     ...options,
   });
+}
+
+export function formatTokenShort(value) {
+  const numeric = toSafeNumber(value);
+  if (numeric >= 1_000_000) {
+    const abbreviated = (numeric / 1_000_000).toFixed(1);
+    return abbreviated.replace(/\.0$/, '') + 'M';
+  }
+  if (numeric >= 1_000) {
+    return numeric.toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    });
+  }
+  return String(Math.round(numeric));
 }
 
 export function formatCurrency(value, options = {}) {
   const numeric = toSafeNumber(value);
   return numeric.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
     ...options,
   });
 }
@@ -37,14 +52,17 @@ export function getTransactionDisplayType(transaction) {
   if (type === 'INVOICE_PAYMENT') return 'Invoice Payment';
   if (type === 'MARKETPLACE_PURCHASE') return 'Marketplace Purchase';
   if (type === 'MARKETPLACE_SALE') return 'Marketplace Sale';
+  if (type === 'FORCED_DISTRIBUTION_PURCHASE') return 'Forced Distribution (Buy)';
+  if (type === 'FORCED_DISTRIBUTION_SALE') return 'Forced Distribution (Sell)';
+  if (type === 'SELF_CONSUMPTION') return 'Self Consumption';
 
   return type ? type.replace(/_/g, ' ') : 'Transaction';
 }
 
 export function getSignedTokenAmount(transaction) {
   const type = String(transaction?.type || '').toUpperCase();
-  const amount = toSafeNumber(transaction?.tokenAmount);
-  const creditTypes = new Set(['CREDIT', 'MARKETPLACE_SALE']);
+  const amount = Math.abs(toSafeNumber(transaction?.tokenAmount));
+  const creditTypes = new Set(['CREDIT', 'MARKETPLACE_SALE', 'FORCED_DISTRIBUTION_SALE', 'SELF_CONSUMPTION']);
 
   return creditTypes.has(type) ? amount : -amount;
 }

@@ -1,6 +1,5 @@
 // Notification service: สร้าง notification ตาม event ต่างๆ
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const { prisma } = require('../../utils/prisma');
 
 /**
  * สร้าง notification
@@ -12,13 +11,21 @@ const prisma = new PrismaClient();
  * @param {number} [param0.meterId]
  */
 async function createNotification({ type, message, userId = null, buildingId = null, meterId = null }) {
+  let email = 'admin';
+  if (userId) {
+    const user = await prisma.user.findUnique({ where: { credId: String(userId) } });
+    if (user && user.email) {
+      email = user.email;
+    }
+  }
+
   return prisma.notification.create({
     data: {
-      type,
-      message,
-      userId,
-      buildingId,
-      meterId,
+      email,
+      title: type || 'System Notification',
+      body: message || '',
+      data: { type, userId, buildingId, meterId },
+      read: false
     },
   });
 }
@@ -29,8 +36,23 @@ async function createNotification({ type, message, userId = null, buildingId = n
  * @param {number} [limit=20]
  */
 async function getNotifications(userId = null, limit = 20) {
+  let filter = {};
+  
+  if (userId) {
+    if (String(userId).includes('@')) {
+      filter.email = String(userId);
+    } else {
+      const user = await prisma.user.findUnique({ where: { credId: String(userId) } });
+      if (user && user.email) {
+        filter.email = user.email;
+      } else {
+        filter.email = 'not-found'; // หากไม่พบ User จะไม่แสดงแจ้งเตือน
+      }
+    }
+  }
+
   return prisma.notification.findMany({
-    where: { userId },
+    where: Object.keys(filter).length > 0 ? filter : undefined,
     orderBy: { createdAt: 'desc' },
     take: limit,
   });

@@ -61,22 +61,6 @@ async function getPendingMeters() {
   return meters;
 }
 
-// เพิ่มฟังก์ชันสร้างมิเตอร์ (ตัวอย่าง)
-async function createMeter(data) {
-  const meter = await prisma.meterInfo.create({ data });
-  // สร้าง notification สำหรับ admin
-  try {
-    const { createNotification } = require('../notification/notification.service');
-    await createNotification({
-      type: 'meter_added',
-      message: `มีการเพิ่มมิเตอร์ใหม่: ${meter.meterName || meter.snid}`,
-      userId: null,
-      meterId: meter.id,
-      buildingId: meter.buildingId
-    });
-  } catch (e) { console.error('Notification error:', e.message); }
-  return meter;
-}
 
 async function getRejectedMeters() {
   const meters = await prisma.meterInfo.findMany({ 
@@ -117,7 +101,7 @@ async function createMeter(buildingIdOrName, meterType, meterNumber, capacity, d
     data: {
       snid: String(meterNumber),
       buildingName: building.name,
-      meterName: String(meterNumber),
+      // meterName removed from schema; use snid as canonical identifier
       capacity: capacity ? parseInt(capacity) : null,
       type: normalizedType,
       dateInstalled: dateInstalled ? new Date(dateInstalled) : null,
@@ -125,6 +109,18 @@ async function createMeter(buildingIdOrName, meterType, meterNumber, capacity, d
       approveStatus: 'pending'
     }
   });
+
+  // สร้าง notification สำหรับ admin
+  try {
+    const { createNotification } = require('../notification/notification.service');
+    await createNotification({
+      type: 'meter_added',
+      message: `มีการขอลงทะเบียนมิเตอร์ใหม่: ${newMeter.snid}`,
+      userId: null,
+      buildingId: building.id
+    });
+  } catch (e) { console.error('Notification error:', e.message); }
+
   return newMeter;
 }
 
@@ -165,6 +161,14 @@ async function updateMeter(snid, updates = {}) {
     data.approveStatus = ['approved', 'pending', 'rejected'].includes(status) ? status : existing.approveStatus;
   }
 
+  if (updates.isAutoMock !== undefined) {
+    data.isAutoMock = Boolean(updates.isAutoMock);
+  }
+
+  if (updates.mockProfile !== undefined) {
+    data.mockProfile = String(updates.mockProfile || '').trim();
+  }
+
   return prisma.meterInfo.update({
     where: { snid: String(snid) },
     data,
@@ -185,10 +189,10 @@ async function deleteMeter(snid) {
 
   return prisma.$transaction(async (tx) => {
     await tx.runningMeter.deleteMany({ where: { snid: String(snid) } });
-    await tx.hourlyEnergy.deleteMany({ where: { meterId: String(snid) } });
-    await tx.dailyEnergy.deleteMany({ where: { meterId: String(snid) } });
-    await tx.weeklyEnergy.deleteMany({ where: { meterId: String(snid) } });
-    await tx.monthlyEnergy.deleteMany({ where: { meterId: String(snid) } });
+    await tx.hourlyEnergy.deleteMany({ where: { meterSnid: String(snid) } });
+    await tx.dailyEnergy.deleteMany({ where: { meterSnid: String(snid) } });
+    await tx.weeklyEnergy.deleteMany({ where: { meterSnid: String(snid) } });
+    await tx.monthlyEnergy.deleteMany({ where: { meterSnid: String(snid) } });
 
     return tx.meterInfo.delete({
       where: { snid: String(snid) },
@@ -208,5 +212,3 @@ module.exports = {
   updateMeter,
   deleteMeter
 };
-
-

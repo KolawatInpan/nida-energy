@@ -1,325 +1,426 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { getMeters, insertRunningLogsBulk, resetEnergyLogs } from '../../core/data_connecter/mockEnergy';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { Card, Button, Select, InputNumber, Progress, message, Space, Modal, Switch } from 'antd';
+import dayjs from 'dayjs';
+import {
+  PlayCircleOutlined, StopOutlined, DeleteOutlined, ExperimentOutlined, SyncOutlined
+} from '@ant-design/icons';
+import { getMeters, resetEnergyLogs } from '../../core/data_connecter/mockEnergy';
 import * as mockService from '../../core/mockEnergyService';
-import TORHistory from '../../components/TOR/TORHistory';
+
+function getRoundedNow() {
+  return dayjs().startOf('hour');
+}
 
 export default function MockEnergy() {
   const [meters, setMeters] = useState([]);
-  const [selectedMeters, setSelectedMeters] = useState([]);
-  const [startDate, setStartDate] = useState(() => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T00:00`;
-  });
-  const [endDate, setEndDate] = useState(() => {
-    const nextDay = new Date();
-    nextDay.setDate(nextDay.getDate() + 1);
-    nextDay.setHours(0, 0, 0, 0);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${nextDay.getFullYear()}-${pad(nextDay.getMonth() + 1)}-${pad(nextDay.getDate())}T00:00`;
-  });
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const [startDate, setStartDate] = useState(() => dayjs().startOf('day').format('YYYY-MM-DDTHH:mm'));
+  const [endDate, setEndDate] = useState(() => getRoundedNow().format('DD MMM YYYY HH:mm'));
   const [intervalHours, setIntervalHours] = useState(1);
-  const [submitting, setSubmitting] = useState(false);
   const [profile, setProfile] = useState('sinusoidal');
+  const [startingKwh, setStartingKwh] = useState(1000);
   const [status, setStatus] = useState('');
+  const [progress, setProgress] = useState(0);
   const [totalInserts, setTotalInserts] = useState(0);
   const [completedInserts, setCompletedInserts] = useState(0);
-  const [progress, setProgress] = useState(0);
-  const [startingKwh, setStartingKwh] = useState(1000);
-  const [resetting, setResetting] = useState(false);
-  const [stopRequested, setStopRequested] = useState(false);
   const [backgroundRunning, setBackgroundRunning] = useState(false);
-  const stopRequestedRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [loadingMeters, setLoadingMeters] = useState(true);
+  const [autoMeterIds, setAutoMeterIds] = useState([]);
 
-  const roundTo4 = (value) => {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed)) return 0;
-    return Math.round(parsed * 10000) / 10000;
-  };
+  const autoIntervalRef = useRef(null);
 
+  // Load meters
   useEffect(() => {
     (async () => {
+      setLoadingMeters(true);
       try {
         const list = await getMeters();
-        setMeters(list || []);
+        setMeters(Array.isArray(list) ? list : []);
       } catch (err) {
         console.error('Failed to load meters', err);
+        message.error('Failed to load meters');
+      } finally {
+        setLoadingMeters(false);
       }
     })();
   }, []);
 
-  const toLocalMidnight = (input) => {
-    // Accept either a datetime-local string or a Date; return local YYYY-MM-DDTHH:mm at 00:00
-    const d = input ? new Date(input) : new Date();
-    d.setHours(0, 0, 0, 0);
-    const pad = (n) => String(n).padStart(2, '0');
-    const y = d.getFullYear();
-    const m = pad(d.getMonth() + 1);
-    const day = pad(d.getDate());
-    const hh = pad(d.getHours());
-    const mm = pad(d.getMinutes());
-    return `${y}-${m}-${day}T${hh}:${mm}`;
-  };
+  // Auto-generate every hour for each auto-enabled meter
+  useEffect(() => {
+    if (autoIntervalRef.current) clearInterval(autoIntervalRef.current);
+    if (autoMeterIds.length === 0) return;
 
-  const toggleMeter = (snid) => {
-    setSelectedMeters(prev => prev.includes(snid) ? prev.filter(s => s !== snid) : [...prev, snid]);
-  };
-
-  const toggleAll = (ids) => {
-    // ids: array of meter ids to toggle on/off
-    const allSelected = ids.every(id => selectedMeters.includes(id));
-    if (allSelected) {
-      // remove all these ids
-      setSelectedMeters(prev => prev.filter(id => !ids.includes(id)));
-    } else {
-      // add missing ids
-      setSelectedMeters(prev => {
-        const set = new Set(prev);
-        ids.forEach(id => set.add(id));
-        return Array.from(set);
+    const runAuto = () => {
+      const now = dayjs().startOf('hour');
+      const start = now.subtract(1, 'hour');
+      autoMeterIds.forEach(snid => {
+        try {
+          mockService.startGeneration({
+            meters: [snid],
+            start: start.toISOString(),
+            end: now.toISOString(),
+            intervalHours: 1,
+            profile,
+            startingKwh: Number(startingKwh),
+          });
+        } catch (err) {
+          console.error('Auto generation failed for', snid, err);
+        }
       });
-    }
-  };
+    };
 
-  const isMeterType = (meter, type) => {
-    const normalized = String(meter?.type || '').trim().toLowerCase();
-    if (type === 'produce') return Boolean(meter?.produceMeter) || normalized.includes('produce');
-    if (type === 'consume') return Boolean(meter?.consumeMeter) || normalized.includes('consume');
-    if (type === 'battery') return Boolean(meter?.batMeter) || normalized.includes('battery');
-    return false;
-  };
+    runAuto();
+    autoIntervalRef.current = setInterval(runAuto, 60 * 60 * 1000);
+    return () => { if (autoIntervalRef.current) clearInterval(autoIntervalRef.current); };
+  }, [autoMeterIds]);
 
-  const handleGenerate = async () => {
-    if (selectedMeters.length === 0) return alert('Choose at least one meter');
-    if (!startDate || !endDate) return alert('Choose start and end dates');
-    const s = new Date(startDate);
-    const e = new Date(endDate);
-    s.setHours(0,0,0,0);
-    e.setHours(0,0,0,0);
-    if (isNaN(s) || isNaN(e) || e <= s) return alert('Invalid date range');
-
-    try {
-      setSubmitting(true);
-      setStatus('Starting background generation...');
-      mockService.startGeneration({ meters: selectedMeters, start: s.toISOString(), end: e.toISOString(), intervalHours: Number(intervalHours), profile, startingKwh: Number(startingKwh) });
-    } catch (err) {
-      console.error('Start generation failed', err);
-      setStatus('Failed to start generation');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleStopGenerate = () => {
-    mockService.stopGeneration();
-    setStatus('Stop requested');
-  };
+  // Auto-update end date every minute
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setEndDate(getRoundedNow().format('DD MMM YYYY HH:mm'));
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const unsub = mockService.subscribe((msg) => {
       if (msg.type === 'progress') {
         setTotalInserts(msg.total || 0);
         setCompletedInserts(msg.completed || 0);
-        setProgress(msg.total ? Math.round((msg.completed||0)/msg.total*100) : 0);
-        setStatus('Running in background...');
+        setProgress(msg.total ? Math.round((msg.completed || 0) / msg.total * 100) : 0);
       }
-      if (msg.type === 'started') setStatus('Background started');
-      if (msg.type === 'started') setBackgroundRunning(true);
-      if (msg.type === 'stopped') { setStatus('Background stopped'); setBackgroundRunning(false); }
-      if (msg.type === 'complete') { setStatus('Background complete'); setBackgroundRunning(false); }
-      if (msg.type === 'error') setStatus('Background error: ' + (msg.error||''));
+      if (msg.type === 'started') { setStatus('Generating...'); setBackgroundRunning(true); }
+      if (msg.type === 'stopped') { setStatus('Stopped'); setBackgroundRunning(false); }
+      if (msg.type === 'complete') { setStatus('Complete!'); setBackgroundRunning(false); message.success('Generation complete'); }
+      if (msg.type === 'error') { setStatus('Error'); setBackgroundRunning(false); message.error(msg.error || 'Generation failed'); }
     });
     return () => unsub();
   }, []);
 
-  // Excel import handler
-  const handleFileUpload = async (ev) => {
-    const file = ev.target.files?.[0];
-    if (!file) return;
-    setStatus('Parsing file...');
+  const handleGenerate = () => {
+    if (selectedRowKeys.length === 0) return message.warning('Select at least one meter');
+    if (!startDate) return message.warning('Select a start date');
+    const start = dayjs(startDate);
+    const end = dayjs().startOf('hour');
+    if (!start.isValid() || end.valueOf() <= start.valueOf()) return message.warning('End time must be after start time');
+
+    setSubmitting(true);
     try {
-      const logs = await mockService.importExcelFile(file);
-      if (!logs || logs.length === 0) return setStatus('No valid rows found in file');
-      // send in background
-      setStatus(`Uploading ${logs.length} rows...`);
-      await insertRunningLogsBulk(logs);
-      setStatus('Upload complete');
+      mockService.startGeneration({
+        meters: selectedRowKeys,
+        start: start.toISOString(),
+        end: end.toISOString(),
+        intervalHours: Number(intervalHours),
+        profile,
+        startingKwh: Number(startingKwh),
+      });
+      message.info('Background generation started');
     } catch (err) {
-      console.error('Import failed', err);
-      setStatus(String(err));
+      message.error('Failed to start generation');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleResetEnergyLogs = async () => {
-    if (!window.confirm('Reset all running meter logs and energy aggregate tables?')) return;
+  const handleStop = () => {
+    mockService.stopGeneration();
+    setBackgroundRunning(false);
+    setStatus('Stopped');
+    setProgress(0);
+    setTotalInserts(0);
+    setCompletedInserts(0);
+  };
 
+  const handleQuickSend = (snid) => {
+    const now = dayjs().startOf('hour');
+    mockService.startGeneration({
+      meters: [snid],
+      start: now.subtract(1, 'hour').toISOString(),
+      end: now.toISOString(),
+      intervalHours: 1,
+      profile,
+      startingKwh: Number(startingKwh),
+    });
+    message.info(`⚡ Sent 1 record for ${snid}`);
+  };
+
+  const handleReset = async () => {
     setResetting(true);
-    setStatus('Resetting energy logs...');
     try {
       const result = await resetEnergyLogs();
-      const cleared = result?.cleared || {};
-      setTotalInserts(0);
-      setCompletedInserts(0);
-      setProgress(0);
-      setStatus(`Reset complete: ${cleared.runningMeter || 0} logs, ${cleared.hourlyEnergy || 0} hourly, ${cleared.dailyEnergy || 0} daily, ${cleared.weeklyEnergy || 0} weekly, ${cleared.monthlyEnergy || 0} monthly rows cleared.`);
+      const cleared = result?.cleared || result || {};
+      const rm = cleared.runningMeter || 0;
+      const hr = cleared.hourlyEnergy || 0;
+      const dy = cleared.dailyEnergy || 0;
+      setTotalInserts(0); setCompletedInserts(0); setProgress(0);
+      setStatus('');
+      message.success(`Cleared: ${rm} running logs, ${hr} hourly, ${dy} daily`);
     } catch (err) {
       console.error('Reset failed', err);
-      setStatus('Reset failed — see console');
+      message.error('Reset failed: ' + (err?.response?.data?.error || err?.message || 'Unknown error'));
     } finally {
       setResetting(false);
     }
   };
 
+  const classifyType = (t) => {
+    const lower = String(t || '').toLowerCase();
+    if (lower.includes('produce') || lower.includes('producer')) return 'produce';
+    if (lower.includes('consume') || lower.includes('consumer')) return 'consume';
+    if (lower.includes('battery') || lower.includes('bat') || lower.includes('ess')) return 'battery';
+    return 'other';
+  };
+
+  const produceMeters = meters.filter(m => classifyType(m.type) === 'produce');
+  const consumeMeters = meters.filter(m => classifyType(m.type) === 'consume');
+  const batteryMeters = meters.filter(m => classifyType(m.type) === 'battery');
+
+  const toggleAutoMeter = (snid) => {
+    setAutoMeterIds(prev => prev.includes(snid) ? prev.filter(id => id !== snid) : [...prev, snid]);
+  };
+
   return (
-    <div className="max-w-6xl mx-auto p-6 md:p-8 bg-gradient-to-br from-sky-50 via-cyan-50 to-emerald-50 rounded-2xl border border-cyan-100 shadow-lg">
+    <div className="p-5 md:p-8 min-h-screen" style={{ background: 'linear-gradient(180deg, #f0f9ff 0%, #f8fafc 100%)' }}>
+      <div className="max-w-6xl mx-auto space-y-5">
 
-      {/* TOR Requirements Panel */}
-      <TORHistory />
-
-      <div className="mb-6 bg-white/80 backdrop-blur rounded-xl border border-cyan-100 p-4 shadow-sm">
-        <label className="block text-sm font-semibold text-slate-700">Select meters (multiple)</label>
-        <div className="mt-3 overflow-x-auto">
-          <div className="flex flex-nowrap gap-4 min-w-[930px]">
-          {/* Produce column */}
-          <div className="border border-amber-200 rounded-xl p-3 max-h-64 overflow-auto w-[300px] shrink-0 bg-amber-50/60">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold text-amber-700">Produce meters</div>
-              <label className="text-sm flex items-center gap-2 text-amber-800">
-                <input type="checkbox" onChange={() => {
-                  const ids = meters.filter(m => isMeterType(m, 'produce')).map(m => m.snid || m.meterName);
-                  toggleAll(ids);
-                }} checked={meters.length > 0 && meters.filter(m => isMeterType(m, 'produce')).every(m => selectedMeters.includes(m.snid || m.meterName))} />
-                <span>All</span>
-              </label>
-            </div>
-            {meters.length === 0 ? <div className="text-sm text-gray-500">No meters found</div> : (
-              meters.filter(m => isMeterType(m, 'produce')).map(m => {
-                const id = m.snid || m.meterName;
-                return (
-                  <label key={id} className="flex items-center gap-2 p-1">
-                    <input type="checkbox" checked={selectedMeters.includes(id)} onChange={() => toggleMeter(id)} />
-                    <span className="text-sm text-slate-700">{m.meterName || m.snid} - {m.buildingName || m.building}</span>
-                  </label>
-                )
-              })
-            )}
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+              <ExperimentOutlined className="text-cyan-500" /> Mock Energy Generator
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">Generate synthetic energy data for testing dashboard & market features</p>
           </div>
-
-          {/* Consume column */}
-          <div className="border border-violet-200 rounded-xl p-3 max-h-64 overflow-auto w-[300px] shrink-0 bg-violet-50/60">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold text-violet-700">Consume meters</div>
-              <label className="text-sm flex items-center gap-2 text-violet-800">
-                <input type="checkbox" onChange={() => {
-                  const ids = meters.filter(m => isMeterType(m, 'consume')).map(m => m.snid || m.meterName);
-                  toggleAll(ids);
-                }} checked={meters.length > 0 && meters.filter(m => isMeterType(m, 'consume')).every(m => selectedMeters.includes(m.snid || m.meterName))} />
-                <span>All</span>
-              </label>
-            </div>
-            {meters.length === 0 ? <div className="text-sm text-gray-500">No meters found</div> : (
-              meters.filter(m => isMeterType(m, 'consume')).map(m => {
-                const id = m.snid || m.meterName;
-                return (
-                  <label key={id} className="flex items-center gap-2 p-1">
-                    <input type="checkbox" checked={selectedMeters.includes(id)} onChange={() => toggleMeter(id)} />
-                    <span className="text-sm text-slate-700">{m.meterName || m.snid} - {m.buildingName || m.building}</span>
-                  </label>
-                )
-              })
-            )}
-          </div>
-
-          {/* Battery column */}
-          <div className="border border-emerald-200 rounded-xl p-3 max-h-64 overflow-auto w-[300px] shrink-0 bg-emerald-50/60">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold text-emerald-700">Battery meters</div>
-              <label className="text-sm flex items-center gap-2 text-emerald-800">
-                <input type="checkbox" onChange={() => {
-                  const ids = meters.filter(m => isMeterType(m, 'battery')).map(m => m.snid || m.meterName);
-                  toggleAll(ids);
-                }} checked={meters.length > 0 && meters.filter(m => isMeterType(m, 'battery')).every(m => selectedMeters.includes(m.snid || m.meterName))} />
-                <span>All</span>
-              </label>
-            </div>
-            {meters.length === 0 ? <div className="text-sm text-gray-500">No meters found</div> : (
-              meters.filter(m => isMeterType(m, 'battery')).map(m => {
-                const id = m.snid || m.meterName;
-                return (
-                  <label key={id} className="flex items-center gap-2 p-1">
-                    <input type="checkbox" checked={selectedMeters.includes(id)} onChange={() => toggleMeter(id)} />
-                    <span className="text-sm text-slate-700">{m.meterName || m.snid} - {m.buildingName || m.building}</span>
-                  </label>
-                )
-              })
-            )}
-          </div>
-          </div>
+          <Space wrap>
+            <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleGenerate} loading={submitting} disabled={backgroundRunning} size="large">
+              Generate
+            </Button>
+            <Button icon={<StopOutlined />} onClick={handleStop} disabled={!backgroundRunning} danger size="large">
+              Stop
+            </Button>
+            <Button icon={<DeleteOutlined />} loading={resetting} disabled={backgroundRunning} size="large"
+              onClick={() => Modal.confirm({
+                title: 'Delete all generated energy data?',
+                content: 'This will clear all running meter logs and aggregated energy data.',
+                okText: 'Delete',
+                okType: 'danger',
+                cancelText: 'Cancel',
+                onOk: handleReset,
+              })}>
+              Reset Data
+            </Button>
+          </Space>
         </div>
-      </div>
 
-      <div className="mb-4 flex flex-col gap-4 bg-white/80 backdrop-blur rounded-xl border border-cyan-100 p-4 shadow-sm md:flex-row">
-        <div className="w-full min-w-0 md:basis-1/2 md:flex-1">
-          <label className="block text-sm font-semibold text-slate-700">Start Date</label>
-          <input type="datetime-local" value={startDate} onChange={e => setStartDate(toLocalMidnight(e.target.value))} className="w-full px-3 py-2 border border-cyan-200 rounded-lg mt-1 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
-        </div>
-        <div className="w-full min-w-0 md:basis-1/2 md:flex-1">
-          <label className="block text-sm font-semibold text-slate-700">End Date</label>
-          <input type="datetime-local" value={endDate} onChange={e => setEndDate(toLocalMidnight(e.target.value))} className="w-full px-3 py-2 border border-cyan-200 rounded-lg mt-1 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
-        </div>
-      </div>
-
-      <div className="mb-4 overflow-x-auto">
-        <div className="flex min-w-[1200px] flex-nowrap gap-4">
-          <div className="w-full min-w-0 flex-1 rounded-xl border border-cyan-100 bg-white/80 p-4 shadow-sm backdrop-blur">
-            <label className="block text-sm font-semibold text-slate-700">Value Profile</label>
-            <select value={profile} onChange={e => setProfile(e.target.value)} className="w-full px-3 py-2 border border-cyan-200 rounded-lg mt-2 focus:outline-none focus:ring-2 focus:ring-cyan-400 bg-white">
-              <option value="random">Random</option>
-              <option value="sinusoidal">Sinusoidal (daily)</option>
-              <option value="peak">Peak hours</option>
-              <option value="fixed">Fixed</option>
-            </select>
-          </div>
-
-          <div className="w-full min-w-0 flex-1 rounded-xl border border-cyan-100 bg-white/80 p-4 shadow-sm backdrop-blur">
-            <label className="block text-sm font-semibold text-slate-700">Interval Hours</label>
-            <input type="number" min={1} value={intervalHours} onChange={e => setIntervalHours(e.target.value)} className="w-full px-3 py-2 border border-cyan-200 rounded-lg mt-2 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
-            <div className="text-xs text-gray-500 mt-1">Advance timestamp by this many hours between inserts.</div>
-          </div>
-
-          <div className="w-full min-w-0 flex-1 rounded-xl border border-cyan-100 bg-white/80 p-4 shadow-sm backdrop-blur">
-            <label className="block text-sm font-semibold text-slate-700">Starting kWH</label>
-            <input type="number" min={0} value={startingKwh} onChange={e => setStartingKwh(Number(e.target.value))} className="w-full px-3 py-2 border border-cyan-200 rounded-lg mt-2 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
-            <div className="text-xs text-gray-500 mt-1">Initial cumulative kWH reading (per meter). Default ~1000.</div>
-          </div>
-
-          <div className="w-full min-w-0 flex-1 rounded-xl border border-cyan-100 bg-white/80 p-4 shadow-sm backdrop-blur">
-            <label className="block text-sm font-semibold text-slate-700">Progress</label>
-            <div className="w-full bg-slate-200 rounded-full h-4 mt-2 overflow-hidden">
-              <div className="bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-600 h-4 transition-all duration-300" style={{ width: `${progress}%` }} />
+        {/* Settings */}
+        <Card className="!rounded-xl shadow-sm border-slate-200" title={<span className="font-semibold text-slate-700">⚙️ Generation Settings</span>}>
+          <div className="flex gap-3">
+            <div className="flex-1 min-w-[190px]">
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Start Date &amp; Time</label>
+              <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
             </div>
-            <div className="text-sm mt-2 text-slate-700 font-medium">{completedInserts} / {totalInserts} ({progress}%)</div>
-            <div className="text-xs text-slate-500 mt-1">{status || 'Ready to generate mock records.'}</div>
+            <div className="flex-1 min-w-[160px]">
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">End Time (auto)</label>
+              <div className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-sm text-slate-700 font-mono">
+                {endDate}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-0.5">Rounded to :00, auto-updates</p>
+            </div>
+            <div className="flex-1 min-w-[140px]">
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Value Profile</label>
+              <Select value={profile} onChange={setProfile} className="w-full" size="large"
+                getPopupContainer={trigger => trigger.parentNode}
+                options={[
+                  { value: 'sinusoidal', label: '🌊 Sinusoidal (daily cycle)' },
+                  { value: 'peak', label: '📈 Peak Hours' },
+                  { value: 'random', label: '🎲 Random' },
+                  { value: 'fixed', label: '📏 Fixed' },
+                ]}
+              />
+            </div>
+            <div className="flex-1 min-w-[100px]">
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Interval (h)</label>
+              <InputNumber min={1} max={24} value={intervalHours} onChange={setIntervalHours} className="w-full" size="large" addonAfter="hrs" />
+            </div>
+            <div className="flex-1 min-w-[110px]">
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Starting kWh</label>
+              <InputNumber min={0} value={startingKwh} onChange={setStartingKwh} className="w-full" size="large" addonAfter="kWh" />
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div className="flex flex-wrap gap-3 items-center bg-white/80 backdrop-blur rounded-xl border border-cyan-100 p-4 shadow-sm">
-        <button onClick={handleGenerate} disabled={submitting} className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-700 text-white rounded-lg shadow hover:from-cyan-500 hover:to-blue-600 transition-colors disabled:opacity-60">
-          {submitting ? 'Generating...' : 'Generate'}
-        </button>
-        <button onClick={handleStopGenerate} disabled={!backgroundRunning} className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg shadow hover:from-amber-400 hover:to-orange-500 transition-colors disabled:opacity-60">
-          Stop
-        </button>
-        <button onClick={handleResetEnergyLogs} disabled={resetting || submitting} className="px-4 py-2 bg-gradient-to-r from-rose-600 to-red-700 text-white rounded-lg shadow hover:from-rose-500 hover:to-red-600 transition-colors disabled:opacity-60">
-          {resetting ? 'Resetting...' : 'Reset Energy Logs'}
-        </button>
-        <button onClick={() => { setSelectedMeters([]); setStartDate(''); setEndDate(''); setStatus(''); setIntervalHours(1); setStartingKwh(1000); setTotalInserts(0); setCompletedInserts(0); setProgress(0); }} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">Reset</button>
-        <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="px-2 py-1 border rounded ml-2 text-sm" />
-        <div className="ml-auto text-sm text-slate-600 hidden md:block">Tip: Use Peak profile for daytime-heavy patterns.</div>
+          {autoMeterIds.length > 0 && !backgroundRunning && (
+            <div className="mt-4 p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg border border-blue-200">
+              <div className="flex items-center gap-2">
+                <SyncOutlined spin className="text-blue-500" />
+                <span className="text-sm font-semibold text-blue-700">Auto Mode Active — {autoMeterIds.length} meter(s), every hour</span>
+              </div>
+            </div>
+          )}
+          {status && !backgroundRunning && (
+            <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <p className="text-sm text-slate-600">{status}</p>
+            </div>
+          )}
+        </Card>
+
+        {/* Progress (standalone — always visible during generation) */}
+        {backgroundRunning && (
+          <div className="bg-blue-50 rounded-xl border border-blue-300 shadow-sm px-4 py-2 flex items-center gap-3" style={{height: 40}}>
+            <SyncOutlined spin className="text-blue-500 flex-shrink-0" />
+            <span className="text-xs font-semibold text-blue-700 flex-shrink-0">{status}</span>
+            <div className="flex-1 min-w-0">
+              <Progress percent={progress} strokeColor="#2563eb" size="small" showInfo={false} />
+            </div>
+            <span className="text-[11px] text-blue-500 font-mono flex-shrink-0 tabular-nums">{completedInserts}/{totalInserts}</span>
+            <button onClick={handleStop} className="flex-shrink-0 px-2.5 py-0.5 bg-red-500 hover:bg-red-600 text-white text-xs font-semibold rounded-md flex items-center gap-1" style={{height: 26, lineHeight: '26px'}}>
+              <StopOutlined /> Stop
+            </button>
+          </div>
+        )}
+
+        {/* Meter Selection */}
+        <Card
+          className="!rounded-xl shadow-sm border-slate-200"
+          title={<span className="font-semibold text-slate-700">🔌 Select Meters</span>}
+          extra={
+            <Space size="small">
+              <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full font-semibold">{selectedRowKeys.length} of {meters.length}</span>
+              <Button size="small" onClick={() => setSelectedRowKeys(meters.map(m => m.snid).filter(Boolean))}>All</Button>
+              <Button size="small" onClick={() => setSelectedRowKeys([])}>Clear</Button>
+            </Space>
+          }
+        >
+          {meters.length === 0 && !loadingMeters ? (
+            <div className="text-center py-12 text-slate-400">
+              <ExperimentOutlined style={{fontSize: 36, marginBottom: 8}} />
+              <p className="font-medium">No meters registered</p>
+              <p className="text-sm mt-1">Add meters via Admin → Meters first</p>
+            </div>
+          ) : (
+            <div style={{display: 'flex', gap: 14}}>
+              {/* Producer */}
+              <div style={{flex: 1, minWidth: 0}}>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Producer</span>
+                  <span className="text-[10px] text-slate-400 ml-auto">{produceMeters.length}</span>
+                </div>
+                <div className="space-y-1.5">
+                  {produceMeters.map(m => {
+                    const snid = m.snid || '';
+                    const sel = selectedRowKeys.includes(snid);
+                    return (
+                      <div key={snid} onClick={() => setSelectedRowKeys(p => sel ? p.filter(k => k !== snid) : [...p, snid])}
+                        className={`p-2.5 rounded-lg border cursor-pointer transition-all text-left ${
+                          sel ? 'border-orange-400 bg-orange-50 ring-1 ring-orange-200' : 'border-slate-150 bg-white hover:border-orange-200'
+                        }`}>
+                        <div className="flex justify-between items-start">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-mono font-semibold text-orange-600 truncate">{snid}</div>
+                            <div className="text-xs text-slate-600 truncate mt-0.5">{m.buildingName || '-'}</div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                            <button title="Quick send 1 record now" onClick={() => handleQuickSend(snid)}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 hover:bg-orange-200 font-bold">⚡</button>
+                            <Switch size="small" checked={autoMeterIds.includes(snid)} onChange={() => toggleAutoMeter(snid)} />
+                            {sel && <span className="text-orange-500 text-xs">✓</span>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {produceMeters.length === 0 && <div className="text-center py-4 text-slate-200 text-xs">—</div>}
+                </div>
+              </div>
+
+              {/* Consumer */}
+              <div style={{flex: 1, minWidth: 0}}>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="w-2 h-2 rounded-full bg-purple-500 flex-shrink-0" />
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Consumer</span>
+                  <span className="text-[10px] text-slate-400 ml-auto">{consumeMeters.length}</span>
+                </div>
+                <div className="space-y-1.5">
+                  {consumeMeters.map(m => {
+                    const snid = m.snid || '';
+                    const sel = selectedRowKeys.includes(snid);
+                    return (
+                      <div key={snid} onClick={() => setSelectedRowKeys(p => sel ? p.filter(k => k !== snid) : [...p, snid])}
+                        className={`p-2.5 rounded-lg border cursor-pointer transition-all text-left ${
+                          sel ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-200' : 'border-slate-150 bg-white hover:border-purple-200'
+                        }`}>
+                        <div className="flex justify-between items-start">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-mono font-semibold text-purple-600 truncate">{snid}</div>
+                            <div className="text-xs text-slate-600 truncate mt-0.5">{m.buildingName || '-'}</div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                            <button title="Quick send 1 record now" onClick={() => handleQuickSend(snid)}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 hover:bg-purple-200 font-bold">⚡</button>
+                            <Switch size="small" checked={autoMeterIds.includes(snid)} onChange={() => toggleAutoMeter(snid)} />
+                            {sel && <span className="text-purple-500 text-xs">✓</span>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {consumeMeters.length === 0 && <div className="text-center py-4 text-slate-200 text-xs">—</div>}
+                </div>
+              </div>
+
+              {/* Battery */}
+              <div style={{flex: 1, minWidth: 0}}>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Battery</span>
+                  <span className="text-[10px] text-slate-400 ml-auto">{batteryMeters.length}</span>
+                </div>
+                <div className="space-y-1.5">
+                  {batteryMeters.map(m => {
+                    const snid = m.snid || '';
+                    const sel = selectedRowKeys.includes(snid);
+                    const cap = Number(m.capacity) || 0;
+                    const val = Number(m.value) || 0;
+                    const pct = cap > 0 ? Math.min(100, Math.round(val / cap * 100)) : 0;
+                    return (
+                      <div key={snid} onClick={() => setSelectedRowKeys(p => sel ? p.filter(k => k !== snid) : [...p, snid])}
+                        className={`p-2.5 rounded-lg border cursor-pointer transition-all text-left ${
+                          sel ? 'border-green-400 bg-green-50 ring-1 ring-green-200' : 'border-slate-150 bg-white hover:border-green-200'
+                        }`}>
+                        <div className="flex justify-between items-start">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-mono font-semibold text-green-600 truncate">{snid}</div>
+                            <div className="text-xs text-slate-600 truncate mt-0.5">{m.buildingName || '-'}</div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                            <button title="Quick send 1 record now" onClick={() => handleQuickSend(snid)}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-600 hover:bg-green-200 font-bold">⚡</button>
+                            <Switch size="small" checked={autoMeterIds.includes(snid)} onChange={() => toggleAutoMeter(snid)} />
+                            {sel && <span className="text-green-500 text-xs">✓</span>}
+                          </div>
+                        </div>
+                        <div className="mt-1.5">
+                          <div className="flex justify-between text-[9px] text-slate-400 mb-0.5">
+                            <span>{pct}%</span><span>{val.toFixed(0)}/{cap.toFixed(0)} kWh</span>
+                          </div>
+                          <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-green-400 rounded-full" style={{width: `${pct}%`}} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {batteryMeters.length === 0 && <div className="text-center py-4 text-slate-200 text-xs">—</div>}
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+
       </div>
-      
     </div>
   );
 }

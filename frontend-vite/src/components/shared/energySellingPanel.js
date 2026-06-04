@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Space, Button, Input } from "antd";
 import { formatEnergy, formatToken } from '../../utils/formatters';
 
@@ -30,6 +30,8 @@ export default function EnergySellingPanel({
   showTradePolicyControls = false,
   tradeMode,
   setTradeMode,
+  solarTradeMode,
+  batteryTradeMode,
   batterySellThreshold,
   setBatterySellThreshold,
   onSaveTradePolicy,
@@ -37,24 +39,40 @@ export default function EnergySellingPanel({
   onClose,
   onSell,
   onBuy,
+  marketType,
+  setMarketType,
+  orderSide,
+  setOrderSide,
   unsavedTradeMode
 }) {
-  const producedKwh = Number(marketSnapshot?.producedKwh || 0);
-  const consumedKwh = Number(marketSnapshot?.consumedKwh || 0);
-  const netKwh = Number(marketSnapshot?.netKwh || 0);
+  const produceSource = sourceEnergyStatus?.produce || { current: 0, capacity: 0, percentage: '0.00', available: false };
+  const batterySource = sourceEnergyStatus?.battery || { current: 0, capacity: 0, percentage: '0.00', available: false };
+  const totalProduceKwh = Number(produceSource?.totalProduce || marketSnapshot?.producedKwh || 0);
+  const totalConsumeKwh = Number(produceSource?.totalConsume || marketSnapshot?.consumedKwh || 0);
+  const producedKwh = totalProduceKwh;
+  const consumedKwh = totalConsumeKwh;
+  const netKwh = producedKwh - consumedKwh;
   const marketPrice = Number(marketSnapshot?.marketPrice || selectedBuilding?.price || 0);
   const gridPrice = Number(marketSnapshot?.gridPrice || 4);
   const priceDelta = Number(marketSnapshot?.priceDelta || 0);
   const spread = Number(marketSnapshot?.spread || 0);
   const demandLabel = String(marketSnapshot?.demandLabel || 'LIVE MARKET');
   const orderBookRows = Array.isArray(marketSnapshot?.orderBook) ? marketSnapshot.orderBook : [];
-  const produceSource = sourceEnergyStatus?.produce || { current: 0, capacity: 0, percentage: '0.00', available: false };
-  const batterySource = sourceEnergyStatus?.battery || { current: 0, capacity: 0, percentage: '0.00', available: false };
+  const hasSolarMeter = produceSource.capacity > 0;
+  const hasBatteryMeter = batterySource.capacity > 0;
   const activeSourceStatus = sellSource === 'battery' ? batterySource : produceSource;
-  const normalizedTradeMode = String(tradeMode || 'MANUAL').toUpperCase();
-  const isSelfConsumeMode = normalizedTradeMode === 'SELF_CONSUME';
-  const isAutoTradeMode = normalizedTradeMode === 'AUTO_BATTERY_THRESHOLD';
-  const isManualMode = normalizedTradeMode === 'MANUAL';
+  const normalizedTradeMode = String(tradeMode || 'AUTO_BATTERY_THRESHOLD').toUpperCase();
+  // Pending mode states — MUST be declared before they're referenced below
+  const [pendingSolarMode, setPendingSolarMode] = useState(() => normalizedTradeMode);
+  const [pendingStorageMode, setPendingStorageMode] = useState(() => 'AUTO_BATTERY_THRESHOLD');
+  const pendingSolarNormalized = String(pendingSolarMode || normalizedTradeMode).toUpperCase();
+  const pendingStorageNormalized = String(pendingStorageMode || 'SELF_CONSUME').toUpperCase();
+  const isSelfConsumeMode = pendingSolarNormalized === 'SELF_CONSUME';
+  const isAutoTradeMode = pendingSolarNormalized === 'AUTO_BATTERY_THRESHOLD';
+  const isManualMode = pendingSolarNormalized === 'MANUAL';
+  const isStorageSelfConsumeMode = pendingStorageNormalized === 'SELF_CONSUME';
+  const isStorageAutoTradeMode = pendingStorageNormalized === 'AUTO_BATTERY_THRESHOLD';
+  const isStorageManualMode = pendingStorageNormalized === 'MANUAL';
   const producedRatio = Math.min(100, Math.max(0, produceSource?.capacity ? (producedKwh / Math.max(produceSource.capacity, producedKwh, 1)) * 100 : producedKwh > 0 ? 100 : 0));
   const consumedRatio = Math.min(100, Math.max(0, producedKwh > 0 ? (consumedKwh / producedKwh) * 100 : consumedKwh > 0 ? 100 : 0));
   const netLabel = netKwh >= 0 ? 'Net Surplus: Selling to Grid' : 'Net Deficit: Buying from Grid';
@@ -62,18 +80,34 @@ export default function EnergySellingPanel({
   const netBg = netKwh >= 0 ? '#f6ffed' : '#fff1f0';
   const netBorder = netKwh >= 0 ? '#b7eb8f' : '#ffa39e';
   const deltaLabel = `${priceDelta >= 0 ? '+' : ''}${formatToken(priceDelta)} (Grid: THB ${formatToken(gridPrice)})`;
-  const [assetConfigTarget, setAssetConfigTarget] = useState('SOLAR_ARRAY');
-  const [storageMode, setStorageMode] = useState('SELF_CONSUME');
+  const defaultTab = hasSolarMeter ? 'SOLAR_ARRAY' : 'STORAGE_SYSTEM';
+  const [assetConfigTarget, setAssetConfigTarget] = useState(defaultTab);
+  const [storageMode, setStorageMode] = useState('AUTO_BATTERY_THRESHOLD');
   const [storageBuyTrigger, setStorageBuyTrigger] = useState('3.00');
   const [storageSellTrigger, setStorageSellTrigger] = useState('4.50');
-  const [storageReserveMin, setStorageReserveMin] = useState(20);
+  const [storageReserveMin, setStorageReserveMin] = useState(80);
   const [storageTradeAmount, setStorageTradeAmount] = useState('');
   const [storageLimitPrice, setStorageLimitPrice] = useState('');
+  const [chartRange, setChartRange] = useState('1H');
+
+  // Sync storageMode from parent batteryTradeMode when building changes
+  const normalizedBatteryMode = String(batteryTradeMode || normalizedTradeMode || 'AUTO_BATTERY_THRESHOLD').toUpperCase();
+  useEffect(() => {
+    setAssetConfigTarget(hasSolarMeter ? 'SOLAR_ARRAY' : 'STORAGE_SYSTEM');
+    setPendingSolarMode(normalizedTradeMode);
+    setStorageMode(normalizedBatteryMode);
+    setPendingStorageMode(normalizedBatteryMode);
+  }, [hasSolarMeter, hasBatteryMeter, normalizedTradeMode, normalizedBatteryMode]);
+  // Also sync pending when committed mode changes (e.g. after save)
+  useEffect(() => {
+    setPendingSolarMode(normalizedTradeMode);
+  }, [normalizedTradeMode]);
+  useEffect(() => {
+    setPendingStorageMode(storageMode);
+  }, [storageMode]);
+
   const isSolarArrayTarget = assetConfigTarget === 'SOLAR_ARRAY';
   const showSolarManualControls = !showTradePolicyControls || (isSolarArrayTarget && isManualMode);
-  const isStorageSelfConsumeMode = storageMode === 'SELF_CONSUME';
-  const isStorageAutoTradeMode = storageMode === 'AUTO_BATTERY_THRESHOLD';
-  const isStorageManualMode = storageMode === 'MANUAL';
   const batteryCurrentKwh = toNumber(batterySource.current);
   const batteryCapacityKwh = Math.max(toNumber(batterySource.capacity), batteryCurrentKwh, 1);
   const storageSoc = Math.max(0, Math.min(100, (batteryCurrentKwh / batteryCapacityKwh) * 100));
@@ -82,13 +116,13 @@ export default function EnergySellingPanel({
   const availableChargeKwh = Math.max(0, batteryCapacityKwh - batteryCurrentKwh);
   const tradeModeOptions = [
     { value: 'SELF_CONSUME', label: 'Self-Consume' },
-    { value: 'AUTO_BATTERY_THRESHOLD', label: 'Auto-Trade' },
     { value: 'MANUAL', label: 'Manual' },
+    { value: 'AUTO_BATTERY_THRESHOLD', label: 'Auto-Trade' }
   ];
 
   const handleStorageManualSell = () => {
     setSellSource('battery');
-    setTradeMode('MANUAL');
+    setTradeMode('AUTO_BATTERY_THRESHOLD');
     setEnergyAmount(storageTradeAmount);
     setEnergyRate(storageLimitPrice);
     onSell();
@@ -121,6 +155,33 @@ export default function EnergySellingPanel({
               }}>
                 CONNECTED
               </div>
+              {/* Current Mode Status Badges — only show for meter types that exist */}
+              {showTradePolicyControls && (
+                <>
+                  {hasSolarMeter && (
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      background: tradeMode === 'AUTO_BATTERY_THRESHOLD' ? '#ecfdf5' : tradeMode === 'SELF_CONSUME' ? '#fff7ed' : '#f3f4f6',
+                      color: tradeMode === 'AUTO_BATTERY_THRESHOLD' ? '#059669' : tradeMode === 'SELF_CONSUME' ? '#d97706' : '#6b7280',
+                      padding: "2px 8px", borderRadius: 999, fontSize: 10, fontWeight: 700,
+                      marginRight: 6
+                    }}>
+                      ☀️ {tradeMode === 'AUTO_BATTERY_THRESHOLD' ? 'Auto' : tradeMode === 'SELF_CONSUME' ? 'Self' : 'Manual'}
+                    </span>
+                  )}
+                  {hasBatteryMeter && (
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      background: batteryTradeMode === 'AUTO_BATTERY_THRESHOLD' ? '#ecfdf5' : batteryTradeMode === 'SELF_CONSUME' ? '#fff7ed' : '#f3f4f6',
+                      color: batteryTradeMode === 'AUTO_BATTERY_THRESHOLD' ? '#059669' : batteryTradeMode === 'SELF_CONSUME' ? '#d97706' : '#6b7280',
+                      padding: "2px 8px", borderRadius: 999, fontSize: 10, fontWeight: 700,
+                      marginRight: 8
+                    }}>
+                      🔋 {batteryTradeMode === 'AUTO_BATTERY_THRESHOLD' ? 'Auto' : batteryTradeMode === 'SELF_CONSUME' ? 'Self' : 'Manual'}
+                    </span>
+                  )}
+                </>
+              )}
               <span style={{ fontSize: 13, color: "#666" }}>
                 {selectedBuilding?.location}
               </span>
@@ -148,18 +209,19 @@ export default function EnergySellingPanel({
             <span style={{ fontSize: 11, color: "#1890ff" }}>Live API</span>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-            <div style={{ border: "2px solid #52c41a", borderRadius: 8, padding: 12 }}>
-              <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>PRODUCED (Solar Meter)</div>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatEnergy(producedKwh)} <span style={{ fontSize: 14 }}>kWH</span></div>
-              <div style={{ width: "100%", height: 4, background: "#f0f0f0", borderRadius: 2, marginTop: 8 }}>
-                <div style={{ width: `${producedRatio}%`, height: "100%", background: "#52c41a", borderRadius: 2 }}></div>
+          <div style={{ display: "grid", gridTemplateColumns: `${hasSolarMeter ? '1fr 1fr' : '1fr'}`, gap: 12, marginBottom: 12 }}>
+            {hasSolarMeter && (
+              <div style={{ border: "2px solid #52c41a", borderRadius: 8, padding: 12 }}>
+                <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>TOTAL SOLAR GENERATION</div>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>{formatEnergy(totalProduceKwh)} <span style={{ fontSize: 14 }}>kWH</span></div>
+                <div style={{ width: "100%", height: 4, background: "#f0f0f0", borderRadius: 2, marginTop: 8 }}>
+                  <div style={{ width: `${producedRatio}%`, height: "100%", background: "#52c41a", borderRadius: 2 }}></div>
+                </div>
               </div>
-            </div>
-
+            )}
             <div style={{ border: "2px solid #ff4d4f", borderRadius: 8, padding: 12 }}>
-              <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>CONSUMED (Smart Meter)</div>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatEnergy(consumedKwh)} <span style={{ fontSize: 14 }}>kWH</span></div>
+              <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>TOTAL CONSUMPTION</div>
+              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatEnergy(totalConsumeKwh)} <span style={{ fontSize: 14 }}>kWH</span></div>
               <div style={{ width: "100%", height: 4, background: "#f0f0f0", borderRadius: 2, marginTop: 8 }}>
                 <div style={{ width: `${consumedRatio}%`, height: "100%", background: "#ff4d4f", borderRadius: 2 }}></div>
               </div>
@@ -184,9 +246,17 @@ export default function EnergySellingPanel({
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <span style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase" }}>Market Intelligence</span>
             <div style={{ display: "flex", gap: 4 }}>
-              <button style={{ padding: "4px 12px", fontSize: 11, border: "1px solid #d9d9d9", background: "white", borderRadius: 4, cursor: "pointer" }}>15m</button>
-              <button style={{ padding: "4px 12px", fontSize: 11, border: "1px solid #1890ff", background: "#e6f7ff", color: "#1890ff", borderRadius: 4, cursor: "pointer" }}>1H</button>
-              <button style={{ padding: "4px 12px", fontSize: 11, border: "1px solid #d9d9d9", background: "white", borderRadius: 4, cursor: "pointer" }}>4H</button>
+              {['15m','1H','4H'].map(range => (
+                <button key={range}
+                  onClick={() => setChartRange(range)}
+                  style={{
+                    padding: "4px 12px", fontSize: 11,
+                    border: chartRange === range ? '1px solid #1890ff' : '1px solid #d9d9d9',
+                    background: chartRange === range ? '#e6f7ff' : 'white',
+                    color: chartRange === range ? '#1890ff' : '#666',
+                    borderRadius: 4, cursor: 'pointer'
+                  }}>{range}</button>
+              ))}
             </div>
           </div>
 
@@ -287,72 +357,89 @@ export default function EnergySellingPanel({
               <div style={{ fontSize: 11, color: '#1890ff', fontWeight: 700 }}>Policy Settings</div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 14 }}>
-              <button
-                type="button"
-                onClick={() => setAssetConfigTarget('SOLAR_ARRAY')}
-                style={{
-                  border: isSolarArrayTarget ? '1px solid #2563eb' : '1px solid #e5e7eb',
-                  background: isSolarArrayTarget ? '#eff6ff' : '#fff',
-                  color: isSolarArrayTarget ? '#1d4ed8' : '#4b5563',
-                  borderRadius: 10,
-                  padding: '10px 12px',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                Solar Array
-              </button>
-              <button
-                type="button"
-                onClick={() => setAssetConfigTarget('STORAGE_SYSTEM')}
-                style={{
-                  border: !isSolarArrayTarget ? '1px solid #2563eb' : '1px solid #e5e7eb',
-                  background: !isSolarArrayTarget ? '#eff6ff' : '#fff',
-                  color: !isSolarArrayTarget ? '#1d4ed8' : '#4b5563',
-                  borderRadius: 10,
-                  padding: '10px 12px',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                Storage System
-              </button>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${[hasSolarMeter, hasBatteryMeter].filter(Boolean).length || 1}, 1fr)`, gap: 8, marginBottom: 14 }}>
+              {hasSolarMeter && (
+                <button
+                  type="button"
+                  onClick={() => setAssetConfigTarget('SOLAR_ARRAY')}
+                  style={{
+                    border: isSolarArrayTarget ? '2px solid #2563eb' : '2px solid #e5e7eb',
+                    background: isSolarArrayTarget ? '#eff6ff' : '#fff',
+                    color: isSolarArrayTarget ? '#1d4ed8' : '#4b5563',
+                    borderRadius: 12,
+                    padding: '12px 14px',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span style={{fontSize: 20}}>☀️</span> Solar Array
+                </button>
+              )}
+              {hasBatteryMeter && (
+                <button
+                  type="button"
+                  onClick={() => setAssetConfigTarget('STORAGE_SYSTEM')}
+                  style={{
+                    border: !isSolarArrayTarget ? '2px solid #2563eb' : '2px solid #e5e7eb',
+                    background: !isSolarArrayTarget ? '#eff6ff' : '#fff',
+                    color: !isSolarArrayTarget ? '#1d4ed8' : '#4b5563',
+                    borderRadius: 12,
+                    padding: '12px 14px',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span style={{fontSize: 20}}>🔋</span> Storage System
+                </button>
+              )}
             </div>
 
             {isSolarArrayTarget ? (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
                   {tradeModeOptions.map((option) => {
-                    const active = normalizedTradeMode === option.value;
+                    const isCommitted = normalizedTradeMode === option.value;
+                    const isSelected = pendingSolarMode === option.value;
+                    const icons = { SELF_CONSUME: '🏠', MANUAL: '✋', AUTO_BATTERY_THRESHOLD: '🤖' };
                     return (
                       <button
                         key={option.value}
                         type="button"
-                        onClick={() => setTradeMode(option.value)}
+                        onClick={() => setPendingSolarMode(option.value)}
                         style={{
-                          border: active ? '1px solid #2563eb' : '1px solid #e5e7eb',
-                          background: active ? '#eff6ff' : '#fff',
-                          color: active ? '#1d4ed8' : '#4b5563',
-                          borderRadius: 12,
-                          padding: '12px 10px',
+                          border: isSelected ? '2px solid #2563eb' : '1px solid #e5e7eb',
+                          background: isSelected ? '#eff6ff' : '#fff',
+                          color: isSelected ? '#1d4ed8' : '#4b5563',
+                          borderRadius: 10,
+                          padding: '8px 4px',
                           display: 'flex',
+                          flexDirection: 'column',
                           alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 0,
-                          fontSize: 13,
+                          gap: 2,
+                          fontSize: 11,
                           fontWeight: 700,
                           cursor: 'pointer',
-                          boxShadow: active ? '0 10px 24px rgba(37, 99, 235, 0.12)' : 'none',
-                          whiteSpace: 'nowrap'
+                          boxShadow: isSelected ? '0 4px 12px rgba(37, 99, 235, 0.15)' : 'none',
+                          overflow: 'hidden',
+                          lineHeight: 1.2,
+                          position: 'relative',
+                          opacity: isCommitted && !isSelected ? 0.6 : 1,
                         }}
                       >
+                        {isCommitted && <span style={{fontSize: 7, fontWeight: 600, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.5px'}}>● In use</span>}
+                        <span style={{fontSize: 16}}>{icons[option.value]}</span>
                         <span>{option.label}</span>
                       </button>
                     );
@@ -373,8 +460,8 @@ export default function EnergySellingPanel({
                   <div style={{ display: 'grid', gap: 12, padding: 18, borderRadius: 16, border: '1px solid #dbeafe', background: 'linear-gradient(135deg, #f8fbff 0%, #eef5ff 100%)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                       <div>
-                        <div style={{ fontSize: 18, fontWeight: 800, color: '#1f2937' }}>Solar Arbitrage Bot</div>
-                        <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>Tune the auto-sell policy before saving it to the asset.</div>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: '#1f2937' }}>🤖 Solar Arbitrage Bot</div>
+                        <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>Set auto-sell price and surplus threshold.</div>
                       </div>
                       <div style={{ padding: '6px 10px', borderRadius: 999, background: '#ffedd5', color: '#c2410c', fontSize: 12, fontWeight: 700 }}>
                         Auto routing enabled
@@ -382,8 +469,21 @@ export default function EnergySellingPanel({
                     </div>
 
                     <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#4b5563', marginBottom: 6 }}>Sell Price (Token/kWh)</div>
+                      <Input
+                        type="number"
+                        placeholder="e.g. 5.00"
+                        value={energyRate}
+                        onChange={(e) => setEnergyRate(e.target.value)}
+                        min={0} step="0.01"
+                        style={{ width: '100%' }}
+                        suffix={<span style={{ fontSize: 10, color: '#999' }}>T/kWh</span>}
+                      />
+                    </div>
+
+                    <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, fontWeight: 700, color: '#4b5563' }}>
-                        <span>Battery Sell Threshold</span>
+                        <span>Surplus Sell Threshold</span>
                         <span>{Number(batterySellThreshold || 0)}%</span>
                       </div>
                       <input
@@ -395,75 +495,39 @@ export default function EnergySellingPanel({
                         style={{ width: '100%' }}
                       />
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: '#6b7280' }}>
-                        <span>0% - Hold Everything</span>
-                        <span>100% - Sell Early</span>
+                        <span>0% - Hold All</span>
+                        <span>100% - Sell All Surplus</span>
                       </div>
                     </div>
 
-                    <div style={{ fontSize: 13, color: '#475569', lineHeight: 1.6 }}>
-                      Excess energy above the selected threshold will be routed for trading automatically.
+                    <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.5 }}>
+                      Solar surplus above threshold will be auto-sold at the set price.
                     </div>
                   </div>
                 )}
 
-                {isManualMode && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, border: '1px solid #e5e7eb', borderRadius: 14, background: '#fff', boxSizing: 'border-box' }}>
+                {( <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, border: '1px solid #e5e7eb', borderRadius: 14, background: '#fff', boxSizing: 'border-box' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
-                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, boxSizing: 'border-box' }}>
-                        <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, lineHeight: 1.2 }}>Solar Energy</div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: '#111827', marginTop: 6 }}>{formatEnergy(produceSource.current)} kWh</div>
-                      </div>
+                      {hasSolarMeter && (
+                        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, boxSizing: 'border-box' }}>
+                          <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, lineHeight: 1.2 }}>Total Solar Generation</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: '#111827', marginTop: 6 }}>{formatEnergy(totalProduceKwh)} kWh</div>
+                        </div>
+                      )}
                     </div>
-
-                    <div>
-                      <div style={{ fontSize: 12, color: '#666', marginBottom: 6, fontWeight: 600 }}>Trade Amount</div>
-                      <Input
-                        type="number"
-                        placeholder="0.00"
-                        value={energyAmount}
-                        onChange={(e) => setEnergyAmount(e.target.value)}
-                        min={0}
-                        style={{ width: '100%' }}
-                        suffix={<span style={{ fontSize: 10, color: '#999' }}>kWh</span>}
-                      />
-                    </div>
-
-                    <div>
-                      <div style={{ fontSize: 12, color: '#666', marginBottom: 6, fontWeight: 600 }}>Limit Price</div>
-                      <Input
-                        type="number"
-                        placeholder="0.00"
-                        value={energyRate}
-                        onChange={(e) => setEnergyRate(e.target.value)}
-                        min={0}
-                        step="0.01"
-                        style={{ width: '100%' }}
-                        suffix={<span style={{ fontSize: 10, color: '#999' }}>THB/u</span>}
-                      />
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
-                      <Button
-                        type="primary"
-                        style={{ height: 'auto', minHeight: 44, fontWeight: 700, background: '#ef4444', borderColor: '#ef4444', whiteSpace: 'normal', padding: '6px 8px', fontSize: 12 }}
-                        onClick={() => {
-                          setSellSource('produce');
-                          setTradeMode('MANUAL');
-                          setTimeout(onSell, 0); // เพื่อให้ React อัปเดต state เสร็จก่อนเรียกใช้งาน onSell
-                        }}
-                      >
-                        SELL (Solar)
-                      </Button>
-                    </div>
+                    <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center' }}>Use the panel below to place your order</div>
                   </div>
                 )}
 
                 <div style={{ marginTop: 14 }}>
                   <Button
                     type="primary"
-                    onClick={onSaveTradePolicy}
+                    onClick={() => {
+                      setTradeMode(pendingSolarMode);
+                      if (onSaveTradePolicy) onSaveTradePolicy({ tradeMode: pendingSolarMode, solarTradeMode: pendingSolarMode });
+                    }}
                     loading={isSavingTradePolicy}
-                    disabled={!onSaveTradePolicy}
+                    disabled={!onSaveTradePolicy || pendingSolarMode === normalizedTradeMode}
                     style={{ width: '100%', height: 42, fontWeight: 700, background: '#3b82f6', borderColor: '#3b82f6' }}
                   >
                     Save Solar Rules
@@ -483,31 +547,38 @@ export default function EnergySellingPanel({
                   <div style={{ fontSize: 11, color: '#64748b' }}>{formatEnergy(batteryCurrentKwh)} kWh available</div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
                   {tradeModeOptions.map((option) => {
-                    const active = storageMode === option.value;
+                    const isCommitted = storageMode === option.value;
+                    const isSelected = pendingStorageMode === option.value;
+                    const icons = { SELF_CONSUME: '🏠', MANUAL: '✋', AUTO_BATTERY_THRESHOLD: '🤖' };
                     return (
                       <button
                         key={`storage-${option.value}`}
                         type="button"
-                        onClick={() => setStorageMode(option.value)}
+                        onClick={() => setPendingStorageMode(option.value)}
                         style={{
-                          border: active ? '1px solid #2563eb' : '1px solid #e5e7eb',
-                          background: active ? '#eff6ff' : '#fff',
-                          color: active ? '#1d4ed8' : '#4b5563',
-                          borderRadius: 12,
-                          padding: '12px 10px',
+                          border: isSelected ? '2px solid #2563eb' : '1px solid #e5e7eb',
+                          background: isSelected ? '#eff6ff' : '#fff',
+                          color: isSelected ? '#1d4ed8' : '#4b5563',
+                          borderRadius: 10,
+                          padding: '8px 4px',
                           display: 'flex',
+                          flexDirection: 'column',
                           alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 0,
-                          fontSize: 13,
+                          gap: 2,
+                          fontSize: 11,
                           fontWeight: 700,
                           cursor: 'pointer',
-                          boxShadow: active ? '0 10px 24px rgba(37, 99, 235, 0.12)' : 'none',
-                          whiteSpace: 'nowrap'
+                          boxShadow: isSelected ? '0 4px 12px rgba(37, 99, 235, 0.15)' : 'none',
+                          overflow: 'hidden',
+                          lineHeight: 1.2,
+                          position: 'relative',
+                          opacity: isCommitted && !isSelected ? 0.6 : 1,
                         }}
                       >
+                        {isCommitted && <span style={{fontSize: 7, fontWeight: 600, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.5px'}}>● In use</span>}
+                        <span style={{fontSize: 16}}>{icons[option.value]}</span>
                         <span>{option.label}</span>
                       </button>
                     );
@@ -520,6 +591,20 @@ export default function EnergySellingPanel({
                     <div style={{ fontSize: 18, fontWeight: 800, color: '#1f2937' }}>Peak Shaving Mode Active</div>
                     <div style={{ fontSize: 13, lineHeight: 1.6, color: '#6b7280', maxWidth: 420 }}>
                       Battery is reserved for local demand support first and only discharges when grid import spikes.
+                    </div>
+                    <div style={{ marginTop: 8, width: '100%' }}>
+                      <Button
+                        type="primary"
+                        onClick={() => {
+                          setStorageMode(pendingStorageMode);
+                          if (onSaveTradePolicy) onSaveTradePolicy({ batteryTradeMode: pendingStorageMode });
+                        }}
+                        loading={isSavingTradePolicy}
+                        disabled={!onSaveTradePolicy || pendingStorageMode === storageMode}
+                        style={{ width: '100%', height: 42, fontWeight: 700, background: '#22c55e', borderColor: '#22c55e' }}
+                      >
+                        Save Battery Rules
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -585,9 +670,12 @@ export default function EnergySellingPanel({
                     <div style={{ marginTop: 12 }}>
                       <Button
                         type="primary"
-                        onClick={onSaveTradePolicy}
+                        onClick={() => {
+                          setStorageMode(pendingStorageMode);
+                          if (onSaveTradePolicy) onSaveTradePolicy({ batteryTradeMode: pendingStorageMode });
+                        }}
                         loading={isSavingTradePolicy}
-                        disabled={!onSaveTradePolicy}
+                        disabled={!onSaveTradePolicy || pendingStorageMode === storageMode}
                         style={{ width: '100%', height: 42, fontWeight: 700, background: '#22c55e', borderColor: '#22c55e' }}
                       >
                         Save Battery Rules
@@ -608,109 +696,165 @@ export default function EnergySellingPanel({
                         <div style={{ fontSize: 14, fontWeight: 800, color: '#111827', marginTop: 6 }}>{formatEnergy(availableChargeKwh)} kWh</div>
                       </div>
                     </div>
-
-                    <div>
-                      <div style={{ fontSize: 12, color: '#666', marginBottom: 6, fontWeight: 600 }}>Trade Amount</div>
-                      <Input
-                        type="number"
-                        placeholder="0.00"
-                        value={storageTradeAmount}
-                        onChange={(e) => setStorageTradeAmount(e.target.value)}
-                        min={0}
-                        style={{ width: '100%' }}
-                        suffix={<span style={{ fontSize: 10, color: '#999' }}>kWh</span>}
-                      />
-                    </div>
-
-                    <div>
-                      <div style={{ fontSize: 12, color: '#666', marginBottom: 6, fontWeight: 600 }}>Limit Price</div>
-                      <Input
-                        type="number"
-                        placeholder="0.00"
-                        value={storageLimitPrice}
-                        onChange={(e) => setStorageLimitPrice(e.target.value)}
-                        min={0}
-                        step="0.01"
-                        style={{ width: '100%' }}
-                        suffix={<span style={{ fontSize: 10, color: '#999' }}>THB/u</span>}
-                      />
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', marginTop: 8 }}>Use the panel below to place your order</div>
+                    <div style={{ marginTop: 4, width: '100%' }}>
                       <Button
                         type="primary"
-                        style={{ height: 'auto', minHeight: 44, fontWeight: 700, background: '#22c55e', borderColor: '#22c55e', whiteSpace: 'normal', padding: '6px 8px', fontSize: 12 }}
-                        onClick={handleStorageManualBuy}
+                        onClick={() => {
+                          setStorageMode(pendingStorageMode);
+                          if (onSaveTradePolicy) onSaveTradePolicy({ batteryTradeMode: pendingStorageMode });
+                        }}
+                        loading={isSavingTradePolicy}
+                        disabled={!onSaveTradePolicy || pendingStorageMode === storageMode}
+                        style={{ width: '100%', height: 42, fontWeight: 700, background: '#22c55e', borderColor: '#22c55e' }}
                       >
-                        BUY (Charge)
-                      </Button>
-                      <Button
-                        type="primary"
-                        style={{ height: 'auto', minHeight: 44, fontWeight: 700, background: '#ef4444', borderColor: '#ef4444', whiteSpace: 'normal', padding: '6px 8px', fontSize: 12 }}
-                        onClick={handleStorageManualSell}
-                      >
-                        SELL (Discharge)
+                        Save Battery Rules
                       </Button>
                     </div>
                   </div>
                 )}
+              {/* Trigger Battery Surplus — manual check & post */}
+              {hasBatteryMeter && (
+                <div style={{ marginTop: 8 }}>
+                  <Button
+                    type="default"
+                    onClick={async () => {
+                      const apiBase = (window.__RUNTIME_CONFIG__?.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+                      try {
+                        const resp = await fetch(`${apiBase}/buildings/${selectedBuilding?.id}/trigger-battery`, { method: 'POST' });
+                        const data = await resp.json();
+                        if (data.created) {
+                          let successMsg = `✅ Battery surplus posted!`;
+                          if (data.offersCount && data.offersCount > 1) {
+                            successMsg += `\n${data.offersCount} offers × ~${data.batchSize} kWh each`;
+                          }
+                          successMsg += `\n${Math.round(data.created.kWH)} kWh at ${data.created.ratePerkWH} THB/kWh`;
+                          alert(successMsg);
+                        } else {
+                          const dbg = data.debug;
+                          let msg = '';
+                          if (data.reason === 'battery-threshold-not-met') {
+                            msg = `SoC ${Math.round(storageSoc)}% — below ${batterySellThreshold || 80}% reserve threshold.`;
+                            if (dbg) {
+                              msg += `\n\nDebug (backend values):`;
+                              msg += `\n  batteryCurrent: ${dbg.batteryCurrent} kWh`;
+                              msg += `\n  batteryCapacity: ${dbg.batteryCapacity} kWh`;
+                              msg += `\n  thresholdPct: ${dbg.thresholdPct}%`;
+                              msg += `\n  thresholdKwh: ${dbg.thresholdKwh} kWh`;
+                              msg += `\n  sellableKwh: ${dbg.sellableKwh} kWh`;
+                              msg += `\n  batteryMode: ${dbg.batteryMode}`;
+                            }
+                          } else if (data.reason === 'solar-no-surplus') {
+                            msg = `Solar surplus too small (< 0.01 kWh) to create an offer.`;
+                          } else if (data.reason === 'no-auto-mode-active') {
+                            msg = `Battery mode must be set to Auto-Trade (🤖) to auto-sell surplus.`;
+                          } else if (data.reason === 'battery-offer-already-exists') {
+                            msg = `Battery offer already active in marketplace. Wait for it to sell first.`;
+                          } else if (data.reason === 'seller-wallet-not-found') {
+                            msg = `Building has no wallet. Please create a wallet first.`;
+                          } else if (data.reason === 'building-not-found') {
+                            msg = `Building not found in the system.`;
+                          } else {
+                            msg = data.reason || `SoC ${Math.round(storageSoc)}% — below ${batterySellThreshold || 80}% reserve threshold.`;
+                          }
+                          alert(`ℹ️ ${msg}`);
+                        }
+                      } catch (e) {
+                        alert(`❌ Trigger failed: ${e.message}`);
+                      }
+                    }}
+                    style={{ width: '100%', height: 36, fontWeight: 600, fontSize: 12, borderColor: '#f97316', color: '#f97316' }}
+                  >
+                    ⚡ Trigger Battery Surplus Check
+                  </Button>
+                </div>
+              )}
               </>
             )}
           </Card>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {isManualMode && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <select
+                value={marketType || 'DAY_AHEAD'}
+                onChange={(e) => setMarketType?.(e.target.value)}
+                style={{
+                  flex: 1, padding: '6px 10px', borderRadius: 6,
+                  border: '1px solid #d9d9d9', fontSize: 12, fontWeight: 600,
+                  background: marketType === 'INTRADAY' ? '#fff7e6' : '#e6f7ff'
+                }}
+              >
+                <option value="DAY_AHEAD">🌅 Day-Ahead (฿3.50/kWh)</option>
+                <option value="INTRADAY">⚡ Intraday (฿3.50+/kWh)</option>
+              </select>
+              <select
+                value={orderSide || 'OFFER'}
+                onChange={(e) => setOrderSide?.(e.target.value)}
+                style={{
+                  width: 100, padding: '6px 10px', borderRadius: 6,
+                  border: '1px solid #d9d9d9', fontSize: 12, fontWeight: 600,
+                  background: orderSide === 'BID' ? '#f6ffed' : '#fff1f0'
+                }}
+              >
+                <option value="OFFER">📤 SELL</option>
+                <option value="BID">📥 BUY</option>
+              </select>
+            </div>
+          )}
+
+        {/* Manual trade inputs */}
+        {isManualMode && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4, fontWeight: 600 }}>Amount (kWh)</div>
+              <Input
+                type="number"
+                placeholder="0.00"
+                value={energyAmount}
+                onChange={(e) => setEnergyAmount(e.target.value)}
+                min={0}
+                style={{ width: '100%' }}
+                suffix="kWh"
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4, fontWeight: 600 }}>Price (THB/kWh)</div>
+              <Input
+                type="number"
+                placeholder="0.00"
+                value={energyRate}
+                onChange={(e) => setEnergyRate(e.target.value)}
+                min={0}
+                step="0.01"
+                style={{ width: '100%' }}
+                suffix="THB"
+              />
+            </div>
+          </div>
+        )}
+
+        {isManualMode && energyAmount && energyRate && (
+          <div style={{ fontSize: 12, color: '#52c41a', marginBottom: 12, fontWeight: 600, textAlign: 'center' }}>
+            💰 Total: {(Number(energyAmount) * Number(energyRate)).toFixed(2)} THB
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
           <Button
             type="primary"
             size="large"
             disabled={!canManualSell}
+            onClick={orderSide === 'BID' ? onBuy : onSell}
             style={{
-              height: 56,
-              fontSize: 14,
-              fontWeight: 700,
-              background: "#ff4d4f",
-              borderColor: "#ff4d4f",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center"
+              height: 56, fontSize: 14, fontWeight: 700,
+              background: orderSide === 'BID' ? '#52c41a' : '#ff4d4f',
+              borderColor: orderSide === 'BID' ? '#52c41a' : '#ff4d4f',
+              display: "flex", alignItems: "center", justifyContent: "center"
             }}
-            onClick={onSell}
           >
-            SELL ENERGY
+            {orderSide === 'BID' ? '📥 PLACE BID (BUY)' : '📤 PLACE OFFER (SELL)'}
           </Button>
-
-          <div style={{ position: "relative" }}>
-            <div style={{
-              position: "absolute",
-              top: -8,
-              right: -8,
-              background: "#fadb14",
-              color: "#000",
-              padding: "3px 8px",
-              borderRadius: 4,
-              fontSize: 10,
-              fontWeight: 700,
-              zIndex: 1
-            }}>Best Price</div>
-            <Button
-              type="primary"
-              size="large"
-              style={{
-                width: "100%",
-                height: 56,
-                fontSize: 14,
-                fontWeight: 700,
-                background: "#52c41a",
-                borderColor: "#52c41a",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center"
-              }}
-              onClick={onBuy}
-            >
-              BUY ENERGY
-            </Button>
-          </div>
         </div>
 
         {!canSellFromSelectedBuilding && (

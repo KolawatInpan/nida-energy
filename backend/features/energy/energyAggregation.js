@@ -101,8 +101,8 @@ async function syncMeterSnapshotAndBuildingEnergy({ snid, timestamp, kW, kWH }, 
   // For live meter updates on default prisma client, evaluate auto marketplace posting policy.
   if (prismaClient === prisma) {
     try {
-      const OfferModel = require('../trading/offer.model');
-      await OfferModel.autoPostBatterySurplusOffer(meter.buildingName);
+      const { autoPostBatterySurplusOffer } = require('../trading/trade.engine');
+      await autoPostBatterySurplusOffer(meter.buildingName);
     } catch (err) {
       console.error('autoPostBatterySurplusOffer error', err);
     }
@@ -132,21 +132,21 @@ function updateHourly(meterId, t, value) {
 
     return prisma.hourlyEnergy.upsert({
         where: {
-            meterId_date: {
-                meterId,
+            meterSnid_date: {
+                meterSnid: meterId,
                 date: new Date(t.date)
             }
         },
         update: {
               [hourCol]: { increment: value },
-              kWH:{increment:value}
+              kwh:{increment:value}
         },
         create: {
-            meterId,
+            meterSnid: meterId,
             date: new Date(t.date),
               ...createHourlyDefaults(),
               [hourCol]: value,
-              kWH:value
+              kwh:value
         }
     })
 }
@@ -157,23 +157,23 @@ function updateDaily(meterId, t, value){
 
   return prisma.dailyEnergy.upsert({
     where:{
-      meterId_year_month:{
-        meterId,
+      meterSnid_year_month:{
+        meterSnid: meterId,
         year:t.year,
         month:t.month
       }
     },
     update:{
           [dayCol]: { increment: value },
-          kWH:{increment:value}
+          kwh:{increment:value}
     },
     create:{
-      meterId,
+      meterSnid: meterId,
       year:t.year,
       month:t.month,
           ...createDailyDefaults(),
           [dayCol]: value,
-          kWH:value
+          kwh:value
     }
   })
 }
@@ -185,23 +185,23 @@ function updateWeekly(meterId, t, value){
 
   return prisma.weeklyEnergy.upsert({
     where:{
-      meterId_year_week:{
-        meterId,
+      meterSnid_year_week:{
+        meterSnid: meterId,
         year:t.year,
         week:t.week
       }
     },
     update:{
       [weekCol]: { increment: value },
-      kWH:{increment:value}
+      kwh:{increment:value}
     },
     create:{
-      meterId,
+      meterSnid: meterId,
       year:t.year,
       week:t.week,
       ...createWeeklyDefaults(),
       [weekCol]: value,
-      kWH:value
+      kwh:value
     }
   })
 }
@@ -212,21 +212,21 @@ function updateMonthly(meterId, t, value){
 
   return prisma.monthlyEnergy.upsert({
     where:{
-      meterId_year:{
-        meterId,
+      meterSnid_year:{
+        meterSnid: meterId,
         year:t.year
       }
     },
     update:{
       [monthCol]: { increment: value },
-      kWH:{increment:value}
+      kwh:{increment:value}
     },
     create:{
-      meterId,
+      meterSnid: meterId,
       year:t.year,
       ...createMonthlyDefaults(),
       [monthCol]: value,
-      kWH:value
+      kwh:value
     }
   })
 }
@@ -346,7 +346,11 @@ async function insertRunningMeter(data){
     kWH:delta
   })
 
-  await invoiceService.syncInvoicesForEnergyLogs([{ timestamp }]);
+  try {
+    await invoiceService.syncInvoicesForEnergyLogs([{ timestamp }]);
+  } catch (e) {
+    console.error('[invoice sync single] failed:', e.message);
+  }
 
   return log
 }
@@ -435,11 +439,18 @@ async function insertRunningMetersBulk(logs = []) {
     data: normalizedLogs.map((item) => ({
       snid: item.snid,
       timestamp: item.timestamp,
-      txid: item.txid,
-      kW: item.kW,
-      kWH: item.kWH,
+      txid: item.txid ?? null,
+      kW: item.kW ?? null,
+      kWH: item.kWH ?? null,
     })),
     skipDuplicates: true,
+  }).catch(err => {
+    // If foreign key error (meter not registered), give clear message
+    if (err?.code === 'P2003') {
+      const invalidSnids = [...new Set(normalizedLogs.map(l => l.snid))];
+      throw new Error(`Some meter SNIDs not registered in MeterInfo: ${invalidSnids.slice(0, 5).join(', ')}${invalidSnids.length > 5 ? '...' : ''}. Please register meters first.`);
+    }
+    throw err;
   });
 
   const hourlyBuckets = new Map();
@@ -453,36 +464,36 @@ async function insertRunningMetersBulk(logs = []) {
     if (value <= 0) return;
 
     const hourlyKey = `${log.snid}|${t.date.toISOString()}`;
-    const hourlyBucket = hourlyBuckets.get(hourlyKey) || { meterId: log.snid, date: new Date(t.date), kWH: 0 };
+    const hourlyBucket = hourlyBuckets.get(hourlyKey) || { meterSnid: log.snid, date: new Date(t.date), kwh: 0 };
     hourlyBucket[`h${t.hour}`] = roundTo4((hourlyBucket[`h${t.hour}`] || 0) + value) || 0;
-    hourlyBucket.kWH = roundTo4((hourlyBucket.kWH || 0) + value) || 0;
+    hourlyBucket.kwh = roundTo4((hourlyBucket.kwh || 0) + value) || 0;
     hourlyBuckets.set(hourlyKey, hourlyBucket);
 
     const dailyKey = `${log.snid}|${t.year}|${t.month}`;
-    const dailyBucket = dailyBuckets.get(dailyKey) || { meterId: log.snid, year: t.year, month: t.month, kWH: 0 };
+    const dailyBucket = dailyBuckets.get(dailyKey) || { meterSnid: log.snid, year: t.year, month: t.month, kwh: 0 };
     dailyBucket[`d${t.day}`] = roundTo4((dailyBucket[`d${t.day}`] || 0) + value) || 0;
-    dailyBucket.kWH = roundTo4((dailyBucket.kWH || 0) + value) || 0;
+    dailyBucket.kwh = roundTo4((dailyBucket.kwh || 0) + value) || 0;
     dailyBuckets.set(dailyKey, dailyBucket);
 
     const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][t.weekday];
     const weeklyKey = `${log.snid}|${t.year}|${t.week}`;
-    const weeklyBucket = weeklyBuckets.get(weeklyKey) || { meterId: log.snid, year: t.year, week: t.week, kWH: 0 };
+    const weeklyBucket = weeklyBuckets.get(weeklyKey) || { meterSnid: log.snid, year: t.year, week: t.week, kwh: 0 };
     weeklyBucket[weekday] = roundTo4((weeklyBucket[weekday] || 0) + value) || 0;
-    weeklyBucket.kWH = roundTo4((weeklyBucket.kWH || 0) + value) || 0;
+    weeklyBucket.kwh = roundTo4((weeklyBucket.kwh || 0) + value) || 0;
     weeklyBuckets.set(weeklyKey, weeklyBucket);
 
     const monthlyKey = `${log.snid}|${t.year}`;
-    const monthlyBucket = monthlyBuckets.get(monthlyKey) || { meterId: log.snid, year: t.year, kWH: 0 };
+    const monthlyBucket = monthlyBuckets.get(monthlyKey) || { meterSnid: log.snid, year: t.year, kWH: 0 };
     monthlyBucket[`M${t.month}`] = roundTo4((monthlyBucket[`M${t.month}`] || 0) + value) || 0;
-    monthlyBucket.kWH = roundTo4((monthlyBucket.kWH || 0) + value) || 0;
+    monthlyBucket.kwh = roundTo4((monthlyBucket.kwh || 0) + value) || 0;
     monthlyBuckets.set(monthlyKey, monthlyBucket);
   });
 
   const aggregationOps = [];
 
   hourlyBuckets.forEach((bucket) => {
-    const updateData = { kWH: { increment: bucket.kWH || 0 } };
-    const createData = { meterId: bucket.meterId, date: bucket.date, ...createHourlyDefaults(), kWH: bucket.kWH || 0 };
+    const updateData = { kwh: { increment: bucket.kwh || 0 } };
+    const createData = { meterSnid: bucket.meterSnid, date: bucket.date, ...createHourlyDefaults(), kwh: bucket.kwh || 0 };
     Object.keys(bucket).forEach((key) => {
       if (/^h([0-9]|1[0-9]|2[0-3])$/.test(key)) {
         updateData[key] = { increment: bucket[key] || 0 };
@@ -491,7 +502,7 @@ async function insertRunningMetersBulk(logs = []) {
     });
     aggregationOps.push(
       prisma.hourlyEnergy.upsert({
-        where: { meterId_date: { meterId: bucket.meterId, date: bucket.date } },
+        where: { meterSnid_date: { meterSnid: bucket.meterSnid, date: bucket.date } },
         update: updateData,
         create: createData,
       })
@@ -499,8 +510,8 @@ async function insertRunningMetersBulk(logs = []) {
   });
 
   dailyBuckets.forEach((bucket) => {
-    const updateData = { kWH: { increment: bucket.kWH || 0 } };
-    const createData = { meterId: bucket.meterId, year: bucket.year, month: bucket.month, ...createDailyDefaults(), kWH: bucket.kWH || 0 };
+    const updateData = { kwh: { increment: bucket.kwh || 0 } };
+    const createData = { meterSnid: bucket.meterSnid, year: bucket.year, month: bucket.month, ...createDailyDefaults(), kwh: bucket.kwh || 0 };
     Object.keys(bucket).forEach((key) => {
       if (/^d([1-9]|[12][0-9]|3[01])$/.test(key)) {
         updateData[key] = { increment: bucket[key] || 0 };
@@ -509,7 +520,7 @@ async function insertRunningMetersBulk(logs = []) {
     });
     aggregationOps.push(
       prisma.dailyEnergy.upsert({
-        where: { meterId_year_month: { meterId: bucket.meterId, year: bucket.year, month: bucket.month } },
+        where: { meterSnid_year_month: { meterSnid: bucket.meterSnid, year: bucket.year, month: bucket.month } },
         update: updateData,
         create: createData,
       })
@@ -517,8 +528,8 @@ async function insertRunningMetersBulk(logs = []) {
   });
 
   weeklyBuckets.forEach((bucket) => {
-    const updateData = { kWH: { increment: bucket.kWH || 0 } };
-    const createData = { meterId: bucket.meterId, year: bucket.year, week: bucket.week, ...createWeeklyDefaults(), kWH: bucket.kWH || 0 };
+    const updateData = { kwh: { increment: bucket.kwh || 0 } };
+    const createData = { meterSnid: bucket.meterSnid, year: bucket.year, week: bucket.week, ...createWeeklyDefaults(), kwh: bucket.kwh || 0 };
     ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].forEach((key) => {
       if (bucket[key] != null) {
         updateData[key] = { increment: bucket[key] || 0 };
@@ -527,7 +538,7 @@ async function insertRunningMetersBulk(logs = []) {
     });
     aggregationOps.push(
       prisma.weeklyEnergy.upsert({
-        where: { meterId_year_week: { meterId: bucket.meterId, year: bucket.year, week: bucket.week } },
+        where: { meterSnid_year_week: { meterSnid: bucket.meterSnid, year: bucket.year, week: bucket.week } },
         update: updateData,
         create: createData,
       })
@@ -535,8 +546,8 @@ async function insertRunningMetersBulk(logs = []) {
   });
 
   monthlyBuckets.forEach((bucket) => {
-    const updateData = { kWH: { increment: bucket.kWH || 0 } };
-    const createData = { meterId: bucket.meterId, year: bucket.year, ...createMonthlyDefaults(), kWH: bucket.kWH || 0 };
+    const updateData = { kwh: { increment: bucket.kwh || 0 } };
+    const createData = { meterSnid: bucket.meterSnid, year: bucket.year, ...createMonthlyDefaults(), kwh: bucket.kwh || 0 };
     Object.keys(bucket).forEach((key) => {
       if (/^M([1-9]|1[0-2])$/.test(key)) {
         updateData[key] = { increment: bucket[key] || 0 };
@@ -545,7 +556,7 @@ async function insertRunningMetersBulk(logs = []) {
     });
     aggregationOps.push(
       prisma.monthlyEnergy.upsert({
-        where: { meterId_year: { meterId: bucket.meterId, year: bucket.year } },
+        where: { meterSnid_year: { meterSnid: bucket.meterSnid, year: bucket.year } },
         update: updateData,
         create: createData,
       })
@@ -565,7 +576,12 @@ async function insertRunningMetersBulk(logs = []) {
     }))
   );
 
-  await invoiceService.syncInvoicesForEnergyLogs(normalizedLogs);
+  try {
+    const invResult = await invoiceService.syncInvoicesForEnergyLogs(normalizedLogs);
+    console.log('[invoice sync] result:', { periods: invResult?.periods?.length, created: invResult?.createdCount, updated: invResult?.updatedCount });
+  } catch (e) {
+    console.error('[invoice sync] failed:', e.message);
+  }
 
   return {
     count: normalizedLogs.length,

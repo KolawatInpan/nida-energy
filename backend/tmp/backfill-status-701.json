@@ -1,0 +1,21 @@
+{
+  "pid": 701,
+  "start": "2025-12-31T17:00:00.000Z",
+  "end": "2026-05-19T09:00:00.000Z",
+  "delayMs": 500,
+  "totalMeters": 2,
+  "processedMeters": 1,
+  "currentMeter": "MTR-PRD-7685",
+  "perMeter": [
+    {
+      "snid": "MTR-PRD-7685",
+      "result": {
+        "count": 0
+      }
+    }
+  ],
+  "startedAt": "2026-05-19T09:04:06.603Z",
+  "lastUpdate": "2026-05-19T09:04:07.214Z",
+  "completed": false,
+  "error": null
+}

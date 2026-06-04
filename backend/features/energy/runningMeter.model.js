@@ -1,5 +1,6 @@
 const { prisma } = require('../../utils/prisma');
 const { syncMeterSnapshotAndBuildingEnergy } = require('./energyAggregation');
+const { createProfileGenerator } = require('./runningMeter.utils');
 
 /**
  * Create a single RunningMeter entry for a given meter snid.
@@ -41,52 +42,6 @@ async function generateHourlyEntries(snid, start, end, options = {}) {
         valueGenerator = options.valueGenerator;
     } else {
         const profile = options.valueProfile || 'random';
-        // helper to create generators
-        const createProfileGenerator = (profileName, params = {}) => {
-            if (profileName === 'fixed') {
-                const fixedKW = typeof params.kW !== 'undefined' ? params.kW : 1.0;
-                return () => ({ kW: fixedKW, kWH: fixedKW });
-            }
-            if (profileName === 'sinusoidal') {
-                // params: min, max, phaseShiftHours (0-23)
-                const min = typeof params.min !== 'undefined' ? params.min : 0.1;
-                const max = typeof params.max !== 'undefined' ? params.max : 5.0;
-                const phase = typeof params.phaseShiftHours !== 'undefined' ? params.phaseShiftHours : 15; // peak at 15:00
-                const amplitude = (max - min) / 2;
-                const mid = (max + min) / 2;
-                return (i, ts) => {
-                    const hour = ts.getHours();
-                    // angle in radians for 24h cycle
-                    const angle = ((hour - phase) / 24) * 2 * Math.PI;
-                    const base = mid + amplitude * Math.sin(angle);
-                    // add small noise
-                    const noise = (Math.random() - 0.5) * Math.max(0.05, amplitude * 0.1);
-                    const kW = +(Math.max(min, base + noise)).toFixed(4);
-                    return { kW, kWH: +kW.toFixed(4) };
-                };
-            }
-            if (profileName === 'peak') {
-                // low off-peak and higher during daytime
-                const off = typeof params.off !== 'undefined' ? params.off : 0.2;
-                const peak = typeof params.peak !== 'undefined' ? params.peak : 4.0;
-                const startPeak = typeof params.startPeakHour !== 'undefined' ? params.startPeakHour : 7;
-                const endPeak = typeof params.endPeakHour !== 'undefined' ? params.endPeakHour : 19;
-                return (i, ts) => {
-                    const hour = ts.getHours();
-                    const inPeak = hour >= startPeak && hour < endPeak;
-                    const base = inPeak ? peak : off;
-                    const noise = (Math.random() - 0.5) * Math.max(0.05, base * 0.1);
-                    const kW = +(Math.max(0, base + noise)).toFixed(4);
-                    return { kW, kWH: +kW.toFixed(4) };
-                };
-            }
-            // default random
-            return () => {
-                const kW = +(Math.random() * 4.9 + 0.1).toFixed(4);
-                return { kW, kWH: kW };
-            };
-        };
-
         valueGenerator = createProfileGenerator(profile, options.profileParams || {});
     }
 
@@ -99,10 +54,13 @@ async function generateHourlyEntries(snid, start, end, options = {}) {
     let cursor = new Date(startDate);
     let idx = 0;
     while (cursor < endDate) {
+        // generate values for the interval starting at cursor
         const { kW, kWH } = valueGenerator(idx, new Date(cursor));
+        // store timestamp at the END of the interval so UI shows the reading at the hour boundary (e.g., 19:00)
+        const recordTs = new Date(cursor.getTime() + intervalHours * 60 * 60 * 1000);
         records.push({
             snid,
-            timestamp: new Date(cursor),
+            timestamp: recordTs,
             kW: kW,
             kWH: kWH,
         });
@@ -114,7 +72,8 @@ async function generateHourlyEntries(snid, start, end, options = {}) {
     if (records.length === 0) return { count: 0 };
 
     // Use createMany for performance. Note: createMany does not return created records.
-        const result = await prisma.runningMeter.createMany({ data: records });
+        // Use skipDuplicates to avoid errors when the same (snid,timestamp) already exists
+        const result = await prisma.runningMeter.createMany({ data: records, skipDuplicates: true });
 
         // update aggregated tables (HourlyEnergy, DailyEnergy, WeeklyEnergy, MonthlyEnergy)
         try {
@@ -150,8 +109,9 @@ function getIsoWeekNumber(d) {
 const meterNameCache = new Map();
 async function resolveMeterName(snid) {
     if (meterNameCache.has(snid)) return meterNameCache.get(snid);
-    const m = await prisma.meterInfo.findUnique({ where: { snid }, select: { meterName: true } });
-    const name = m?.meterName || null;
+    // meterName field was removed from Prisma schema; fetch whole record and fall back to snid
+    const m = await prisma.meterInfo.findUnique({ where: { snid } });
+    const name = m?.meterName || m?.snid || m?.buildingName || null;
     meterNameCache.set(snid, name);
     return name;
 }
@@ -163,46 +123,45 @@ async function updateAggregates(records) {
         const kWH = Number(r.kWH || 0);
         if (!snid || isNaN(ts)) continue;
 
-        const meterName = await resolveMeterName(snid);
-        if (!meterName) continue;
+            // Use snid as the aggregation key (schema now uses meterSnid)
+            const meterKey = snid;
 
-        // HourlyEnergy: date (local yyyy-mm-dd), h0..h23
-        const y = ts.getFullYear();
-        const m = ts.getMonth() + 1;
-        const d = ts.getDate();
-        const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const hour = ts.getHours();
-        const hourField = `h${hour}`;
-        // validate hour field
-        if (!/^h([0-9]|1[0-9]|2[0-3])$/.test(hourField)) continue;
-        const hourlySql = `INSERT INTO "HourlyEnergy"("meterName","date","${hourField}","kwh") VALUES ($1, $2::date, $3, $4)
-            ON CONFLICT ("meterName","date") DO UPDATE SET "${hourField}" = COALESCE("HourlyEnergy"."${hourField}",0) + $3, "kwh" = COALESCE("HourlyEnergy"."kwh",0) + $4`;
-        await prisma.$executeRawUnsafe(hourlySql, meterName, dateStr, kWH, kWH);
+            // HourlyEnergy: date (local yyyy-mm-dd), h0..h23
+            const y = ts.getFullYear();
+            const m = ts.getMonth() + 1;
+            const d = ts.getDate();
+            const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const hour = ts.getHours();
+            const hourField = `h${hour}`;
+            // validate hour field
+            if (!/^h([0-9]|1[0-9]|2[0-3])$/.test(hourField)) continue;
+            const hourlySql = `INSERT INTO "HourlyEnergy"("meterSnid","date","${hourField}","kwh") VALUES ($1, $2::date, $3, $4)
+                ON CONFLICT ("meterSnid","date") DO UPDATE SET "${hourField}" = COALESCE("HourlyEnergy"."${hourField}",0) + $3, "kwh" = COALESCE("HourlyEnergy"."kwh",0) + $4`;
+            await prisma.$executeRawUnsafe(hourlySql, meterKey, dateStr, kWH, kWH);
 
-        // DailyEnergy: monthId is month number (1-12)
-        const monthId = m;
+        // DailyEnergy: schema uses (meterSnid, year, month)
+        const month = m;
         const dayField = `d${d}`;
         if (!/^d([1-9]|[12][0-9]|3[01])$/.test(dayField)) continue;
-        const dailySql = `INSERT INTO "DailyEnergy"("meterName","monthId","${dayField}","kwh") VALUES ($1,$2,$3,$4)
-            ON CONFLICT ("meterName","monthId") DO UPDATE SET "${dayField}" = COALESCE("DailyEnergy"."${dayField}",0) + $3, "kwh" = COALESCE("DailyEnergy"."kwh",0) + $4`;
-        await prisma.$executeRawUnsafe(dailySql, meterName, monthId, kWH, kWH);
+        const dailySql = `INSERT INTO "DailyEnergy"("meterSnid","year","month","${dayField}","kwh") VALUES ($1,$2,$3,$4,$5)
+            ON CONFLICT ("meterSnid","year","month") DO UPDATE SET "${dayField}" = COALESCE("DailyEnergy"."${dayField}",0) + $4, "kwh" = COALESCE("DailyEnergy"."kwh",0) + $5`;
+        await prisma.$executeRawUnsafe(dailySql, meterKey, y, month, kWH, kWH);
 
-        // WeeklyEnergy: weekId = year*100 + weekNumber; Sun..Sat fields
+        // WeeklyEnergy: schema uses (meterSnid, year, week) with lowercase weekday columns sun..sat
         const weekNumber = getIsoWeekNumber(ts);
-        const weekId = weekNumber; // store week number (1-53)
-        const weekdayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const weekdayNames = ['sun','mon','tue','wed','thu','fri','sat'];
         const weekdayField = weekdayNames[ts.getDay()];
-        if (!/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)$/.test(weekdayField)) continue;
-        const weeklySql = `INSERT INTO "WeeklyEnergy"("meterName","weekId","${weekdayField}","kwh") VALUES ($1,$2,$3,$4)
-            ON CONFLICT ("meterName","weekId") DO UPDATE SET "${weekdayField}" = COALESCE("WeeklyEnergy"."${weekdayField}",0) + $3, "kwh" = COALESCE("WeeklyEnergy"."kwh",0) + $4`;
-        await prisma.$executeRawUnsafe(weeklySql, meterName, weekId, kWH, kWH);
+        if (!/^(sun|mon|tue|wed|thu|fri|sat)$/.test(weekdayField)) continue;
+        const weeklySql = `INSERT INTO "WeeklyEnergy"("meterSnid","year","week","${weekdayField}","kwh") VALUES ($1,$2,$3,$4,$5)
+            ON CONFLICT ("meterSnid","year","week") DO UPDATE SET "${weekdayField}" = COALESCE("WeeklyEnergy"."${weekdayField}",0) + $4, "kwh" = COALESCE("WeeklyEnergy"."kwh",0) + $5`;
+        await prisma.$executeRawUnsafe(weeklySql, meterKey, y, weekNumber, kWH, kWH);
 
         // MonthlyEnergy: year, M1..M12
         const monthField = `M${m}`;
         if (!/^M([1-9]|1[0-2])$/.test(monthField)) continue;
-        const monthlySql = `INSERT INTO "MonthlyEnergy"("meterName","year","${monthField}","kwh") VALUES ($1,$2,$3,$4)
-            ON CONFLICT ("meterName","year") DO UPDATE SET "${monthField}" = COALESCE("MonthlyEnergy"."${monthField}",0) + $3, "kwh" = COALESCE("MonthlyEnergy"."kwh",0) + $4`;
-        await prisma.$executeRawUnsafe(monthlySql, meterName, y, kWH, kWH);
+        const monthlySql = `INSERT INTO "MonthlyEnergy"("meterSnid","year","${monthField}","kwh") VALUES ($1,$2,$3,$4)
+            ON CONFLICT ("meterSnid","year") DO UPDATE SET "${monthField}" = COALESCE("MonthlyEnergy"."${monthField}",0) + $3, "kwh" = COALESCE("MonthlyEnergy"."kwh",0) + $4`;
+        await prisma.$executeRawUnsafe(monthlySql, meterKey, y, kWH, kWH);
     }
 }
 

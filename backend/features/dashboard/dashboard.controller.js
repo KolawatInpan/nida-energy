@@ -142,9 +142,9 @@ async function getMonthlyEnergy(req, res) {
 
 async function searchBuildingEnergy(req, res) {
         try {
-                const { building, start, end, timeunit } = req.query;
-                const result = await DashBoardModel.searchBuildingEnergy({ building, start, end, timeunit });
-                return res.json({ result: 'success', building, ...result });
+                const { building, buildingId, start, end, timeunit } = req.query;
+                const result = await DashBoardModel.searchBuildingEnergy({ building, buildingId, start, end, timeunit });
+                return res.json({ result: 'success', building: building || result._building, ...result });
         } catch (err) {
                 console.error('searchBuildingEnergy error', err);
                 return res.status(500).json({ error: err.message });

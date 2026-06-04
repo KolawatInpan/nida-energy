@@ -1,0 +1,14 @@
+{
+  "pid": 144,
+  "start": "2025-12-31T17:00:00.000Z",
+  "end": "2026-05-19T09:00:00.000Z",
+  "delayMs": 500,
+  "totalMeters": 2,
+  "processedMeters": 0,
+  "currentMeter": "MTR-PRD-7685",
+  "perMeter": [],
+  "startedAt": "2026-05-19T09:28:16.800Z",
+  "lastUpdate": "2026-05-19T09:28:17.076Z",
+  "completed": false,
+  "error": null
+}

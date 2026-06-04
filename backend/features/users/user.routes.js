@@ -11,8 +11,6 @@ const requireRole = require('../../middleware/requireRole');
  *     summary: Get user list
  *     tags:
  *       - User
- *     security:
- *       - bearerAuth: []
  *     responses:
  *       '200':
  *         description: Successful response with user list
@@ -23,7 +21,7 @@ const requireRole = require('../../middleware/requireRole');
  *               items:
  *                 type: object
  */
-router.get('/', auth, UserController.getUsers);
+router.get('/', UserController.getUsers);
 
 /**
  * @openapi
@@ -91,6 +89,30 @@ router.get('/building/id/:buildingId', UserController.getUserByBuildingId);
 
 /**
  * @openapi
+ * /users/request-otp:
+ *   post:
+ *     summary: Request OTP for registration
+ *     tags:
+ *       - User
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *     responses:
+ *       '200':
+ *         description: OTP sent
+ */
+router.post('/request-otp', UserController.requestOtp);
+
+/**
+ * @openapi
  * /users/register:
  *   post:
  *     summary: Register a new user
@@ -149,6 +171,12 @@ router.post('/register', UserController.register);
  *         description: Invalid credentials
  */
 router.post('/login', UserController.login);
+
+// POST /api/users/admin-login  { password }
+router.post('/admin-login', UserController.adminLogin);
+
+// POST /api/users/admin-quick-register  { buildingName, email, password, ... }
+router.post('/admin-quick-register', UserController.adminQuickRegister);
 /**
  * Example register request:
  * {
@@ -230,6 +258,3 @@ router.put('/:id', auth, requireRole('ADMIN'), UserController.updateUser);
 router.delete('/:id', auth, requireRole('ADMIN'), UserController.deleteUser);
 
 module.exports = router;
-
-
-

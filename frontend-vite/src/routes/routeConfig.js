@@ -4,7 +4,9 @@ import { Building, Meter, MeterRegistration, Report } from "../pages/energy";
 import { Transaction, TradingHistory, TransactionDetail } from "../pages/transactions";
 import { Wallet, Receipts, ReceiptDetail, Invoice, InvoicePayment } from "../pages/billing";
 import { EnergySelling, Market, MockEnergy } from "../pages/trading";
+import { SimulationPage } from "../pages/simulation";
 import { BlockExplorer, BlockExplorerTransactionDetail, BlockchainValidators, TransactionBlockchainCompare } from "../pages/blockchain";
+import UserGuide from "../pages/userGuide/UserGuide";
 import { NoBuildingAssignedPage } from "../components/shared";
 import { ROUTE_PATHS } from "./routePaths";
 
@@ -33,6 +35,7 @@ export const authenticatedRoutes = [
   { path: ROUTE_PATHS.meterRegistration, exact: true, component: MeterRegistration },
   { path: ROUTE_PATHS.energySelling, exact: true, component: EnergySelling },
   { path: ROUTE_PATHS.mockEnergy, exact: true, component: MockEnergy },
+  { path: ROUTE_PATHS.simulation, exact: true, component: SimulationPage },
   { path: ROUTE_PATHS.market, exact: true, component: Market },
   { path: ROUTE_PATHS.blockExplorer, exact: true, component: BlockExplorer },
   { path: ROUTE_PATHS.blockExplorerTx, exact: true, component: BlockExplorerTransactionDetail },
@@ -46,4 +49,5 @@ export const authenticatedRoutes = [
   { path: ROUTE_PATHS.invoice, exact: true, component: Invoice },
   { path: ROUTE_PATHS.invoicePayment, exact: true, component: InvoicePayment },
   { path: ROUTE_PATHS.rateManagement, exact: true, component: RateManagement },
+  { path: ROUTE_PATHS.userGuide, exact: true, component: UserGuide },
 ];

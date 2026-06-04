@@ -1,15 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Badge, Popover, List, Spin } from 'antd';
 import { BellOutlined } from '@ant-design/icons';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000/api';
+const API_BASE = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
 const NOTIFICATION_API = `${API_BASE}/notifications`;
 
 const NotificationBell = ({ userId }) => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
+  const mountedRef = useRef(true);
 
   const fetchNotifications = async () => {
+    if (!mountedRef.current) return;
     setLoading(true);
     try {
       const url = userId ? `${NOTIFICATION_API}?userId=${encodeURIComponent(userId)}` : NOTIFICATION_API;
@@ -17,17 +19,24 @@ const NotificationBell = ({ userId }) => {
       if (!res.ok) throw new Error(`Status ${res.status}`);
       const data = await res.json();
       // backend returns { notifications: [...] }
+      if (!mountedRef.current) return;
       setNotifications(Array.isArray(data.notifications) ? data.notifications : (Array.isArray(data) ? data : []));
     } catch (e) {
+      if (!mountedRef.current) return;
       setNotifications([]);
     }
+    if (!mountedRef.current) return;
     setLoading(false);
   };
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 15000); // auto-refresh
-    return () => clearInterval(interval);
+    return () => {
+      mountedRef.current = false;
+      clearInterval(interval);
+    };
   }, [userId]);
 
   const unreadCount = notifications.filter(n => !n.isRead).length;

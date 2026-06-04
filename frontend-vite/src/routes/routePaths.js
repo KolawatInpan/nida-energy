@@ -17,6 +17,7 @@ export const ROUTE_PATHS = {
   meterRegistration: '/meter-registration',
   energySelling: '/energy-selling',
   mockEnergy: '/mock-energy',
+  userGuide: '/user-guide',
   market: '/market',
   blockExplorer: '/block-explorer',
   blockExplorerTx: '/block-explorer/tx/:txHash',
@@ -34,6 +35,7 @@ export const ROUTE_PATHS = {
   adminBuildings: '/admin/buildings',
   adminMeters: '/admin/meters',
   adminResetDatabase: '/admin/reset-database',
+  simulation: '/simulation',
 };
 
 export const routeToBuilding = (slug = ':buildingId') => `/building/${slug}`;

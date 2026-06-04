@@ -91,7 +91,8 @@ async function updateBuilding(req, res) {
 
 async function deleteBuilding(req, res) {
   try {
-    await BuildingModel.deleteBuilding(req.params.id);
+    const force = req.query.force === 'true' || req.body?.force === true;
+    await BuildingModel.deleteBuilding(req.params.id, force);
     res.json({ success: true });
   } catch (err) {
     console.error('deleteBuilding error', err);
@@ -99,7 +100,7 @@ async function deleteBuilding(req, res) {
       return res.status(400).json({ error: err.message });
     }
     if (err.code === 'P2003') {
-      return res.status(409).json({ error: 'Cannot delete building with related records' });
+      return res.status(409).json({ error: 'Cannot delete building with related records. Use force=true to delete all related data.' });
     }
     if (err.code === 'P2025') {
       return res.status(404).json({ error: 'Building not found' });

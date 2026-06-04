@@ -19,6 +19,7 @@ import {
     CreditCardOutlined,
     FileDoneOutlined,
     PercentageOutlined,
+    QuestionCircleOutlined,
 } from '@ant-design/icons';
 import Key from '../../global/key';
 import { useDispatch, useSelector } from 'react-redux';
@@ -315,6 +316,7 @@ const LeftMenu = ({ history, location }) => {
                         { label: 'Billing & Invoice', key: ROUTE_PATHS.invoice, icon: <FileDoneOutlined /> },
                         { label: 'Transaction History', key: ROUTE_PATHS.transaction, icon: <SwapOutlined /> },
                         { label: 'Blockchain', key: ROUTE_PATHS.blockExplorer, icon: <DotChartOutlined /> },
+                        { label: 'Simulation', key: ROUTE_PATHS.simulation, icon: <ThunderboltOutlined /> },
                         { label: 'Analytics', key: ROUTE_PATHS.report, icon: <BarChartOutlined /> },
                     ],
                 },
@@ -377,22 +379,16 @@ const LeftMenu = ({ history, location }) => {
                 label: 'System',
                 children: [
                     { label: 'Blockchain', key: ROUTE_PATHS.blockExplorer, icon: <DotChartOutlined /> },
+                    { label: 'Simulation', key: ROUTE_PATHS.simulation, icon: <ThunderboltOutlined /> },
                     { label: 'Analytics', key: ROUTE_PATHS.report, icon: <BarChartOutlined /> },
                     { label: 'Publishers', key: ROUTE_PATHS.blockchainValidators, icon: <CheckCircleOutlined /> },
                     { label: 'Compare', key: ROUTE_PATHS.blockchainCompare, icon: <SwapOutlined /> },
                     { label: 'Mock Energy', key: ROUTE_PATHS.mockEnergy, icon: <ThunderboltOutlined /> },
                     { label: 'Meter Registration', key: ROUTE_PATHS.meterRegistration, icon: <ExperimentOutlined /> },
+                    { label: 'User Guide 📖', key: ROUTE_PATHS.userGuide, icon: <QuestionCircleOutlined /> },
                 ],
             },
-            {
-                type: 'group',
-                label: 'Management',
-                children: [
-                    { label: 'Buildings', key: ROUTE_PATHS.adminBuildings, icon: <ApartmentOutlined /> },
-                    { label: 'Meters', key: ROUTE_PATHS.adminMeters, icon: <SlidersOutlined /> },
-                    { label: 'Users', key: ROUTE_PATHS.adminUsers, icon: <FileTextOutlined /> },
-                ],
-            },
+            
         ];
     }, [buildings, memberBuilding, meters, member]);
 
@@ -430,11 +426,13 @@ const LeftMenu = ({ history, location }) => {
         if (path.startsWith('/report')) return '/report';
         if (path.startsWith('/market')) return '/market';
         if (path.startsWith('/energy-selling')) return '/energy-selling';
+        if (path.startsWith('/simulation')) return '/simulation';
         if (path.startsWith('/token-management')) return '/token-management';
         if (path.startsWith('/rate-management') && search.includes('category=energy')) return '/rate-management?category=energy';
         if (path.startsWith('/rate-management') && search.includes('category=token')) return '/rate-management?category=token';
         if (path.startsWith('/rate-management')) return '/rate-management?category=energy';
         if (path.startsWith('/mock-energy')) return '/mock-energy';
+        if (path.startsWith('/user-guide')) return '/user-guide';
         if (path.startsWith('/home') || path === '/') return '/home';
         if (path.startsWith('/no-building-assigned')) {
             const source = new URLSearchParams(search).get('source');

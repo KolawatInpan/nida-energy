@@ -1,62 +1,31 @@
-// แจ้งเตือน invoice ใหม่
-async function notifyInvoice({ userId, invoiceId, amount, buildingId }) {
-    try {
-        const { createNotification } = require('../notification/notification.service');
-        await createNotification({
-            type: 'invoice',
-            message: `มีใบแจ้งหนี้ใหม่ จำนวน ${amount} บาท (Invoice: ${invoiceId})`,
-            userId,
-            buildingId
-        });
-    } catch (e) { console.error('Notification error:', e.message); }
-}
 const { prisma } = require('../../utils/prisma');
 const { randomUUID } = require('crypto');
 
+// ---- inline helpers (self-contained, no cross-file import issues) ----
+function toNumber(value) {
+  if (value == null) return 0;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+function extractDayValue(row, day) { return toNumber(row[`d${day}`]); }
+function normalizeInvoice(invoice) {
+  if (!invoice) return invoice;
+  return { ...invoice, kWH: toNumber(invoice.kWH), tokenAmount: toNumber(invoice.tokenAmount), dailyAvg: toNumber(invoice.dailyAvg), peakkWH: toNumber(invoice.peakkWH), receipt: invoice.receipt || null };
+}
+function toStartOfMonth(year, month) { return new Date(Date.UTC(year, month - 1, 1, 0, 0, 0)); }
+function getRecentPeriods(lookbackMonths = 3, now = new Date()) {
+  const count = Math.max(1, Number(lookbackMonths) || 3);
+  const periods = [];
+  for (let offset = 0; offset < count; offset += 1) {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+    periods.push({ year: date.getUTCFullYear(), month: date.getUTCMonth() + 1 });
+  }
+  return periods;
+}
+// ---- end inline helpers ----
+
 const TOKEN_RATE_PER_KWH = 1;
 const SYSTEM_WALLET_ID = 'SYSTEM';
-
-function toNumber(value) {
-    if (value == null) return 0;
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : 0;
-}
-
-function toStartOfMonth(year, month) {
-    return new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
-}
-
-function getRecentPeriods(lookbackMonths = 3, now = new Date()) {
-    const count = Math.max(1, Number(lookbackMonths) || 3);
-    const periods = [];
-
-    for (let offset = 0; offset < count; offset += 1) {
-        const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
-        periods.push({
-            year: date.getUTCFullYear(),
-            month: date.getUTCMonth() + 1,
-        });
-    }
-
-    return periods;
-}
-
-function extractDayValue(row, day) {
-    return toNumber(row[`d${day}`]);
-}
-
-function normalizeInvoice(invoice) {
-    if (!invoice) return invoice;
-
-    return {
-        ...invoice,
-        kWH: toNumber(invoice.kWH),
-        tokenAmount: toNumber(invoice.tokenAmount),
-        dailyAvg: toNumber(invoice.dailyAvg),
-        peakkWH: toNumber(invoice.peakkWH),
-        receipt: invoice.receipt || null,
-    };
-}
 
 async function getMarketplacePurchaseSnapshot({ year, month, buildingName }) {
     const selectedYear = Number(year);
@@ -165,7 +134,7 @@ async function getInvoiceConsumptionSnapshot({ year, month, buildingName }) {
             activeDays: new Set(),
         };
 
-        current.totalKwh += toNumber(row.kWH);
+        current.totalKwh += toNumber(row.kwh);
         for (let day = 1; day <= 31; day += 1) {
             const dayValue = extractDayValue(row, day);
             if (dayValue <= 0) continue;

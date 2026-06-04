@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getApiBase } from './apiBase';
 import Key from '../../global/key';
 
 const getAuthConfig = () => {
@@ -8,7 +9,7 @@ const getAuthConfig = () => {
 
 export async function getUsers() {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.get(`${base}/users`, getAuthConfig());
         return response.data;
     } catch (error) {
@@ -19,7 +20,7 @@ export async function getUsers() {
 
 export async function getBuildingsFromEmail(email) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.get(`${base}/buildings/email/${encodeURIComponent(email)}`);
         return response.data;
     } catch (error) {
@@ -30,7 +31,7 @@ export async function getBuildingsFromEmail(email) {
 
 export async function updateUser(credId, payload) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.put(`${base}/users/${encodeURIComponent(credId)}`, payload, getAuthConfig());
         return response.data;
     } catch (error) {
@@ -39,10 +40,11 @@ export async function updateUser(credId, payload) {
     }
 }
 
-export async function deleteUser(credId) {
+export async function deleteUser(credId, force = false) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
-        const response = await axios.delete(`${base}/users/${encodeURIComponent(credId)}`, getAuthConfig());
+        const base = getApiBase();
+        const params = force ? '?force=true' : '';
+        const response = await axios.delete(`${base}/users/${encodeURIComponent(credId)}${params}`, getAuthConfig());
         return response.data;
     } catch (error) {
         console.error('Error deleting user:', error);

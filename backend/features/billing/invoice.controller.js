@@ -153,8 +153,15 @@ async function getQuotaWarnings(req, res) {
             ...result,
         });
     } catch (err) {
-        console.error('getQuotaWarnings error:', err);
-        res.status(500).json({ error: err.message });
+        console.error('getQuotaWarnings error:', err?.message || err);
+        // Return empty result instead of 500 when DB is empty
+        res.json({
+            lookbackMonths: Number(req.query.lookbackMonths || 3),
+            ratePerKwh: invoiceService.TOKEN_RATE_PER_KWH,
+            periods: [],
+            summary: { totalBuildings: 0, totalWarnings: 0, criticalCount: 0, warningCount: 0, healthyCount: 0 },
+            items: [],
+        });
     }
 }
 

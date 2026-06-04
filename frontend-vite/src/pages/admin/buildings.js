@@ -96,15 +96,17 @@ const Buildings = () => {
     setEditData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleDelete = async (buildingId) => {
-    if (window.confirm('Are you sure you want to delete this building?')) {
-      try {
-        await deleteBuilding(buildingId);
-        setBuildings((prev) => prev.filter((item) => item.id !== buildingId));
-      } catch (error) {
-        console.error('Failed to delete building:', error);
-        window.alert(error?.response?.data?.error || 'Failed to delete building');
-      }
+  const handleDelete = async (buildingId, buildingName) => {
+    const name = buildingName || `Building #${buildingId}`;
+    if (!window.confirm(`Delete "${name}"?\n\nThis will permanently remove all data including meters, energy records, wallet, transactions, and invoices.`)) return;
+
+    try {
+      // Try force delete first (removes ALL related data)
+      await deleteBuilding(buildingId, true);
+      setBuildings((prev) => prev.filter((item) => item.id !== buildingId));
+    } catch (error) {
+      console.error('Failed to delete building:', error);
+      window.alert(error?.response?.data?.error || 'Failed to delete building');
     }
   };
 
@@ -280,7 +282,7 @@ const Buildings = () => {
                         <td className="px-4 py-4 text-center">
                           <div className="flex flex-wrap items-center justify-center gap-2">
                             <button type="button" onClick={() => handleEdit(building.id)} className={secondaryButtonClass}>Edit</button>
-                            <button type="button" onClick={() => handleDelete(building.id)} className={dangerButtonClass}>Delete</button>
+                            <button type="button" onClick={() => handleDelete(building.id, building.name)} className={dangerButtonClass}>Delete</button>
                           </div>
                         </td>
                       </>

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const RunningMeterController = require('./runningMeter.controller');
+const RunningMeterController = require('./runningMeter.service');
 
 /**
  * @openapi
@@ -94,6 +94,25 @@ router.post('/insert-logs-bulk', RunningMeterController.insertRunningLogsBulk);
  *         description: Reset completed
  */
 router.post('/reset-energy-logs', RunningMeterController.resetEnergyLogs);
+
+/**
+ * GET /api/runningMeters/status
+ * Returns cron schedule, number of auto-mock meters, current server time, and last running entry timestamp
+ */
+router.get('/status', RunningMeterController.getStatus);
+
+/**
+ * POST /api/runningMeters/backfill
+ * body: { start: ISOString, end?: ISOString, delayMs?: number }
+ * Starts backfill in background (spawns detached process) and returns pid.
+ */
+router.post('/backfill', RunningMeterController.backfill);
+
+/**
+ * GET /api/runningMeters/backfill-status?pid=<pid>
+ * Returns JSON status file for running backfill processes (or latest if pid omitted)
+ */
+router.get('/backfill-status', RunningMeterController.backfillStatus);
 
 module.exports = router;
 

@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { getApiBase } from './apiBase';
 
-const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+const base = getApiBase();
 
 export function getTransactionById(txid) {
     return axios.get(`${base}/transactions/${txid}`)

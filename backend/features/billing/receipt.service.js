@@ -25,9 +25,14 @@ async function getReceiptDetails(id) {
 	);
 
 	const building = receipt.invoice?.buildingName
-		? await prisma.building.findUnique({
-			where: { name: String(receipt.invoice.buildingName) },
-		})
+		? await (async () => {
+			let bname = String(receipt.invoice.buildingName);
+			// Normalize known name variants
+			const normalized = bname.toLowerCase().replace(/\s+/g, '');
+			if (normalized === 'nidasumpan') bname = 'nidasumpun';
+			if (normalized === 'narathip') bname = 'naradhip';
+			return prisma.building.findUnique({ where: { name: bname } });
+		})()
 		: null;
 
 	const owner = building?.email

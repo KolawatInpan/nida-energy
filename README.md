@@ -40,6 +40,8 @@ Useful commands
 ```bash
 docker compose up --build
 docker compose -f docker-compose.dev.yml up --build
+docker compose --env-file .env.dev -f docker-compose.dev.yml up --build
+
 docker compose down
 docker compose logs -f backend
 docker compose exec db psql -U postgres -d energy_trading

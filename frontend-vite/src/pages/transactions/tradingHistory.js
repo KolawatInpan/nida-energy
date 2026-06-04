@@ -59,8 +59,8 @@ export default function TradingHistory() {
     try {
       setLoading(true);
       setError('');
-      const response = await getAllTransactions();
-      const rows = Array.isArray(response?.data) ? response.data : [];
+      const data = await getAllTransactions();
+      const rows = Array.isArray(data) ? data : [];
       setTransactions(normalizeTradingRows(rows));
     } catch (err) {
       console.error('Error loading trading history:', err);
@@ -197,7 +197,6 @@ export default function TradingHistory() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="font-semibold text-slate-900">{item.buildingName}</div>
-                      <div className="mt-1 text-xs text-slate-500">SNID: {item.snid}</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className={`font-bold ${item.tradeType === 'Buy from Pool' ? 'text-emerald-600' : 'text-orange-600'}`}>

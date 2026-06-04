@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const RateController = require('./rate.controller');
+const RateController = require('./rate.service');
 const auth = require('../../middleware/auth');
 const requireRole = require('../../middleware/requireRole');
 

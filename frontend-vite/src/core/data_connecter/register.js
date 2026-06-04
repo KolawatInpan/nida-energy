@@ -1,9 +1,21 @@
 import axios from 'axios';
+import { getApiBase } from './apiBase';
 
-export async function registerUser(name, email, password, telNum) {
+export async function requestOtpEmail(email) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
-        const response = await axios.post(`${base}/users/register`, { name, email, password, telNum });
+        const base = getApiBase();
+        const response = await axios.post(`${base}/users/request-otp`, { email });
+        return response.data;
+    } catch (error) {
+        console.error('Error requesting OTP:', error);
+        throw error;
+    }
+}
+
+export async function registerUser(name, email, password, telNum, otp) {
+    try {
+        const base = getApiBase();
+        const response = await axios.post(`${base}/users/register`, { name, email, password, telNum, otp });
         return response.data;
     } catch (error) {
         console.error('Error registering user:', error);
@@ -13,7 +25,7 @@ export async function registerUser(name, email, password, telNum) {
 
 export async function getUsers() {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.get(`${base}/users`);
         return response.data;
     } catch (error) {
@@ -24,7 +36,7 @@ export async function getUsers() {
 
 export async function getBuildings() {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.get(`${base}/buildings`);
         return response.data;
     } catch (error) {
@@ -35,7 +47,7 @@ export async function getBuildings() {
 
 export async function getMeters() {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.get(`${base}/meters`);
         return response.data;
     } catch (error) {
@@ -46,7 +58,7 @@ export async function getMeters() {
 
 export async function getMetersByBuilding(buildingId) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.get(`${base}/meters/building/${buildingId}`);
         return response.data;
     } catch (error) {
@@ -57,7 +69,7 @@ export async function getMetersByBuilding(buildingId) {
 
 export async function getMeterBySnid(snid) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.get(`${base}/meters/snid/${snid}`);
         return response.data;
     } catch (error) {
@@ -68,7 +80,7 @@ export async function getMeterBySnid(snid) {
 
 export async function generateHourlyRunningMeter(snid, start, end, options = {}) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const payload = { snid, start, end };
         if (options.intervalHours) payload.intervalHours = options.intervalHours;
         if (options.valueProfile) payload.valueProfile = options.valueProfile;
@@ -83,7 +95,7 @@ export async function generateHourlyRunningMeter(snid, start, end, options = {})
 
 export async function getHourlyEnergyByMeter(snid, date) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.get(`${base}/dashboard/hourly`, {
             params: {
                 meterId: snid,
@@ -99,7 +111,7 @@ export async function getHourlyEnergyByMeter(snid, date) {
 
 export async function getDailyEnergyByMeter(snid, monthId, year) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.get(`${base}/dashboard/daily`, {
             params: {
                 meterId: snid,
@@ -116,7 +128,7 @@ export async function getDailyEnergyByMeter(snid, monthId, year) {
 
 export async function getWeeklyEnergyByMeter(snid, weekId) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.get(`${base}/dashboard/weekly`, {
             params: {
                 meterId: snid,
@@ -132,7 +144,7 @@ export async function getWeeklyEnergyByMeter(snid, weekId) {
 
 export async function getMonthlyEnergyByMeter(snid, year) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.get(`${base}/dashboard/monthly`, {
             params: {
                 meterId: snid,
@@ -147,7 +159,7 @@ export async function getMonthlyEnergyByMeter(snid, year) {
 }
 export async function insertRunningLog(snid, timestamp, kW, kWH, txid = null) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const payload = { snid, timestamp };
         if (typeof kW !== 'undefined') payload.kW = kW;
         if (typeof kWH !== 'undefined') payload.kWH = kWH;
@@ -161,7 +173,7 @@ export async function insertRunningLog(snid, timestamp, kW, kWH, txid = null) {
 }
 export async function registerBuilding(name, mapURL, addr, province, postalCode, email) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.post(`${base}/buildings/register`, { name, mapURL, address: addr, province, postalCode, email });
         return response.data;
     } catch (error) {
@@ -172,7 +184,7 @@ export async function registerBuilding(name, mapURL, addr, province, postalCode,
 
 export async function registerMeter(buildingId, meterType, meterNumber, capacity, dateInstalled) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const payload = { buildingId, meterType, meterNumber };
         if (typeof capacity !== 'undefined') payload.capacity = capacity;
         if (typeof dateInstalled !== 'undefined' && dateInstalled !== '') payload.dateInstalled = dateInstalled;
@@ -186,11 +198,20 @@ export async function registerMeter(buildingId, meterType, meterNumber, capacity
 
 export async function registerWallet(userId, email) {
     try {
-        const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+        const base = getApiBase();
         const response = await axios.post(`${base}/wallets/register`, { userId, email });
         return response.data;
     } catch (error) {
         console.error('Error registering wallet:', error);
         throw error;
     }
-} 
+}
+
+/**
+ * Admin Quick Register: User + Building + 3 Meters + Wallet in one call.
+ * Bypasses OTP — only for admin use (no auth check on this endpoint itself).
+ */
+export async function adminQuickRegister(data) {
+    const base = getApiBase();
+    return axios.post(`${base}/users/admin-quick-register`, data);
+}

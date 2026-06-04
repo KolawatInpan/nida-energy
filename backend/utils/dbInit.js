@@ -145,16 +145,54 @@ async function ensureEnergyDecimalColumns() {
 
     for (const [tableName, columns] of Object.entries(decimalColumns)) {
       for (const columnName of columns) {
+        // determine actual column name in DB (some schemas use lowercase 'kwh' etc.)
+        let actualColumn = null;
+        // try exact name
+        let q = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`, [tableName, columnName]);
+        if (q.rowCount > 0) actualColumn = q.rows[0].column_name;
+        // try lowercase
+        if (!actualColumn) {
+          const lower = columnName.toLowerCase();
+          q = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`, [tableName, lower]);
+          if (q.rowCount > 0) actualColumn = q.rows[0].column_name;
+        }
+        // try uppercase
+        if (!actualColumn) {
+          const upper = columnName.toUpperCase();
+          q = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`, [tableName, upper]);
+          if (q.rowCount > 0) actualColumn = q.rows[0].column_name;
+        }
+
+        if (!actualColumn) {
+          // column doesn't exist in DB; skip
+          continue;
+        }
+
         await client.query(`
           ALTER TABLE "${tableName}"
-          ALTER COLUMN "${columnName}" TYPE NUMERIC(12,4)
+          ALTER COLUMN "${actualColumn}" TYPE NUMERIC(12,4)
           USING CASE
-            WHEN "${columnName}" IS NULL THEN NULL
-            ELSE ROUND("${columnName}"::numeric, 4)
+            WHEN "${actualColumn}" IS NULL THEN NULL
+            ELSE ROUND("${actualColumn}"::numeric, 4)
           END
         `);
       }
     }
+  });
+}
+
+async function ensureBuildingTradeColumns() {
+  await withClient(async (client) => {
+    await client.query(`
+      ALTER TABLE "Building"
+      ADD COLUMN IF NOT EXISTS "batterySellThreshold" NUMERIC(5,2),
+      ADD COLUMN IF NOT EXISTS "solarSelfPercent" NUMERIC(5,2),
+      ADD COLUMN IF NOT EXISTS "solarTradeMode" VARCHAR,
+      ADD COLUMN IF NOT EXISTS "batteryTradeMode" VARCHAR,
+      ADD COLUMN IF NOT EXISTS "batteryBidPrice" NUMERIC(12,4),
+      ADD COLUMN IF NOT EXISTS "batteryOfferPrice" NUMERIC(12,4),
+      ADD COLUMN IF NOT EXISTS "solarOfferPrice" NUMERIC(12,4)
+    `);
   });
 }
 
@@ -165,5 +203,6 @@ module.exports = {
   ensureTransactionVerificationColumns,
   ensureWalletFloatColumns,
   ensureEnergyDecimalColumns,
+   ensureBuildingTradeColumns,
 };
 

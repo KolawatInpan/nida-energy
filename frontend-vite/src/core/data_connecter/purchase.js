@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getApiBase } from './apiBase';
 
 /**
  * Purchase energy from marketplace (POST /api/invoices/purchase)
@@ -7,7 +8,7 @@ import axios from 'axios';
  * @returns {Promise} Axios promise
  */
 export function purchaseEnergy(purchase) {
-    const apiBase = process.env.REACT_APP_API_BASE || 'http://localhost:8000/api';
+    const apiBase = getApiBase();
     const res = axios.post(apiBase + "/invoices/purchase", purchase)
         .then(ress => {
             console.log('purchaseEnergy response:', ress);

@@ -1,7 +1,40 @@
 function toNumber(value) {
+  if (value == null) return 0;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
 }
+
+function toStartOfMonth(year, month) {
+  return new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+}
+
+function getRecentPeriods(lookbackMonths = 3, now = new Date()) {
+  const count = Math.max(1, Number(lookbackMonths) || 3);
+  const periods = [];
+  for (let offset = 0; offset < count; offset += 1) {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+    periods.push({ year: date.getUTCFullYear(), month: date.getUTCMonth() + 1 });
+  }
+  return periods;
+}
+
+function extractDayValue(row, day) {
+  return toNumber(row[`d${day}`]);
+}
+
+function normalizeInvoice(invoice) {
+  if (!invoice) return invoice;
+  return {
+    ...invoice,
+    kWH: toNumber(invoice.kWH),
+    tokenAmount: toNumber(invoice.tokenAmount),
+    dailyAvg: toNumber(invoice.dailyAvg),
+    peakkWH: toNumber(invoice.peakkWH),
+    receipt: invoice.receipt || null,
+  };
+}
+
+module.exports = { toNumber, toStartOfMonth, getRecentPeriods, extractDayValue, normalizeInvoice };
 
 function resolvePeriod({ month, year } = {}) {
   const now = new Date();

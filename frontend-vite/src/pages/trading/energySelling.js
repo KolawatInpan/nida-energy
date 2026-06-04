@@ -3,10 +3,12 @@ import axios from 'axios';
 import { Card, Space, Button, Input, Select } from "antd";
 import { useHistory } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { createOffer } from '../../core/data_connecter/api_caller';
+import { createOffer, createBid, getOffers } from '../../core/data_connecter/market';
 import { EnergySellingPanel } from '../../components/shared';
+import { MarketTimeline } from '../../components/shared';
 import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/register';
 import { updateBuilding as updateBuildingPolicy } from '../../core/data_connecter/building';
+import { searchBuildingEnergy } from '../../core/data_connecter/dashboard';
 import { getEnergyRates } from '../../core/data_connecter/rate';
 import { getWalletByEmail } from '../../core/data_connecter/wallet';
 import { useTOR } from '../../global/TORContext';
@@ -26,10 +28,15 @@ export default function EnergySelling() {
     const [targetBuildingForPurchase, setTargetBuildingForPurchase] = useState(null);
     const [sourceEnergyStatus, setSourceEnergyStatus] = useState(null);
     const [marketSnapshot, setMarketSnapshot] = useState(null);
-    const [tradeMode, setTradeMode] = useState('MANUAL');
+    const [tradeMode, setTradeMode] = useState('AUTO_BATTERY_THRESHOLD');
+    const [solarTradeMode, setSolarTradeMode] = useState('AUTO_BATTERY_THRESHOLD');
+    const [batteryTradeMode, setBatteryTradeMode] = useState('AUTO_BATTERY_THRESHOLD');
     const [batterySellThreshold, setBatterySellThreshold] = useState('80');
+    const [marketType, setMarketType] = useState('DAY_AHEAD');
+    const [orderSide, setOrderSide] = useState('OFFER'); // OFFER=ขาย, BID=ซื้อ
     const [isSavingTradePolicy, setIsSavingTradePolicy] = useState(false);
     const [unsavedTradeMode, setUnsavedTradeMode] = useState(false);
+    const [toast, setToast] = useState(null);
     const [overviewStats, setOverviewStats] = useState({
       netGridLoad: 0,
       solarGeneration: 0,
@@ -41,7 +48,7 @@ export default function EnergySelling() {
     const history = useHistory();
     const { showTOR } = useTOR();
     const memberStore = useSelector((store) => store.member.all);
-    const apiBase = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+    const apiBase = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, ''); // for non-market API calls
 
     const toNumber = (value) => {
       if (value === null || value === undefined || value === '') return 0;
@@ -110,24 +117,24 @@ export default function EnergySelling() {
     );
 
     const classifyMeterType = (meter = {}) => {
-      const rawType = String(meter.type || meter.meterType || '').toLowerCase();
-      const rawName = String(meter.meterName || meter.name || '').toLowerCase();
+      const rawType = String(meter.type || meter.meterType || meter.meter_category || '').toLowerCase();
+      const rawName = String(meter.meterName || meter.name || meter.snid || '').toLowerCase();
       const fingerprint = `${rawType} ${rawName}`;
 
-      if (fingerprint.includes('battery')) return 'battery';
+      if (fingerprint.includes('battery') || fingerprint.includes('bat') || fingerprint.includes('ess') || fingerprint.includes('storage')) return 'battery';
       if (fingerprint.includes('produce') || fingerprint.includes('producer') || fingerprint.includes('solar') || fingerprint.includes('pv')) return 'produce';
-      if (fingerprint.includes('consume') || fingerprint.includes('consumer') || fingerprint.includes('smart meter') || fingerprint.includes('load')) return 'consume';
+      if (fingerprint.includes('consume') || fingerprint.includes('consumer') || fingerprint.includes('smart meter') || fingerprint.includes('load') || fingerprint.includes('grid')) return 'consume';
       return 'other';
     };
 
     const getMeterCurrentKwh = (meter = {}) => {
-      const candidates = [meter.value, meter.kWH, meter.kwh, meter.currentkWH, meter.currentKwh];
+      const candidates = [meter.value, meter.kWH, meter.kwh, meter.currentkWH, meter.currentKwh, meter.currentKwh, meter.energyValue, meter.latestReading];
       const found = candidates.find((value) => value !== null && value !== undefined && value !== '');
       return toNumber(found);
     };
 
     const getMeterCapacityKwh = (meter = {}) => {
-      const candidates = [meter.capacity, meter.capacitykWH, meter.capacityKwh];
+      const candidates = [meter.capacity, meter.capacitykWH, meter.capacityKwh, meter.maxCapacity, meter.ratedCapacity];
       const found = candidates.find((value) => value !== null && value !== undefined && value !== '');
       return toNumber(found);
     };
@@ -232,17 +239,38 @@ export default function EnergySelling() {
                 const activeBuildings = realBuildings.filter((building) => String(building?.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
                 const [energyRatesRes, offersRes, meterGroups] = await Promise.all([
                     getEnergyRates().catch(() => []),
-                    axios.get(`${apiBase}/offers`).then((res) => res.data).catch(() => []),
+                    getOffers().catch(() => []),
                     Promise.all(activeBuildings.map((building) => getMetersByBuilding(building.id).catch(() => []))),
                 ]);
 
-                const energyRates = Array.isArray(energyRatesRes) ? energyRatesRes : (energyRatesRes?.data || []);
+                const energyRates = Array.isArray(energyRatesRes) ? energyRatesRes
+                  : Array.isArray(energyRatesRes?.data) ? energyRatesRes.data
+                  : Array.isArray(energyRatesRes?.rates) ? energyRatesRes.rates
+                  : [];
                 const offers = Array.isArray(offersRes) ? offersRes : (offersRes?.data || offersRes?.offers || []);
-                const allMeters = meterGroups.flatMap((entry) => Array.isArray(entry) ? entry : (entry?.data || []));
-                const produceMeters = allMeters.filter((meter) => classifyMeterType(meter) === 'produce');
+                const allMeters = meterGroups.flatMap((entry) =>
+                  Array.isArray(entry) ? entry
+                  : Array.isArray(entry?.data) ? entry.data
+                  : Array.isArray(entry?.meters) ? entry.meters
+                  : []
+                );
                 const consumeMeters = allMeters.filter((meter) => classifyMeterType(meter) === 'consume');
-                const solarGeneration = produceMeters.reduce((sum, meter) => sum + getMeterCurrentKwh(meter), 0);
                 const totalConsumption = consumeMeters.reduce((sum, meter) => sum + getMeterCurrentKwh(meter), 0);
+
+                // Fetch actual solar generation from energy data (not meter remaining balance)
+                const todayStr = new Date().toISOString().slice(0, 10);
+                const energyResults = await Promise.all(activeBuildings.map((b) =>
+                    searchBuildingEnergy({ building: b.name, buildingId: b.id, start: todayStr, end: todayStr, timeunit: 'day' })
+                        .then(r => r?.data || {}).catch(() => ({}))
+                ));
+                let solarGeneration = 0;
+                for (const payload of energyResults) {
+                    if (payload.result === 'success') {
+                        const vals = Array.isArray(payload.production?.value) ? payload.production.value : [];
+                        solarGeneration += vals.reduce((s, v) => s + Number(v || 0), 0);
+                    }
+                }
+
                 const netGridLoad = Math.max(0, totalConsumption - solarGeneration);
                 const availableOffers = offers.filter((offer) => String(offer?.status || '').toUpperCase() === 'AVAILABLE');
                 const gridRate = getLatestRatePrice(energyRates, 4);
@@ -292,9 +320,12 @@ export default function EnergySelling() {
             location: realBuilding.province || realBuilding.address || 'Unknown location',
         };
         setSelectedBuilding(selected);
-        setTradeMode(String(realBuilding?.tradeMode || 'MANUAL').toUpperCase());
-          setBatterySellThreshold(String(realBuilding?.batterySellThreshold ?? 80));
-          setUnsavedTradeMode(false);
+        setTradeMode(String(realBuilding?.tradeMode || 'AUTO_BATTERY_THRESHOLD').toUpperCase());
+        const loadedSolar = String(realBuilding?.solarTradeMode || realBuilding?.tradeMode || 'AUTO_BATTERY_THRESHOLD').toUpperCase();
+        setSolarTradeMode(loadedSolar === 'AUTO' ? 'AUTO_BATTERY_THRESHOLD' : loadedSolar);
+        setBatteryTradeMode(String(realBuilding?.batteryTradeMode || realBuilding?.tradeMode || 'AUTO_BATTERY_THRESHOLD').toUpperCase());
+        setBatterySellThreshold(String(realBuilding?.batterySellThreshold ?? 80));
+        setUnsavedTradeMode(false);
         setShowPanel(true);
         setEnergyRate('');
         setTargetBuildingForPurchase(null);
@@ -302,12 +333,19 @@ export default function EnergySelling() {
         try {
             const [metersRes, offersRes, energyRatesRes] = await Promise.all([
                 getMetersByBuilding(realBuilding.id),
-                axios.get(`${apiBase}/offers`).then((res) => res.data).catch(() => []),
+                getOffers().catch(() => []),
                 getEnergyRates().catch(() => [])
             ]);
-            const meters = Array.isArray(metersRes) ? metersRes : (metersRes?.data || []);
+            const meters = Array.isArray(metersRes) ? metersRes
+              : Array.isArray(metersRes?.data) ? metersRes.data
+              : Array.isArray(metersRes?.meters) ? metersRes.meters
+              : Array.isArray(metersRes?.rows) ? metersRes.rows
+              : [];
             const offers = Array.isArray(offersRes) ? offersRes : (offersRes?.data || offersRes?.offers || []);
-            const energyRates = Array.isArray(energyRatesRes) ? energyRatesRes : (energyRatesRes?.data || energyRatesRes?.rates || []);
+            const energyRates = Array.isArray(energyRatesRes) ? energyRatesRes
+              : Array.isArray(energyRatesRes?.data) ? energyRatesRes.data
+              : Array.isArray(energyRatesRes?.rates) ? energyRatesRes.rates
+              : [];
             const producerMeter = meters.find((m) => {
                 const meterType = (m.type || '').toLowerCase();
                 return meterType.includes('produce') || meterType === 'produce';
@@ -330,10 +368,35 @@ export default function EnergySelling() {
                 };
             };
 
+            // Fetch total production & consumption from energy data (consistent source)
+            let totalProduce = 0;
+            let totalConsume = 0;
+            try {
+                const farPast = '2024-01-01';
+                const today = new Date();
+                const endStr = today.toISOString().slice(0, 10);
+                const energyRes = await searchBuildingEnergy({
+                    building: realBuilding.name,
+                    buildingId: realBuilding.id,
+                    start: farPast,
+                    end: endStr,
+                    timeunit: 'day',
+                });
+                const payload = energyRes?.data || {};
+                if (payload.result === 'success') {
+                    const prodVals = Array.isArray(payload.production?.value) ? payload.production.value : [];
+                    const conVals = Array.isArray(payload.consumption?.value) ? payload.consumption.value : [];
+                    totalProduce = prodVals.reduce((s, v) => s + Number(v || 0), 0);
+                    totalConsume = conVals.reduce((s, v) => s + Number(v || 0), 0);
+                }
+            } catch (e) {
+                console.warn('[energySelling] Failed to fetch total energy data:', e.message);
+            }
+
             const produceStatus = buildMeterStatus(producerMeter);
             const batteryStatus = buildMeterStatus(batteryMeter);
             setSourceEnergyStatus({
-                produce: produceStatus,
+                produce: { ...produceStatus, totalProduce, totalConsume },
                 battery: batteryStatus,
             });
             setSellSource(produceStatus.available ? 'produce' : batteryStatus.available ? 'battery' : 'produce');
@@ -486,22 +549,41 @@ export default function EnergySelling() {
         }
     };
 
-    const handleBuy = () => {
+    const handleBuy = async () => {
         if (!energyAmount) {
             alert('Please enter energy amount');
             return;
         }
-        if (!targetBuildingForPurchase) {
-            alert('Please select a destination building');
-            return;
+        const amount = toNumber(energyAmount);
+        const rate = toNumber(energyRate);
+        if (amount <= 0) { alert('Please enter energy amount'); return; }
+        if (rate <= 0) { alert('Please enter energy rate'); return; }
+
+        try {
+            const buildingsRes = await getBuildings();
+            const buildings = Array.isArray(buildingsRes) ? buildingsRes : (buildingsRes?.data || buildingsRes?.buildings || []);
+            const realBuilding = buildings.find(b => b.name && b.name.toLowerCase().includes(selectedBuilding.name.toLowerCase()));
+            if (!realBuilding) { alert('Building not found'); return; }
+
+            const walletRes = await getWalletByEmail(realBuilding.email);
+            const buyerWalletId = walletRes?.data?.id ? String(walletRes.data.id) : '';
+            if (!buyerWalletId) { alert('Wallet not found'); return; }
+
+            const res = await createBid({
+                buyerWalletId,
+                kwh: amount,
+                ratePerKwh: rate,
+                marketType,
+                targetDate: marketType === 'DAY_AHEAD' ? new Date(Date.now() + 86400000).toISOString().split('T')[0] : null,
+            });
+            if (res && res.status === 201) {
+                alert(`✅ Bid placed: ${amount} kWh at ${rate} Token/kWh\nMarket: ${marketType}\nBuilding: ${realBuilding.name}`);
+                handleClosePanel();
+                history.push('/market');
+            }
+        } catch (err) {
+            alert('Error placing bid: ' + (err.response?.data?.error || err.message));
         }
-        const targetBuildingName = destinationBuildings.find(b => Number(b.id) === Number(targetBuildingForPurchase))?.name || 'Unknown';
-        alert(`📥 Purchasing ${energyAmount} kWH from ${selectedBuilding.name}\n➡️ Sending to: ${targetBuildingName}\n💰 Price: ฿${energyRate}/unit`);
-        // TODO: Add API call to backend for purchase transaction
-        // reset form
-        setTargetBuildingForPurchase(null);
-        setEnergyAmount('');
-        setEnergyRate('');
     };
 
     const handleClosePanel = () => {
@@ -514,21 +596,33 @@ export default function EnergySelling() {
       setTargetBuildingForPurchase(null);
       setSourceEnergyStatus(null);
       setMarketSnapshot(null);
-      setTradeMode('MANUAL');
+      setTradeMode('AUTO_BATTERY_THRESHOLD');
+      setSolarTradeMode('AUTO_BATTERY_THRESHOLD');
+      setBatteryTradeMode('AUTO_BATTERY_THRESHOLD');
       setBatterySellThreshold('80');
+      setUnsavedTradeMode(false);
     };
 
-    const handleSaveTradePolicy = async () => {
+    const handleSaveTradePolicy = async (modeOverrides = {}) => {
       if (!selectedBuilding?.id) {
         alert('Please select a building first.');
         return;
       }
 
-      const normalizedMode = String(tradeMode || 'MANUAL').toUpperCase();
+      // Use modeOverrides if provided (from Save buttons) — fixes stale closure bug
+      const effectiveTrade = modeOverrides.tradeMode || tradeMode;
+      const effectiveSolar = modeOverrides.solarTradeMode || solarTradeMode;
+      const effectiveBattery = modeOverrides.batteryTradeMode || batteryTradeMode;
+      const normalizedTradeMode = String(effectiveTrade || 'AUTO_BATTERY_THRESHOLD').toUpperCase();
+      // Solar uses 'AUTO' (not 'AUTO_BATTERY_THRESHOLD') per backend validation
+      const rawSolar = String(effectiveSolar || normalizedTradeMode).toUpperCase();
+      const normalizedSolar = rawSolar === 'AUTO_BATTERY_THRESHOLD' ? 'AUTO' : rawSolar;
+      const normalizedBattery = String(effectiveBattery || normalizedTradeMode).toUpperCase();
       const threshold = Number(batterySellThreshold);
-      if (normalizedMode === 'AUTO_BATTERY_THRESHOLD') {
+      if (normalizedBattery === 'AUTO_BATTERY_THRESHOLD') {
         if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
-          alert('Battery threshold must be between 0 and 100%.');
+          setToast({ type: 'error', message: 'Battery threshold must be between 0 and 100%.' });
+          setTimeout(() => setToast(null), 3000);
           return;
         }
       }
@@ -536,17 +630,21 @@ export default function EnergySelling() {
       try {
         setIsSavingTradePolicy(true);
         const payload = {
-          tradeMode: normalizedMode,
-          batterySellThreshold: normalizedMode === 'AUTO_BATTERY_THRESHOLD' ? threshold : Number.isFinite(threshold) ? threshold : 80,
+          tradeMode: normalizedTradeMode,
+          solarTradeMode: normalizedSolar,
+          batteryTradeMode: normalizedBattery,
+          batterySellThreshold: normalizedBattery === 'AUTO_BATTERY_THRESHOLD' ? threshold : Number.isFinite(threshold) ? threshold : 80,
         };
         const updated = await updateBuildingPolicy(selectedBuilding.id, payload);
 
         setSelectedBuilding((prev) => prev ? { ...prev, ...updated } : prev);
         setRealBuildings((prev) => prev.map((item) => Number(item?.id) === Number(selectedBuilding.id) ? { ...item, ...updated } : item));
-        alert('Trading mode settings updated successfully.');
+        setToast({ type: 'success', message: 'Trading mode settings updated successfully.' });
+        setTimeout(() => setToast(null), 3000);
       } catch (error) {
         console.error('Failed to update trading mode settings:', error);
-        alert(`Failed to save settings: ${error?.response?.data?.error || error?.message || 'Unknown error'}`);
+        setToast({ type: 'error', message: error?.response?.data?.error || error?.message || 'Unknown error' });
+        setTimeout(() => setToast(null), 4000);
       } finally {
         setIsSavingTradePolicy(false);
         setUnsavedTradeMode(false);
@@ -555,7 +653,12 @@ export default function EnergySelling() {
 
     const handleSell = async () => {
       if (!isManualMode) {
-        alert('Manual sell is available only when trading mode is set to MANUAL.');
+        const currentModes = [];
+        if (selectedBuilding) {
+          currentModes.push(`Solar: ${solarTradeMode || 'N/A'}`);
+          currentModes.push(`Battery: ${batteryTradeMode || 'N/A'}`);
+        }
+        alert(`⚠️ Cannot post manual offer while in Auto-Trade mode.\n\nCurrent settings: ${currentModes.join(' | ')}\n\nPlease switch to MANUAL mode first.\nGo to the Mode Configuration section and change both Solar & Battery to ✋ Manual.`);
         return;
       }
 
@@ -578,8 +681,12 @@ export default function EnergySelling() {
             alert('Please enter energy rate');
             return;
         }
-      if (sourceEnergyStatus && amount > selectedSourceStatus.current) {
-            alert(`⚠️ Cannot sell more energy than available in ${selectedSourceLabel}.\nAvailable: ${Math.round(selectedSourceStatus.current)} kWh\nRequested: ${energyAmount} kWh`);
+      const produceAvailableTotal = Number(sourceEnergyStatus?.produce?.totalProduce || 0);
+      const effectiveAvailable = sellSource === 'produce' && produceAvailableTotal > 0
+        ? produceAvailableTotal
+        : selectedSourceStatus.current;
+      if (sourceEnergyStatus && amount > effectiveAvailable) {
+            alert(`⚠️ Cannot sell more energy than available.\nTotal ${selectedSourceLabel} energy: ${Math.round(effectiveAvailable)} kWh\nRequested: ${energyAmount} kWh`);
             return;
         }
         if (sourceEnergyStatus && !selectedSourceStatus.available) {
@@ -587,11 +694,14 @@ export default function EnergySelling() {
             return;
         }
         
+        let offer = null;
+        let realBuilding = null;
+        let sellerWalletId = '';
         try {
             // Get the real building and wallet ID
             const buildingsRes = await getBuildings();
             const buildings = Array.isArray(buildingsRes) ? buildingsRes : (buildingsRes?.data || buildingsRes?.buildings || []);
-            const realBuilding = buildings.find(b => b.name && b.name.toLowerCase().includes(selectedBuilding.name.toLowerCase()));
+            realBuilding = buildings.find(b => b.name && b.name.toLowerCase().includes(selectedBuilding.name.toLowerCase()));
             
             if (!realBuilding) {
                 alert('⚠️ Building not found. Please select a valid building.');
@@ -604,18 +714,20 @@ export default function EnergySelling() {
             
             // Get wallet by building email
             const walletRes = await getWalletByEmail(realBuilding.email);
-            const sellerWalletId = walletRes?.data?.id ? String(walletRes.data.id) : '';
+            sellerWalletId = walletRes?.data?.id ? String(walletRes.data.id) : '';
             
             if (!sellerWalletId) {
                 alert('⚠️ Wallet not found for this building. Please contact administrator.');
                 return;
             }
             
-            const offer = {
+            offer = {
                 sellerWalletId,
               kwh: amount,
               ratePerKwh: rate,
               sourceType: sellSource,
+              marketType,
+              targetDate: marketType === 'DAY_AHEAD' ? new Date(Date.now() + 86400000).toISOString().split('T')[0] : null,
             };
             
             console.log('Creating offer:', offer);
@@ -641,7 +753,31 @@ export default function EnergySelling() {
             }
         } catch (err) {
             console.error('Error creating offer:', err);
-            alert('Error creating offer: ' + (err.response?.data?.error || err.message));
+            const errorMsg = err.response?.data?.error || err.message;
+            // Day-Ahead lock: offer admin bypass
+            if (errorMsg && errorMsg.includes('Day-Ahead market is locked')) {
+                const useBypass = window.confirm(`🔒 ${errorMsg}\n\nEnter admin password to bypass?`);
+                if (useBypass) {
+                    const adminPwd = window.prompt('Enter admin bypass password:', '');
+                    if (adminPwd && adminPwd.trim()) {
+                        try {
+                            const retryRes = await createOffer({ ...offer, bypassLock: adminPwd.trim() });
+                            if (retryRes && retryRes.status === 201) {
+                                alert(`✅ Admin bypass: Successfully listed ${amount} kWh at ${rate.toFixed(2)} Token/kWh from ${realBuilding.name}`);
+                                setBID(0); setShowPanel(false); setSelectedBuilding(null);
+                                setEnergyAmount(''); setEnergyRate('');
+                                setSellSource('produce'); setTargetBuildingForPurchase(null);
+                                setSourceEnergyStatus(null); history.push('/market');
+                                return;
+                            }
+                        } catch (retryErr) {
+                            alert('❌ Admin bypass failed: ' + (retryErr.response?.data?.error || retryErr.message));
+                            return;
+                        }
+                    }
+                }
+            }
+            alert('Error creating offer: ' + errorMsg);
         }
     };
 
@@ -716,6 +852,14 @@ export default function EnergySelling() {
                 ×
               </button>
             </div>
+          </Card>
+
+          {/* Market Timeline */}
+          <Card className="head-bar" style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>
+              🕐 Day-Ahead Market Schedule
+            </div>
+            <MarketTimeline compact />
           </Card>
 
           {/* Real-time Energy Flow */}
@@ -904,138 +1048,7 @@ export default function EnergySelling() {
             </Card>
           )}
 
-          {/* Configure Trade Amount */}
-          <Card className="head-bar" style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", marginBottom: 12 }}>⚙️ Configure Trade Amount</div>
-            
-            {/* Energy Amount Input */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 6, fontWeight: 600 }}>Energy Amount (kWh)</div>
-              <Input
-                type="number"
-                placeholder="Enter amount (kWH)"
-                value={energyAmount}
-                onChange={(e) => setEnergyAmount(e.target.value)}
-                style={{ width: "100%" }}
-                size="large"
-                min={0}
-                max={sourceEnergyStatus ? sourceEnergyStatus.current : undefined}
-                suffix="kWh"
-              />
-              {sourceEnergyStatus && energyAmount && Number(energyAmount) > sourceEnergyStatus.current && (
-                <div style={{ 
-                  color: '#ff4d4f', 
-                  fontSize: 11, 
-                  marginTop: 6, 
-                  padding: 8,
-                  backgroundColor: '#fff2f0',
-                  borderRadius: 4,
-                  borderLeft: '3px solid #ff4d4f'
-                }}>
-                  ⚠️ Cannot sell more than available: {Math.round(sourceEnergyStatus.current)} kWh
-              </div>
-            )}
-            </div>
-
-            {/* Energy Rate Input */}
-            <div>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 6, fontWeight: 600 }}>Price Per Unit</div>
-              <Input
-                type="number"
-                placeholder="Enter rate (Token/kWh)"
-                value={energyRate}
-                onChange={(e) => setEnergyRate(e.target.value)}
-                style={{ width: "100%" }}
-                size="large"
-                min={0}
-                step="0.01"
-                suffix="Token/kWh"
-              />
-              {amountNum > 0 && rateNum > 0 && (
-                <div style={{ fontSize: 11, color: '#52c41a', marginTop: 6, fontWeight: 600 }}>
-                  💰 Total: {totalToken.toFixed(2)} Tokens
-                </div>
-              )}
-            </div>
-          </Card>
-
-          {/* To Building Selection (for purchase) */}
-          {bid > 0 && (
-            <Card className="head-bar" style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", marginBottom: 8 }}>🏢 To Building (Purchase Destination)</div>
-              <Select
-                placeholder="Select destination building"
-                value={targetBuildingForPurchase}
-                onChange={(value) => setTargetBuildingForPurchase(value)}
-                style={{ width: "100%" }}
-                size="large"
-                optionLabelProp="label"
-              >
-                {destinationBuildings
-                  .filter((building) => Number(building.id) !== Number(selectedBuilding?.id))
-                  .map((building) => (
-                    <Select.Option key={building.id} value={building.id}>
-                      <span>{building.name}</span>
-                      <span style={{ color: '#999', marginLeft: 8 }}>({building.meterName || building.snid || 'Battery-enabled'})</span>
-                    </Select.Option>
-                  ))}
-              </Select>
-            </Card>
-          )}
-
-          {/* Action Buttons */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Button
-              type="primary"
-              size="large"
-              style={{ 
-                height: 56, 
-                fontSize: 14, 
-                fontWeight: 700,
-                background: "#ff4d4f",
-                borderColor: "#ff4d4f",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center"
-              }}
-              onClick={handleSell}
-            >
-              ⚡ SELL ENERGY
-            </Button>
-            
-            <div style={{ position: "relative" }}>
-              <div style={{ 
-                position: "absolute",
-                top: -8,
-                right: -8,
-                background: "#fadb14",
-                color: "#000",
-                padding: "3px 8px",
-                borderRadius: 4,
-                fontSize: 10,
-                fontWeight: 700,
-                zIndex: 1
-              }}>Best Price</div>
-              <Button
-                type="primary"
-                size="large"
-                style={{ 
-                  width: "100%",
-                  height: 56, 
-                  fontSize: 14, 
-                  fontWeight: 700,
-                  background: "#52c41a",
-                  borderColor: "#52c41a",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center"
-                }}
-                onClick={handleBuy}
-              >
-                🛒 BUY ENERGY
-              </Button>
-            </div>
-          </div>
+          {/* Use the right panel (EnergySellingPanel) to place orders */}
 
           {/* Blockchain Security */}
           <div style={{ textAlign: "center", marginTop: 12, fontSize: 11, color: "#999" }}>
@@ -1202,6 +1215,8 @@ export default function EnergySelling() {
             showTradePolicyControls
             tradeMode={tradeMode}
             setTradeMode={handleTradeModeChange}
+            solarTradeMode={solarTradeMode}
+            batteryTradeMode={batteryTradeMode}
             batterySellThreshold={batterySellThreshold}
             setBatterySellThreshold={setBatterySellThreshold}
             onSaveTradePolicy={handleSaveTradePolicy}
@@ -1210,6 +1225,10 @@ export default function EnergySelling() {
             onClose={handleClosePanel}
             onSell={handleSell}
             onBuy={handleBuy}
+            marketType={marketType}
+            setMarketType={setMarketType}
+            orderSide={orderSide}
+            setOrderSide={setOrderSide}
           />
         </div>
       )}
@@ -1269,6 +1288,52 @@ export default function EnergySelling() {
           <img className="img11 mapimg" src="/assets/img/b_siam.jpg" alt="Siam building" />
         </div>
       </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 9999,
+          padding: '14px 20px', borderRadius: 12,
+          background: toast.type === 'success' ? '#ecfdf5' : '#fef2f2',
+          border: toast.type === 'success' ? '1px solid #86efac' : '1px solid #fecaca',
+          color: toast.type === 'success' ? '#166534' : '#991b1b',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+          maxWidth: 420,
+          fontSize: 14, fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 10,
+          animation: 'slideIn 0.3s ease-out',
+        }}>
+          <span style={{
+            width: 32, height: 32, borderRadius: '50%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: toast.type === 'success' ? '#dcfce7' : '#fee2e2',
+            fontSize: 16,
+          }}>
+            {toast.type === 'success' ? '✅' : '❌'}
+          </span>
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 2 }}>
+              {toast.type === 'success' ? 'Success' : 'Error'}
+            </div>
+            <div style={{ fontWeight: 400, fontSize: 13, opacity: 0.85 }}>
+              {toast.message}
+            </div>
+          </div>
+          <button onClick={() => setToast(null)} style={{
+            marginLeft: 'auto', background: 'none', border: 'none',
+            fontSize: 18, cursor: 'pointer', opacity: 0.4, padding: '0 4px',
+            color: toast.type === 'success' ? '#166534' : '#991b1b',
+          }}>&times;</button>
+        </div>
+      )}
+
+      {/* Slide-in animation */}
+      <style>{`
+        @keyframes slideIn {
+          from { transform: translateX(100%); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }

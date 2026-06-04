@@ -267,7 +267,11 @@ export default function Building() {
                         return;
                     }
 
-                    const found = buildings.find(b => (b.name || '').toString().toLowerCase() === (nameParam || '').toString().toLowerCase());
+                    const found = buildings.find(b => {
+                        const dbName = (b.name || '').toString().toLowerCase().replace(/\s+/g, '-');
+                        const slug = (nameParam || '').toString().toLowerCase().replace(/\s+/g, '-');
+                        return dbName === slug;
+                    });
                     if (isUserRole && assignedBuilding && found && String(found?.email || '').toLowerCase() !== memberEmail) {
                         history.replace(ROUTE_PATHS.noBuildingAssigned);
                         return;

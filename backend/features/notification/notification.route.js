@@ -25,7 +25,7 @@ const { getNotifications } = require('./notification.service');
  */
 router.get('/', async (req, res) => {
   try {
-    const userId = req.query.userId ? parseInt(req.query.userId) : null;
+    const userId = req.query.userId ? req.query.userId : null;
     const notifications = await getNotifications(userId);
     res.json({ notifications });
   } catch (err) {

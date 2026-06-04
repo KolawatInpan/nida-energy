@@ -1,4 +1,5 @@
 import React from 'react';
+import { MarketTimeline } from '../../../components/shared';
 
 function buildInitials(name) {
   return String(name || 'SO')
@@ -11,10 +12,10 @@ function buildInitials(name) {
 
 function StatCard({ label, value, subtitle, accentColor = '#64748b' }) {
   return (
-    <div style={{ background: 'rgba(255, 255, 255, 0.14)', backdropFilter: 'blur(6px)', borderRadius: '10px', padding: '7px 10px', boxShadow: '0 3px 10px rgba(15,23,42,0.04)', border: '1px solid rgba(255,255,255,0.18)', textAlign: 'center', minWidth: '104px', flex: '1 1 0' }}>
-      <div style={{ fontSize: '8px', color: '#8c8c8c', fontWeight: 700, letterSpacing: '0.45px', marginBottom: '3px' }}>{label}</div>
-      <div style={{ fontSize: '16px', fontWeight: 700, color: '#000', lineHeight: '1' }}>{value}</div>
-      <div style={{ fontSize: '9px', color: accentColor, fontWeight: 600, marginTop: '2px', whiteSpace: 'nowrap' }}>{subtitle}</div>
+    <div style={{ background: 'transparent', borderRadius: '8px', padding: '6px 10px', textAlign: 'center', minWidth: '104px', flex: '1 1 0' }}>
+      <div style={{ fontSize: '8px', color: '#334155', fontWeight: 700, letterSpacing: '0.45px', marginBottom: '3px', textShadow: '0 1px 3px rgba(255,255,255,0.8)' }}>{label}</div>
+      <div style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', lineHeight: '1', textShadow: '0 1px 4px rgba(255,255,255,0.9)' }}>{value}</div>
+      <div style={{ fontSize: '9px', color: accentColor, fontWeight: 600, marginTop: '2px', whiteSpace: 'nowrap', textShadow: '0 1px 3px rgba(255,255,255,0.8)' }}>{subtitle}</div>
     </div>
   );
 }
@@ -41,12 +42,9 @@ export default function TradingOverlay({
       >
         <div
           style={{
-            background: 'rgba(255, 255, 255, 0.18)',
-            backdropFilter: 'blur(7px)',
-            borderRadius: '12px',
-            padding: '10px 12px',
-            boxShadow: '0 4px 14px rgba(15,23,42,0.05)',
-            border: '1px solid rgba(255,255,255,0.22)',
+            background: 'transparent',
+            borderRadius: '10px',
+            padding: '6px 10px',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
@@ -73,10 +71,10 @@ export default function TradingOverlay({
           </div>
 
           <div style={{ minWidth: '140px', flex: '1 1 180px' }}>
-            <div style={{ fontSize: '14px', fontWeight: 700, color: '#000', letterSpacing: '-0.2px', lineHeight: '1.15', marginBottom: '2px' }}>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', letterSpacing: '-0.2px', lineHeight: '1.15', marginBottom: '2px', textShadow: '0 1px 4px rgba(255,255,255,0.9)' }}>
               NIDA SMART GRID
             </div>
-            <div style={{ fontSize: '10px', color: '#666', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '10px', color: '#334155', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', textShadow: '0 1px 3px rgba(255,255,255,0.8)' }}>
               <span style={{ color: '#ff4d4f' }}>{'\u{1F4CD}'}</span>
               <span>Bang Kapi District</span>
               <span style={{ color: '#d9d9d9', margin: '0 2px' }}>{'>'}</span>
@@ -105,10 +103,10 @@ export default function TradingOverlay({
               />
             </div>
 
-            <div style={{ background: 'rgba(255, 255, 255, 0.14)', backdropFilter: 'blur(6px)', borderRadius: '10px', padding: '7px 10px', boxShadow: '0 3px 10px rgba(15,23,42,0.04)', border: '1px solid rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto', whiteSpace: 'nowrap' }}>
+            <div style={{ background: 'transparent', borderRadius: '8px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto', whiteSpace: 'nowrap' }}>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: '#000', lineHeight: '1.1' }}>{member?.role || 'ADMIN'}</div>
-                <div style={{ fontSize: '9px', color: '#666', marginTop: '1px' }}>{member?.name || 'System Operator'}</div>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#0f172a', lineHeight: '1.1', textShadow: '0 1px 3px rgba(255,255,255,0.8)' }}>{member?.role || 'ADMIN'}</div>
+                <div style={{ fontSize: '9px', color: '#334155', marginTop: '1px', textShadow: '0 1px 3px rgba(255,255,255,0.8)' }}>{member?.name || 'System Operator'}</div>
               </div>
               <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: 'white', border: '2px solid #fff', boxShadow: '0 2px 8px rgba(0,0,0,0.12)', flexShrink: 0 }}>
                 {buildInitials(member?.name)}
@@ -116,6 +114,15 @@ export default function TradingOverlay({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Market Timeline — compact */}
+      <div style={{
+        position: 'absolute', left: 16, top: 108, zIndex: 100,
+        background: 'rgba(255,255,255,0.9)', borderRadius: 8, padding: '4px 8px',
+        boxShadow: '0 1px 6px rgba(0,0,0,0.05)', maxWidth: 340, width: 'fit-content',
+      }}>
+        <MarketTimeline compact />
       </div>
 
       <div
@@ -130,8 +137,8 @@ export default function TradingOverlay({
           maxWidth: showPanel ? 'calc(100% - 440px)' : '420px',
         }}
       >
-        <div style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(12px)', borderRadius: 12, padding: '10px 14px', border: '1px solid rgba(255,255,255,0.6)', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 8 }}>AVAILABLE BUILDINGS IN SYSTEM</div>
+        <div style={{ background: 'transparent', borderRadius: 10, padding: '6px 10px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#334155', marginBottom: 8, textShadow: '0 1px 3px rgba(255,255,255,0.8)' }}>AVAILABLE BUILDINGS</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {availableBuildingNames.length ? availableBuildingNames.map((name) => (
               <button
@@ -157,7 +164,7 @@ export default function TradingOverlay({
                   cursor: 'pointer',
                 }}
               >
-                {name}{ownedBuildingNames.includes(name) ? ' • My Building' : ''}
+                {name}{ownedBuildingNames.includes(name) ? ' ✓ My Building' : ''}
               </button>
             )) : (
               <span style={{ fontSize: 12, color: '#64748b' }}>No buildings available for trading</span>

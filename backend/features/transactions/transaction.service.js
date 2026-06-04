@@ -1,128 +1,100 @@
-const TransactionModel = require('./transaction.model');
-const EthereumVerificationService = require('../blockchain/ethereumVerification.service');
-const TransactionVerificationService = require('../blockchain/transactionVerification.service');
+const { prisma } = require('../../utils/prisma');
+const repo = require('./transaction.repository');
+// Lazy-load these to avoid circular dependency hangs
+const EthereumVerificationService = () => require('../blockchain/ethereumVerification.service');
+const TransactionVerificationService = () => require('../blockchain/transactionVerification.service');
 
-async function getTransactions(req, res) {
-	try {
-		const transactions = await TransactionModel.getTransactions();
-		res.json(transactions);
-	} catch (err) {
-		console.error('getTransactions error', err);
-		res.status(500).json({ error: err.message });
-	}
+/**
+ * Enrich transaction rows with building name / snid by resolving wallet→building mappings.
+ */
+async function enrichTransactions(rows = []) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+    const walletIds = [...new Set(rows.map((r) => String(r?.walletId || '')).filter(Boolean))];
+    const buildingNames = [...new Set(rows.map((r) => String(r?.buildingName || '')).filter(Boolean))];
+
+    const [wallets, buildingsById, buildingsByName] = await Promise.all([
+        walletIds.length ? prisma.wallet.findMany({ where: { id: { in: walletIds } }, select: { id: true, email: true } }) : [],
+        walletIds.length ? prisma.building.findMany({
+            where: { id: { in: walletIds.map((id) => Number(id)).filter((id) => Number.isInteger(id)) } },
+            select: { id: true, name: true, produceSN: true, consumeSN: true, batSN: true, email: true },
+        }) : [],
+        buildingNames.length ? prisma.building.findMany({
+            where: { name: { in: buildingNames } },
+            select: { id: true, name: true, produceSN: true, consumeSN: true, batSN: true, email: true },
+        }) : [],
+    ]);
+
+    const walletById = new Map(wallets.map((w) => [String(w.id), w]));
+    const buildingByWalletId = new Map(buildingsById.map((b) => [String(b.id), b]));
+    const buildingByName = new Map(buildingsByName.map((b) => [String(b.name), b]));
+
+    if (wallets.length) {
+        const missingEmails = [...new Set(wallets.map((w) => String(w.email || '')).filter(Boolean))]
+            .filter((email) => !Array.from(buildingByWalletId.values()).some((b) => String(b.email || '') === email));
+        if (missingEmails.length) {
+            const buildingsByEmail = await prisma.building.findMany({
+                where: { email: { in: missingEmails } },
+                select: { id: true, name: true, produceSN: true, consumeSN: true, batSN: true, email: true },
+            });
+            buildingsByEmail.forEach((b) => {
+                const email = String(b.email || '');
+                wallets.filter((w) => String(w.email || '') === email).forEach((w) => buildingByWalletId.set(String(w.id), b));
+                buildingByName.set(String(b.name), b);
+            });
+        }
+    }
+
+    return rows.map((row) => {
+        const walletId = String(row?.walletId || '');
+        const existingName = row?.buildingName ? String(row.buildingName) : '';
+        const building = (existingName && buildingByName.get(existingName)) || (walletId && buildingByWalletId.get(walletId)) || null;
+        const fallbackSnid = building ? (building.consumeSN || building.produceSN || building.batSN || null) : null;
+        return { ...row, buildingName: existingName || building?.name || null, snid: row?.snid || fallbackSnid || null };
+    });
 }
 
-async function getTransactionById(req, res) {
-	try {
-		const id = req.params.id;
-		const transaction = await TransactionModel.getTransactionById(id);
-		if (!transaction) return res.status(404).json({ error: 'transaction not found' });
-		res.json(transaction);
-	} catch (err) {
-		console.error('getTransactionById error', err);
-		res.status(500).json({ error: err.message });
-	}
+// ---- Orchestrated queries (repo + enrich) ----
+
+async function getTransactions() {
+  return repo.getTransactionsRaw();
+}
+async function getTransactionById(id) {
+    const row = await repo.getTransactionByIdRaw(id);
+    if (!row) return null;
+    const [enriched] = await enrichTransactions([row]);
+    return enriched || row;
+}
+async function getTransactionsByBuilding(name) { return enrichTransactions(await repo.getTransactionsByBuildingRaw(name)); }
+async function getTransactionsByWallet(wid) { return enrichTransactions(await repo.getTransactionsByWalletRaw(wid)); }
+async function getRecentBlockchainTransactions(limit) { return enrichTransactions(await repo.getRecentBlockchainTransactionsRaw(limit)); }
+async function getBlockchainTransactionByHash(hash) {
+    const row = await repo.getBlockchainTransactionByHashRaw(hash);
+    if (!row) return null;
+    const [enriched] = await enrichTransactions([row]);
+    return enriched || row;
 }
 
-async function getTransactionsByBuilding(req, res) {
-	try {
-		const buildingName = req.params.buildingName;
-		const transactions = await TransactionModel.getTransactionsByBuilding(buildingName);
-		res.json(transactions);
-	} catch (err) {
-		console.error('getTransactionsByBuilding error', err);
-		res.status(500).json({ error: err.message });
-	}
+async function createTransaction({ walletId, buildingName, snid, type, tokenAmount, status }) {
+    const created = await repo.createTransaction({ walletId, buildingName, snid, type, tokenAmount, status });
+    const { transaction, verification } = await TransactionVerificationService().verifyTransaction(created);
+    return { transaction, verification };
 }
 
-async function getTransactionsByWallet(req, res) {
-	try {
-		const walletId = req.params.walletId;
-		const transactions = await TransactionModel.getTransactionsByWallet(walletId);
-		res.json(transactions);
-	} catch (err) {
-		console.error('getTransactionsByWallet error', err);
-		res.status(500).json({ error: err.message });
-	}
+async function getTransactionVerificationPreview(id) {
+    const transaction = await getTransactionById(id);
+    if (!transaction) throw Object.assign(new Error('transaction not found'), { status: 404 });
+    return EthereumVerificationService().getVerificationPreview(transaction);
 }
 
-async function createTransaction(req, res) {
-	try {
-		const { walletId, buildingName, snid, type, tokenAmount, status } = req.body;
-		if (!walletId || tokenAmount == null) {
-			return res.status(400).json({ error: 'walletId and tokenAmount are required' });
-		}
-		const created = await TransactionModel.createTransaction({ walletId, buildingName, snid, type, tokenAmount, status });
-		const { transaction, verification } = await TransactionVerificationService.verifyTransaction(created);
-		res.status(201).json({ transaction, verification });
-	} catch (err) {
-		console.error('createTransaction error', err);
-		res.status(500).json({ error: err.message });
-	}
-}
-
-async function getRecentBlockchainTransactions(req, res) {
-	try {
-		const limit = Number(req.query.limit || 50);
-		const transactions = await TransactionModel.getRecentBlockchainTransactions(limit);
-		res.json({ items: transactions, count: transactions.length });
-	} catch (err) {
-		console.error('getRecentBlockchainTransactions error', err);
-		res.status(500).json({ error: err.message });
-	}
-}
-
-async function getBlockchainTransactionByHash(req, res) {
-	try {
-		const txHash = req.params.txHash;
-		const transaction = await TransactionModel.getBlockchainTransactionByHash(txHash);
-		if (!transaction) {
-			return res.status(404).json({ error: 'blockchain transaction not found' });
-		}
-		res.json(transaction);
-	} catch (err) {
-		console.error('getBlockchainTransactionByHash error', err);
-		res.status(500).json({ error: err.message });
-	}
-}
-
-async function getTransactionVerificationPreview(req, res) {
-	try {
-		const id = req.params.id;
-		const transaction = await TransactionModel.getTransactionById(id);
-		if (!transaction) {
-			return res.status(404).json({ error: 'transaction not found' });
-		}
-
-		const preview = EthereumVerificationService.getVerificationPreview(transaction);
-		res.json({ transactionId: transaction.txid, ...preview });
-	} catch (err) {
-		console.error('getTransactionVerificationPreview error', err);
-		res.status(500).json({ error: err.message });
-	}
-}
-
-async function publishTransactionVerification(req, res) {
-	try {
-		const id = req.params.id;
-		const { transaction, verification } = await TransactionVerificationService.verifyTransactionById(id, {
-			force: req.query.force === 'true' || req.body?.force === true,
-		});
-		res.status(verification.published ? 201 : 200).json({ transactionId: transaction.txid, transaction, ...verification });
-	} catch (err) {
-		console.error('publishTransactionVerification error', err);
-		res.status(err.status || 500).json({ error: err.message });
-	}
+async function publishTransactionVerification(id, opts = {}) {
+    const { transaction, verification } = await TransactionVerificationService().verifyTransactionById(id, opts);
+    return { transaction, verification };
 }
 
 module.exports = {
-	getTransactions,
-	getRecentBlockchainTransactions,
-	getBlockchainTransactionByHash,
-	getTransactionById,
-	getTransactionsByBuilding,
-	getTransactionsByWallet,
-	createTransaction,
-	getTransactionVerificationPreview,
-	publishTransactionVerification,
+    enrichTransactions,
+    getTransactions, getTransactionById, getTransactionsByBuilding, getTransactionsByWallet,
+    getRecentBlockchainTransactions, getBlockchainTransactionByHash,
+    createTransaction, getTransactionVerificationPreview, publishTransactionVerification,
 };

@@ -42,6 +42,7 @@ class Navbar extends Component {
                         position: 'sticky',
                         top: 0,
                     }}
+                    className="nida-navbar"
                 >
                     <div className="logo" style={{ padding: '8px 12px', borderBottom: '1px solid #eef2f7', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: 0.1, display: 'flex', alignItems: 'center', gap: 8 }}>

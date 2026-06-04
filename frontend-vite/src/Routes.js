@@ -11,6 +11,8 @@ import { Logout, validateAuth } from "./store/auth/auth.action";
 import { getMember } from "./store/member/member.action";
 import Key from "./global/key";
 import { TORProvider } from "./global/TORContext";
+import { TourProvider } from "./global/TourContext";
+import TourOverlay from "./components/shared/TourOverlay";
 import { authenticatedRoutes, publicRoutes } from "./routes/routeConfig";
 import { ROUTE_PATHS } from "./routes/routePaths";
 
@@ -50,7 +52,9 @@ const Routes = () => {
         <ConfigProvider locale={locale}>
             <Provider store={store}>
                 <TORProvider>
-                    <App />
+                    <TourProvider>
+                        <App />
+                    </TourProvider>
                 </TORProvider>
             </Provider>
         </ConfigProvider>
@@ -159,6 +163,7 @@ const App = () => {
                             <Redirect to={ROUTE_PATHS.home} />
                         </Switch>
                     </main>
+                    <TourOverlay />
                 </div>
             ) : (
                 <Switch>

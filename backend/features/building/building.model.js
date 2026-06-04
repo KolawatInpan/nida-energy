@@ -43,17 +43,6 @@ async function createBuilding(name, mapURL, address, province, postalCode, email
     }
   });
 
-  // สร้าง notification สำหรับ admin
-  try {
-    const { createNotification } = require('../notification/notification.service');
-    await createNotification({
-      type: 'building_added',
-      message: `มีการเพิ่มตึกใหม่: ${name}`,
-      userId: null,
-      buildingId: newBuilding.id
-    });
-  } catch (e) { console.error('Notification error:', e.message); }
-
   return newBuilding;
 }
 
@@ -82,6 +71,24 @@ async function updateBuilding(id, updates = {}) {
     data.tradeMode = normalizedMode;
   }
 
+  if (updates.solarTradeMode !== undefined) {
+    const normalized = String(updates.solarTradeMode || '').trim().toUpperCase();
+    const allowed = new Set(['SELF_CONSUME', 'MANUAL', 'AUTO']);
+    if (!allowed.has(normalized)) {
+      throw new Error('Invalid solarTradeMode. Allowed values: SELF_CONSUME, MANUAL, AUTO');
+    }
+    data.solarTradeMode = normalized;
+  }
+
+  if (updates.batteryTradeMode !== undefined) {
+    const normalized = String(updates.batteryTradeMode || '').trim().toUpperCase();
+    const allowed = new Set(['SELF_CONSUME', 'MANUAL', 'AUTO_BATTERY_THRESHOLD']);
+    if (!allowed.has(normalized)) {
+      throw new Error('Invalid batteryTradeMode. Allowed values: SELF_CONSUME, MANUAL, AUTO_BATTERY_THRESHOLD');
+    }
+    data.batteryTradeMode = normalized;
+  }
+
   if (updates.tradeMeterType !== undefined) {
     const normalizedMeterType = String(updates.tradeMeterType || '').trim().toLowerCase();
     const allowedMeterTypes = new Set(['consume', 'produce', 'battery']);
@@ -97,6 +104,38 @@ async function updateBuilding(id, updates = {}) {
       throw new Error('batterySellThreshold must be a number between 0 and 100');
     }
     data.batterySellThreshold = threshold;
+  }
+
+  if (updates.solarSelfPercent !== undefined) {
+    const p = Number(updates.solarSelfPercent);
+    if (!Number.isFinite(p) || p < 0 || p > 100) {
+      throw new Error('solarSelfPercent must be a number between 0 and 100');
+    }
+    data.solarSelfPercent = p;
+  }
+
+  if (updates.batteryBidPrice !== undefined) {
+    const v = Number(updates.batteryBidPrice);
+    if (!Number.isFinite(v) || v < 0) {
+      throw new Error('batteryBidPrice must be a non-negative number');
+    }
+    data.batteryBidPrice = v;
+  }
+
+  if (updates.batteryOfferPrice !== undefined) {
+    const v = Number(updates.batteryOfferPrice);
+    if (!Number.isFinite(v) || v < 0) {
+      throw new Error('batteryOfferPrice must be a non-negative number');
+    }
+    data.batteryOfferPrice = v;
+  }
+
+  if (updates.solarOfferPrice !== undefined) {
+    const v = Number(updates.solarOfferPrice);
+    if (!Number.isFinite(v) || v < 0) {
+      throw new Error('solarOfferPrice must be a non-negative number');
+    }
+    data.solarOfferPrice = v;
   }
 
   const nextMode = data.tradeMode || existing.tradeMode;
@@ -116,10 +155,37 @@ async function updateBuilding(id, updates = {}) {
   });
 }
 
-async function deleteBuilding(id) {
+async function deleteBuilding(id, force = false) {
   const buildingId = parseInt(id, 10);
   if (!Number.isInteger(buildingId)) {
     throw new Error('Invalid building id');
+  }
+
+  if (force) {
+    // Force delete: remove all related records first
+    const building = await prisma.building.findUnique({ where: { id: buildingId }, select: { name: true, email: true } });
+    if (!building) {
+      const err = new Error('Building not found');
+      err.code = 'P2025';
+      throw err;
+    }
+
+    return prisma.$transaction(async (tx) => {
+      // Delete meters
+      await tx.meterInfo.deleteMany({ where: { buildingName: building.name } });
+      // Delete energy records
+      await tx.runningMeter.deleteMany({ where: { snid: { in: (await tx.meterInfo.findMany({ where: { buildingName: building.name }, select: { snid: true } })).map(m => m.snid) } } });
+      // Delete wallet
+      await tx.wallet.deleteMany({ where: { email: building.email } });
+      // Delete transactions
+      await tx.transaction.deleteMany({ where: { buildingName: building.name } });
+      // Delete market orders
+      await tx.marketOrder.deleteMany({ where: { buildingName: building.name } });
+      // Delete invoices
+      await tx.invoice.deleteMany({ where: { buildingName: building.name } });
+      // Finally delete building
+      return tx.building.delete({ where: { id: buildingId } });
+    });
   }
 
   return prisma.building.delete({

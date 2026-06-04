@@ -50,25 +50,10 @@ async function addBalance (email, amount, rate) {
     e.status = 404;
     throw e;
   }
-  const updatedWallet = await prisma.wallet.update({
+  return await prisma.wallet.update({
     where: { id: wallet.id },
-    data: {
-      tokenBalance: {
-        increment: Number(amount || 0),
-      },
-    },
+    data: { tokenBalance: { increment: Number(amount || 0) } },
   });
-  // แจ้งเตือนเติมเงินเข้าตึก (user)
-  try {
-    const { createNotification } = require('../notification/notification.service');
-    await createNotification({
-      type: 'topup',
-      message: `เติมเงินเข้าตึก ${wallet.id} จำนวน ${amount} บาท`,
-      userId: wallet.userId || null,
-      buildingId: wallet.id
-    });
-  } catch (e) { console.error('Notification error:', e.message); }
-  return updatedWallet;
 }
 
 function signedTransactionAmount(transaction) {

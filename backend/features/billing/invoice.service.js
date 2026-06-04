@@ -12,6 +12,7 @@ const {
   buildUniquePeriodsFromLogs,
   getPreviousMonthPeriodIfDue,
 } = require('./invoice.helpers');
+const { matchesSourceType } = require('../trading/market.utils');
 
 async function syncInvoicesForPeriods(periods = [], options = {}) {
   const uniquePeriods = [...new Map(
@@ -286,18 +287,63 @@ async function purchaseMarketplaceEnergy({ offerId, buyerWalletId, targetBuildin
       },
     });
 
+    // Decrease seller's source meter when purchased (auto-offers skip meter decrease at creation)
+    try {
+      const sellerBuilding = await prisma.building.findFirst({ where: { email: sellerWallet.email }, select: { name: true } });
+      if (sellerBuilding?.name) {
+        const sellerMeters = await prisma.meterInfo.findMany({ where: { buildingName: sellerBuilding.name }, select: { snid: true, type: true, value: true, kWH: true } });
+        const sourceMeter = sellerMeters.find((m) => matchesSourceType(m.type, offer.sourceType || 'produce'));
+        if (sourceMeter) {
+          const sv = Number(sourceMeter.value || 0);
+          const sk = Number(sourceMeter.kWH || 0);
+          await tx.meterInfo.update({
+            where: { snid: sourceMeter.snid },
+            data: { value: Math.max(0, sv - purchaseAmount), kWH: Math.max(0, sk - purchaseAmount), timestamp: new Date() },
+          });
+        }
+      }
+    } catch (meterErr) { console.warn('purchaseMarketplaceEnergy: seller meter decrease failed', meterErr.message || meterErr); }
+
     const newKwhSold = toNumber(offer.kwhSold || offer.kWHSold) + purchaseAmount;
     const totalKwh = toNumber(offer.kwh || offer.kWH);
     const newStatus = newKwhSold >= totalKwh ? 'CANCELLED' : 'AVAILABLE';
 
-    await tx.energyOffer.update({
-      where: { id: parseInt(offerId, 10) },
-      data: {
-        kWHSold: newKwhSold,
-        status: newStatus,
-        buyerWalletId: String(buyerWalletId),
-      },
-    });
+    // Update energyOffer — use offer.id from getOfferById (may differ from API offerId if cross-referenced from MarketOrder)
+    const eoId = String(offer.id);
+    const eoIsInt = !eoId.includes('-');
+    if (eoIsInt) {
+      await tx.energyOffer.update({
+        where: { id: parseInt(eoId, 10) },
+        data: { kWHSold: newKwhSold, status: newStatus, buyerWalletId: String(buyerWalletId) },
+      });
+    } else {
+      await tx.$executeRawUnsafe(
+        `UPDATE "EnergyOffer" SET "kWHSold" = $1, "status" = $2::text::"EnergyOfferStatus", "buyerWalletId" = $3 WHERE "id"::text = $4`,
+        newKwhSold, newStatus, String(buyerWalletId), eoId
+      );
+    }
+
+    // Also update the MarketOrder (the original offerId passed to this function)
+    const moId = String(offerId);
+    try {
+      const moStatus = newKwhSold >= totalKwh ? 'FILLED' : 'PARTIAL';
+      await tx.marketOrder.update({
+        where: { id: moId },
+        data: { filled: newKwhSold, status: moStatus },
+      });
+    } catch {
+      const mo = await tx.marketOrder.findFirst({
+        where: { walletId: String(offer.sellerWalletId), side: 'OFFER', status: { in: ['OPEN', 'PARTIAL'] } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (mo) {
+        const moStatus = newKwhSold >= totalKwh ? 'FILLED' : 'PARTIAL';
+        await tx.marketOrder.update({
+          where: { id: mo.id },
+          data: { filled: newKwhSold, status: moStatus },
+        });
+      }
+    }
 
     return { invoice, receipt, batteryStorage, buyerTransaction, sellerTransaction };
   });

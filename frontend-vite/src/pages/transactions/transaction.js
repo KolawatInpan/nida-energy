@@ -138,11 +138,9 @@ export default function Transaction() {
     try {
       setLoading(true);
       setError(null);
-      const response = await getAllTransactions();
-      if (response && response.data) {
-        const rows = Array.isArray(response.data) ? response.data : [];
-        setTransactions(rows);
-      }
+      const data = await getAllTransactions();
+      const rows = Array.isArray(data) ? data : [];
+      setTransactions(rows);
     } catch (err) {
       console.error('Error loading transactions:', err);
       setError('Failed to load transactions');
@@ -150,6 +148,16 @@ export default function Transaction() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (loading) {
+        setLoading(false);
+        setError('Request timed out — backend may be restarting. Please refresh.');
+      }
+    }, 20000);
+    return () => clearTimeout(timeout);
+  }, [loading]);
 
   const handleVerify = async (txid) => {
     try {
@@ -174,19 +182,18 @@ export default function Transaction() {
     
     return transactions.map(tx => ({
       id: tx.txid,
-      ts: new Date(tx.timestamp).toLocaleString('en-US', { 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric', 
-        hour: '2-digit', 
-        minute: '2-digit', 
-        second: '2-digit' 
-      }),
+      ts: (() => {
+        const d = new Date(tx.timestamp);
+        if (isNaN(d.getTime())) return 'N/A';
+        return d.toLocaleString('en-US', { 
+          year: 'numeric', month: 'short', day: 'numeric', 
+          hour: '2-digit', minute: '2-digit', second: '2-digit' 
+        });
+      })(),
       building: tx.buildingName || 'N/A',
-      snid: tx.snid || 'N/A',
       type: getTransactionDisplayType(tx),
       amount: getSignedTokenAmount(tx),
-      status: tx.status.charAt(0) + tx.status.slice(1).toLowerCase(),
+      status: tx.status ? (tx.status.charAt(0) + tx.status.slice(1).toLowerCase()) : 'N/A',
       hash: tx.txHash || null,
       explorerUrl: tx.explorerUrl || null,
       verification: formatVerificationStatus(tx),
@@ -201,7 +208,7 @@ export default function Transaction() {
 
   const filtered = useMemo(() => rows.filter(r => {
     const q = query.trim().toLowerCase();
-    if (q && !(`${r.id} ${r.building} ${r.snid}`.toLowerCase().includes(q))) return false;
+    if (q && !(`${r.id} ${r.building}`.toLowerCase().includes(q))) return false;
     if (type !== 'all' && r.type.toLowerCase() !== type) return false;
     if (building !== 'all' && r.building !== building) return false;
     if (status !== 'all' && r.status.toLowerCase() !== status) return false;
@@ -324,7 +331,7 @@ export default function Transaction() {
         <div className="flex gap-3 items-center flex-wrap">
           <input 
             className="py-2.5 px-3 rounded-lg border border-gray-300 flex-1 min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
-            placeholder="Search Transaction ID / SNID" 
+            placeholder="Search Transaction ID" 
             value={query} 
             onChange={e=>setQuery(e.target.value)} 
           />
@@ -366,7 +373,7 @@ export default function Transaction() {
               <tr className="border-b-2 border-gray-200 bg-gray-50">
                 <th className="w-[16%] text-left p-3 font-semibold text-gray-700 text-sm">Transaction ID</th>
                 <th className="w-[15%] text-left p-3 font-semibold text-gray-700 text-sm">Timestamp</th>
-                <th className="w-[15%] text-left p-3 font-semibold text-gray-700 text-sm">Building / SNID</th>
+                <th className="w-[15%] text-left p-3 font-semibold text-gray-700 text-sm">Building</th>
                 <th className="w-[11%] text-left p-3 font-semibold text-gray-700 text-sm">Type</th>
                 <th className="w-[12%] text-left p-3 font-semibold text-gray-700 text-sm">Token Amount</th>
                 <th className="w-[10%] text-left p-3 font-semibold text-gray-700 text-sm">Status</th>
@@ -401,7 +408,6 @@ export default function Transaction() {
                   </td>
                   <td className="p-3">
                     <div className="truncate font-semibold text-gray-900" title={r.building}>{r.building}</div>
-                    <div className="truncate text-xs text-gray-500 mt-0.5" title={`SNID: ${r.snid}`}>SNID: {r.snid}</div>
                   </td>
                   <td className="p-3">
                     <span className={`inline-block max-w-full truncate py-1.5 px-3 rounded-md font-semibold text-xs ${r.type.toLowerCase() === 'top-up' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`} title={r.type}>

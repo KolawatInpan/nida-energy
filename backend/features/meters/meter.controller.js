@@ -108,6 +108,8 @@ async function updateMeter(req, res) {
       type: req.body?.type,
       capacity: req.body?.capacity,
       status: req.body?.status,
+      isAutoMock: req.body?.isAutoMock,
+      mockProfile: req.body?.mockProfile,
     };
     const updated = await MeterModel.updateMeter(req.params.snid, payload);
     res.json(updated);
@@ -154,5 +156,3 @@ module.exports = {
   updateMeter,
   deleteMeter
  };
-
-

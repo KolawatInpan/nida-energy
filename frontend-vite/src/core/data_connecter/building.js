@@ -1,26 +1,28 @@
 import axios from 'axios';
+import { getApiBase } from './apiBase';
 
 export async function getBuildings() {
-    const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+    const base = getApiBase();
     const res = await axios.get(`${base}/buildings`);
     return res.data;
 }
  
 export async function getTotalMeters(buildingId) {
-    const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+    const base = getApiBase();
     const res = await axios.get(`${base}/buildings/${buildingId}/meters/count`);
     return res.data?.totalMeters ?? 0;
 }
 
 export async function updateBuilding(buildingId, payload) {
-    const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
+    const base = getApiBase();
     const res = await axios.put(`${base}/buildings/${buildingId}`, payload);
     return res.data;
 }
 
-export async function deleteBuilding(buildingId) {
-    const base = (process.env.REACT_APP_API || 'http://localhost:8000/api').replace(/\/$/, '');
-    const res = await axios.delete(`${base}/buildings/${buildingId}`);
+export async function deleteBuilding(buildingId, force = false) {
+    const base = getApiBase();
+    const params = force ? '?force=true' : '';
+    const res = await axios.delete(`${base}/buildings/${buildingId}${params}`);
     return res.data;
 }
 

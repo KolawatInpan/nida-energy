@@ -99,6 +99,12 @@ router.post('/', ReceiptController.createReceipt);
  */
 router.delete('/:id', ReceiptController.deleteReceipt);
 
+/**
+ * GET /api/receipts/{id}/pdf
+ * Generate PDF via headless browser and return as attachment
+ */
+router.get('/:id/pdf', ReceiptController.getReceiptPdf);
+
 module.exports = router;
 
 

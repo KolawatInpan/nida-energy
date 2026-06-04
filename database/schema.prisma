@@ -29,6 +29,19 @@ enum EnergyOfferStatus {
   AVAILABLE
   BOUGHT
   CANCELLED
+  SOLD
+}
+
+enum MarketType {
+  DAY_AHEAD
+  INTRADAY
+  MANUAL
+}
+
+enum EnergyBidStatus {
+  OPEN
+  FULFILLED
+  CANCELLED
 }
 
 //////////////////////////////////////////////////////
@@ -51,6 +64,7 @@ model User {
   credentials   UserCredential[]
   buildings     Building[]
   wallets       Wallet[]
+  marketOrders  MarketOrder[] @relation("MarketOrderParticipant")
 }
 
 model UserCredential {
@@ -86,19 +100,25 @@ model Building {
   tradeMode String   @default("MANUAL")
   tradeMeterType String @default("produce")
   batterySellThreshold Float @default(80)
+  solarSelfPercent Float? @default(80)
+  solarTradeMode String?
+  batteryTradeMode String?
+  batteryBidPrice Float?
+  batteryOfferPrice Float?
+  solarOfferPrice Float?
 
   createdAt DateTime @default(now())
 
   owner User @relation(fields: [email], references: [email])
   meters MeterInfo[]
   transactions Transaction[]
+  marketOrders MarketOrder[] @relation("MarketOrderBuilding")
 }
 
 model MeterInfo {
   snid           String   @unique
   requestId     String?
   buildingName  String
-  meterName     String   @unique
   value         Decimal? @db.Decimal(12, 4)
   capacity      Decimal? @db.Decimal(12, 4)
   timestamp     DateTime?
@@ -108,6 +128,8 @@ model MeterInfo {
   approveStatus String
   
   kWH           Decimal? @db.Decimal(12, 4)
+  isAutoMock    Boolean  @default(false)
+  mockProfile   String   @default("sinusoidal")
 
   building Building @relation(fields: [buildingName], references: [name])
   hourlyEnergy  HourlyEnergy[]
@@ -137,7 +159,7 @@ model RunningMeter {
 }
 
 model HourlyEnergy {
-  meterId String
+  meterSnid String
   date      DateTime @db.Date
 
   h0  Decimal? @db.Decimal(12, 4)
@@ -165,15 +187,15 @@ model HourlyEnergy {
   h22 Decimal? @db.Decimal(12, 4)
   h23 Decimal? @db.Decimal(12, 4)
 
-  kWH Decimal @default(0) @db.Decimal(12, 4)
+  kwh Decimal @default(0) @db.Decimal(12, 4)
 
-  meter MeterInfo @relation(fields: [meterId], references: [snid])
+  meter MeterInfo @relation(fields: [meterSnid], references: [snid])
 
-  @@id([meterId, date])
+  @@id([meterSnid, date])
 }
 
 model DailyEnergy {
-  meterId String
+  meterSnid String
   year Int
   month Int
 
@@ -209,15 +231,15 @@ model DailyEnergy {
   d30 Decimal? @db.Decimal(12, 4)
   d31 Decimal? @db.Decimal(12, 4)
 
-  kWH Decimal @default(0) @db.Decimal(12, 4)
+  kwh Decimal @default(0) @db.Decimal(12, 4)
 
-  meter MeterInfo @relation(fields: [meterId], references: [snid])
+  meter MeterInfo @relation(fields: [meterSnid], references: [snid])
 
-  @@id([meterId, year, month])
+  @@id([meterSnid, year, month])
 }
 
 model WeeklyEnergy {
-  meterId String
+  meterSnid String
   year Int
   week Int
 
@@ -229,15 +251,15 @@ model WeeklyEnergy {
   fri Decimal? @db.Decimal(12, 4)
   sat Decimal? @db.Decimal(12, 4)
 
-  kWH Decimal @default(0) @db.Decimal(12, 4)
+  kwh Decimal @default(0) @db.Decimal(12, 4)
 
-  meter MeterInfo @relation(fields: [meterId], references: [snid])
+  meter MeterInfo @relation(fields: [meterSnid], references: [snid])
 
-  @@id([meterId, year, week])
+  @@id([meterSnid, year, week])
 }
 
 model MonthlyEnergy {
-  meterId String
+  meterSnid String
   year      Int
 
   M1  Decimal? @db.Decimal(12, 4)
@@ -253,11 +275,11 @@ model MonthlyEnergy {
   M11 Decimal? @db.Decimal(12, 4)
   M12 Decimal? @db.Decimal(12, 4)
 
-  kWH Decimal @default(0) @db.Decimal(12, 4)
+  kwh Decimal @default(0) @db.Decimal(12, 4)
 
-  meter MeterInfo @relation(fields: [meterId], references: [snid])
+  meter MeterInfo @relation(fields: [meterSnid], references: [snid])
 
-  @@id([meterId, year])
+  @@id([meterSnid, year])
 }
 
 //////////////////////////////////////////////////////
@@ -266,7 +288,7 @@ model MonthlyEnergy {
 
 model Wallet {
   id           String   @id
-  email        String
+  email        String @unique
   encryptedKey String?
   isCustodial  Boolean  @default(false)
   chain        String   @default("ganache")
@@ -331,11 +353,104 @@ model EnergyOffer {
   ratePerkWH     Float
   totalPrice     Float
   status         EnergyOfferStatus @default(AVAILABLE)
+  marketType     MarketType @default(MANUAL)
+  targetDate     DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@index([sellerWalletId])
   @@index([status])
+}
+
+model EnergyBid {
+  id             Int             @id @default(autoincrement())
+  buyerWalletId  String
+  kWH            Float
+  kWHBought      Float           @default(0)
+  ratePerkWH     Float?          // อนุญาตให้เป็น Null ได้ ถ้ายอมรับการซื้อในราคาตลาด (Market Price)
+  status         EnergyBidStatus @default(OPEN)
+  marketType     MarketType      @default(MANUAL)
+  targetDate     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([buyerWalletId])
+  @@index([status])
+}
+
+//////////////////////////////////////////////////////
+// MARKET ORDERS & MATCHES
+//////////////////////////////////////////////////////
+
+enum OrderSide {
+  BID
+  OFFER
+}
+
+enum OrderStatus {
+  OPEN
+  PARTIAL
+  FILLED
+  CANCELLED
+}
+
+model MarketRun {
+  id         String    @id @default(uuid())
+  marketType MarketType @default(DAY_AHEAD)
+  runTime    DateTime
+  status     String
+  startAt    DateTime?
+  endAt      DateTime?
+  clearedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  matches    MarketMatch[]
+}
+
+model MarketOrder {
+  id           String     @id @default(uuid())
+  side         OrderSide
+  marketType   MarketType @default(DAY_AHEAD)
+  participantEmail String? 
+  walletId     String?
+  buildingName String?
+  sourceType   String?     // e.g. solar, battery, grid
+  quantity     Decimal    @db.Decimal(12, 4)
+  filled       Decimal    @db.Decimal(12, 4) @default(0)
+  price        Decimal?   @db.Decimal(12, 4)
+  status       OrderStatus @default(OPEN)
+  targetDate   DateTime?
+  metadata     Json?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  participant  User?      @relation("MarketOrderParticipant", fields: [participantEmail], references: [email])
+  building     Building?  @relation("MarketOrderBuilding", fields: [buildingName], references: [name])
+
+  buyerMatches MarketMatch[] @relation("buyerOrder")
+  sellerMatches MarketMatch[] @relation("sellerOrder")
+
+  @@index([marketType])
+  @@index([status])
+  @@index([buildingName])
+}
+
+model MarketMatch {
+  id            String   @id @default(uuid())
+  runId         String?
+  buyerOrderId  String
+  sellerOrderId String
+  quantity      Decimal  @db.Decimal(12, 4)
+  price         Decimal  @db.Decimal(12, 4)
+  createdAt     DateTime @default(now())
+
+  run    MarketRun?  @relation(fields: [runId], references: [id])
+  buyer  MarketOrder @relation("buyerOrder", fields: [buyerOrderId], references: [id])
+  seller MarketOrder @relation("sellerOrder", fields: [sellerOrderId], references: [id])
+
+  @@index([runId])
+  @@index([buyerOrderId])
+  @@index([sellerOrderId])
 }
 
 //////////////////////////////////////////////////////

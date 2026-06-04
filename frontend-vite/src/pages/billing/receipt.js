@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import axios from 'axios';
 import { useHistory, useParams } from 'react-router-dom';
 import { formatEnergy, formatEntityId, formatToken } from '../../utils/formatters';
@@ -43,7 +43,7 @@ export default function ReceiptDetail() {
         setLoading(true);
         setError('');
 
-        const apiBase = process.env.REACT_APP_API_BASE || 'http://localhost:8000/api';
+        const apiBase = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
         const res = await axios.get(`${apiBase}/receipts/${id}`);
 
         if (!mounted) return;
@@ -64,6 +64,206 @@ export default function ReceiptDetail() {
   const view = useMemo(() => {
     return buildReceiptView(receipt, id);
   }, [receipt, id]);
+  // inject screen-friendly compact styles for receipt view
+  useEffect(() => {
+    const id = 'nida-receipt-screen-style';
+    if (!document.getElementById(id)) {
+      const s = document.createElement('style');
+      s.id = id;
+      s.innerHTML = `
+        /* compact on-screen receipt styles */
+        .receipt-view { max-width: 760px; margin: 0 auto; }
+        .receipt-view .receipt-watermark { font-size: 48px !important; opacity: .06 !important; }
+        @media (min-width: 1024px) { .receipt-view .receipt-watermark { font-size: 100px !important; } }
+        .receipt-view .text-4xl { font-size: 18px !important; }
+        .receipt-view .text-3xl { font-size: 16px !important; }
+        .receipt-view .text-2xl { font-size: 14px !important; }
+        .receipt-view .text-xl { font-size: 13px !important; }
+        .receipt-view .px-6, .receipt-view .py-7, .receipt-view .lg\:px-10, .receipt-view .lg\:py-9 { padding: 6px !important; }
+        .receipt-view .rounded-[28px] { border-radius: 8px !important; }
+        .receipt-view table { font-size: 12px !important; }
+        .receipt-view .mx-auto { max-width: 760px !important; }
+      `;
+      document.head.appendChild(s);
+    }
+  }, []);
+
+  const receiptRef = useRef(null);
+  const [generating, setGenerating] = useState(false);
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[src="${src}"]`)) return resolve();
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('Failed to load script'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function generatePdf(closeAfter = false) {
+    if (!receiptRef.current) return;
+    setGenerating(true);
+    try {
+      // try primary CDN
+      try {
+        await loadScript('https://unpkg.com/html2pdf.js@0.9.2/dist/html2pdf.bundle.min.js');
+      } catch (err) {
+        // fallback CDN
+        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.2/html2pdf.bundle.min.js');
+      }
+
+      // inject small-print styles to reduce oversized display elements
+      const styleId = 'nida-pdf-style';
+      let styleEl = document.getElementById(styleId);
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        styleEl.innerHTML = `
+          /* Compact PDF styles for receipt */
+          .nida-pdf-small { font-size:12px !important; line-height:1.15 !important; }
+          .nida-pdf-small .text-4xl { font-size:20px !important; }
+          .nida-pdf-small .text-3xl { font-size:18px !important; }
+          .nida-pdf-small .text-2xl { font-size:16px !important; }
+          .nida-pdf-small .text-xl { font-size:14px !important; }
+          .nida-pdf-small .text-[110px], .nida-pdf-small .lg\\:text-[180px] { font-size:36px !important; }
+          .nida-pdf-small .rounded-[28px] { border-radius:8px !important; }
+          .nida-pdf-small table { font-size:12px !important; }
+          .nida-pdf-small .px-6, .nida-pdf-small .py-5, .nida-pdf-small .py-4 { padding:6px !important; }
+        `;
+        document.head.appendChild(styleEl);
+      }
+
+      const el = receiptRef.current;
+      el.classList.add('nida-pdf-small');
+
+      // Compute element size and convert px -> mm for jsPDF
+      const pxToMm = 0.264583333; // 1px @96dpi = 0.264583333 mm
+      const rect = el.getBoundingClientRect();
+      const widthPx = Math.ceil(rect.width);
+      // use scrollHeight to capture full content height
+      const heightPx = Math.ceil(el.scrollHeight || rect.height);
+      const widthMm = Math.ceil(widthPx * pxToMm);
+      const heightMm = Math.ceil(heightPx * pxToMm);
+
+      const opt = {
+        margin: [5, 5, 5, 5],
+        filename: `${view?.receiptNumber || id}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, width: widthPx, height: heightPx },
+        jsPDF: { unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'] },
+      };
+
+      // eslint-disable-next-line no-undef
+      if (!window.html2pdf) throw new Error('html2pdf not available');
+      // eslint-disable-next-line no-undef
+      const task = window.html2pdf().set(opt).from(el).save();
+      if (task && task.then) await task;
+
+      // cleanup
+      el.classList.remove('nida-pdf-small');
+      if (styleEl) styleEl.parentNode && styleEl.parentNode.removeChild(styleEl);
+
+      if (closeAfter) {
+        try { window.close(); } catch (e) { /* ignore */ }
+      }
+    } catch (err) {
+      console.error('PDF generation failed', err);
+      try {
+        alert('ไม่สามารถสร้าง PDF ได้โดยตรง — จะเปิดหน้าพิมพ์สำรองให้คุณ (ใช้ Print → Save as PDF)');
+        const printWin = window.open('', '_blank', 'noopener');
+        if (printWin && receiptRef.current) {
+          printWin.document.write('<html><head><title>Receipt</title>');
+          // inline minimal styles to keep compact
+          printWin.document.write('<style>body{font-family:Arial,Helvetica,sans-serif;font-size:12px} .nida-compact{max-width:800px;margin:0 auto;padding:10px;}</style>');
+          printWin.document.write('</head><body><div class="nida-compact">');
+          printWin.document.write(receiptRef.current.innerHTML);
+          printWin.document.write('</div></body></html>');
+          printWin.document.close();
+          printWin.focus();
+          // give it a moment to render
+          setTimeout(() => { try { printWin.print(); } catch (e) { /* ignore */ } }, 600);
+        }
+      } catch (e) { /* ignore */ }
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function printSaveAsPdf(closeAfter = false) {
+    // inject print CSS to hide sidebar and other layout elements
+    const id = 'nida-print-hide-side';
+    let styleEl = document.getElementById(id);
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = id;
+      styleEl.innerHTML = `
+        @media print {
+          /* hide app chrome */
+          .nida-navbar, #sidebar, .sidebar, .leftMenu, .leftmenu, .left-menu, .nav-bar { display: none !important; }
+          body { overflow: visible !important; }
+          /* page sizing */
+          @page { size: A4 portrait; margin: 10mm; }
+          html, body { width: 210mm; height: 297mm; }
+          /* make receipt use printable width and compact fonts */
+          .receipt-view { max-width: 190mm !important; margin: 0 auto !important; padding: 0 !important; }
+          .receipt-view * { -webkit-print-color-adjust: exact; }
+          .receipt-view { font-size: 12px !important; line-height: 1.08 !important; }
+          .receipt-view .text-4xl { font-size: 18px !important; }
+          .receipt-view .text-3xl { font-size: 16px !important; }
+          .receipt-view .text-2xl { font-size: 14px !important; }
+          .receipt-view .text-xl { font-size: 12px !important; }
+          .receipt-view .receipt-watermark { font-size: 40px !important; opacity: .06 !important; }
+          .receipt-view table { font-size: 11px !important; }
+          /* avoid table rows splitting across pages */
+          table { page-break-inside: auto; }
+          tr { page-break-inside: avoid; page-break-after: auto; }
+          thead { display: table-header-group; }
+          tfoot { display: table-footer-group; }
+          /* Page partitioning: Received From -> page 1, Receipt Info + Total -> page 2, rest -> page 3 */
+          .received-from { page-break-after: always; break-after: page; }
+          .receipt-information { page-break-inside: avoid; }
+          .total-amount { page-break-inside: avoid; page-break-after: always; break-after: page; }
+          .payment-breakdown { page-break-before: always; break-before: page; }
+          /* footer should be on page 4 */
+          .document-footer { page-break-before: always; break-before: page; }
+          /* Reduce paddings that cause overflow */
+          .receipt-view .px-6, .receipt-view .py-7, .receipt-view .lg\:px-10, .receipt-view .lg\:py-9 { padding: 4px !important; }
+        }
+      `;
+      document.head.appendChild(styleEl);
+    }
+
+    try {
+      window.print();
+    } finally {
+      // remove style after a short delay to allow print dialog to capture styles
+      setTimeout(() => {
+        if (styleEl && styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
+        if (closeAfter) {
+          try { window.close(); } catch (e) { /* ignore */ }
+        }
+      }, 1000);
+    }
+  }
+
+  function downloadPdfServer(closeAfter = false) {
+    try {
+      const apiBase = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+      const url = `${apiBase.replace(/\/$/, '')}/receipts/${encodeURIComponent(id)}/pdf`;
+      // open in new tab to trigger browser download
+      const w = window.open(url, '_blank', 'noopener');
+      if (closeAfter) {
+        setTimeout(() => { try { window.close(); } catch (e) { /* ignore */ } }, 1200);
+      }
+      return Promise.resolve();
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
 
   if (loading) {
     return <div className="min-h-screen bg-[#f3f6f4] p-6 text-gray-600">Loading receipt...</div>;
@@ -75,8 +275,9 @@ export default function ReceiptDetail() {
 
   const isPaid = view.status === 'PAID';
 
+
   return (
-    <div className="min-h-screen bg-[#eef3f0] px-4 py-6 lg:px-8">
+    <div className="receipt-view min-h-screen bg-[#eef3f0] px-4 py-6 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button
@@ -88,19 +289,20 @@ export default function ReceiptDetail() {
           </button>
           <button
             type="button"
-            onClick={() => window.print()}
-            className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800"
+            onClick={() => printSaveAsPdf(false)}
+            disabled={generating}
+            className={`rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm ${generating ? 'opacity-60 cursor-not-allowed' : 'hover:bg-emerald-800'}`}
           >
-            Print Receipt
+            {generating ? 'Preparing...' : 'Download PDF'}
           </button>
         </div>
 
-        <div className="relative overflow-hidden rounded-[28px] border border-emerald-100 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.10)]">
+        <div ref={receiptRef} className="relative overflow-hidden rounded-[28px] border border-emerald-100 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.10)]">
           <div className="h-2 w-full bg-emerald-700" />
 
           <div className="relative px-6 py-7 lg:px-10 lg:py-9">
             <div className="absolute inset-x-0 top-[38%] flex justify-center pointer-events-none select-none">
-              <div className="text-[110px] font-black tracking-[0.18em] text-emerald-600/10 lg:text-[180px]">
+              <div className="receipt-watermark text-[110px] font-black tracking-[0.18em] text-emerald-600/10 lg:text-[180px]">
                 {isPaid ? 'PAID' : 'PENDING'}
               </div>
             </div>
@@ -115,7 +317,7 @@ export default function ReceiptDetail() {
                     <div className="text-2xl font-extrabold tracking-tight text-slate-900 lg:text-3xl">NIDA SMART GRID</div>
                     <div className="mt-2 text-lg font-semibold text-slate-600">Energy Management Dept.</div>
                     <div className="text-base text-slate-500">Institute of Development Administration</div>
-                    <div className="text-base text-slate-500">118 Seri Thai Rd, Bangkok, Thailand</div>
+                    <div className="text-base text-slate-500">148 Seri Thai Rd, Bangkok, Thailand</div>
                   </div>
                 </div>
 
@@ -128,8 +330,8 @@ export default function ReceiptDetail() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-6 lg:flex-row">
-                <div className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white/95 p-6 lg:basis-1/2 lg:flex-1">
+                  <div className="flex flex-col gap-6 lg:flex-row">
+                    <div className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white/95 p-6 lg:basis-1/2 lg:flex-1 received-from">
                   <div className="mb-5 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Received From</div>
                   <div className="space-y-6">
                     <div>
@@ -161,7 +363,7 @@ export default function ReceiptDetail() {
                   </div>
                 </div>
 
-                <div className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white/95 p-6 lg:basis-1/2 lg:flex-1">
+                <div className="min-w-0 w-full rounded-3xl border border-gray-200 bg-white/95 p-6 lg:basis-1/2 lg:flex-1 receipt-information">
                   <div className="mb-5 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Receipt Information</div>
                   <div className="space-y-4 text-base">
                     {[
@@ -181,7 +383,7 @@ export default function ReceiptDetail() {
                 </div>
               </div>
 
-              <div className="relative rounded-[28px] border border-emerald-200 bg-gradient-to-r from-emerald-50 via-emerald-50 to-white p-6 lg:p-7">
+              <div className="relative rounded-[28px] border border-emerald-200 bg-gradient-to-r from-emerald-50 via-emerald-50 to-white p-6 lg:p-7 total-amount">
                 <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">Total Amount Received</div>
@@ -209,7 +411,7 @@ export default function ReceiptDetail() {
                 </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-4 payment-breakdown">
                 <div className="flex items-center gap-3">
                   <div className="text-xl text-slate-400">☰</div>
                   <div>
@@ -278,7 +480,8 @@ export default function ReceiptDetail() {
                 </div>
               </div>
 
-              <div className="grid gap-6 pt-4 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
+              <div className="document-footer">
+                <div className="grid gap-6 pt-4 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
                 <div className="space-y-6">
                   <div className="max-w-sm border-b border-gray-300 pb-3">
                     <div className="text-3xl italic text-blue-800">System Generated</div>
@@ -298,9 +501,9 @@ export default function ReceiptDetail() {
                     <div className="text-slate-500">blockchain.nida.ac.th</div>
                   </div>
                 </div>
-              </div>
+                </div>
 
-              <div className="border-t border-dashed border-gray-300 pt-7 text-center">
+                <div className="border-t border-dashed border-gray-300 pt-7 text-center">
                 <div className="inline-flex items-center gap-3 rounded-full bg-emerald-50 px-5 py-2 text-lg font-bold text-emerald-700">
                   <span>🛡️</span>
                   <span>Blockchain Verified Document</span>
@@ -315,6 +518,7 @@ export default function ReceiptDetail() {
                 </div>
                 <div className="mt-5 text-sm text-slate-400">
                   Generated by NIDA Smart Grid Platform
+                </div>
                 </div>
               </div>
             </div>

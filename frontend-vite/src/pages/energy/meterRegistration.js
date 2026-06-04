@@ -6,6 +6,8 @@ import {
   registerMeter,
   registerUser,
   registerWallet,
+  requestOtpEmail,
+  adminQuickRegister,
 } from '../../core/data_connecter/register';
 import { useTOR } from '../../global/TORContext';
 import TORRegister from '../../components/TOR/TORRegister';
@@ -21,7 +23,7 @@ const BUILDING_PRESETS = [
   {
     id: 'ratchaphruek',
     label: 'Ratchaphruek',
-    name: 'Ratchaphruek Building',
+    name: 'Ratchaphruek',
     address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi',
     city: 'Bangkok',
     postalCode: '10240',
@@ -30,7 +32,7 @@ const BUILDING_PRESETS = [
   {
     id: 'malai',
     label: 'Malai',
-    name: 'Malai Building',
+    name: 'Malai',
     address: 'สถาบันบัณฑิตพัฒนบริหารศาสตร์ นิด้า 118, อาคารมาลัยหุวะนันท์ ชั้น 1',
     city: 'Bangkok',
     postalCode: '10240',
@@ -39,7 +41,7 @@ const BUILDING_PRESETS = [
   {
     id: 'auditorium',
     label: 'Auditorium',
-    name: 'Auditorium Building',
+    name: 'Auditorium',
     address: '148 ถนนเสรีไทย แขวงคลองจั่น เขตบางกะปิ',
     city: 'Bangkok',
     postalCode: '10240',
@@ -48,7 +50,7 @@ const BUILDING_PRESETS = [
   {
     id: 'nidasumpan',
     label: 'Nida Sumpan',
-    name: 'Nida Sumpan Building',
+    name: 'Nida Sumpan',
     address: '148 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi',
     city: 'Bangkok',
     postalCode: '10240',
@@ -108,10 +110,14 @@ export default function MeterRegistration() {
   const { showTOR } = useTOR();
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [showOtpStep, setShowOtpStep] = useState(false);
   const [registrationMode, setRegistrationMode] = useState(REGISTRATION_MODES.FULL);
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [usersList, setUsersList] = useState([]);
   const [buildingsList, setBuildingsList] = useState([]);
+  const [adminQuickLoading, setAdminQuickLoading] = useState(null);
 
   const handleFormChange = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
   // Meter dynamic form handlers
@@ -157,11 +163,37 @@ export default function MeterRegistration() {
     setFormData((prev) => ({
       ...prev,
       meters: [
-        { serviceType: 'producer', meterSNID: `${prefix}-PRD-${rand}`, capacity: '30', dateInstalled: today },
-        { serviceType: 'consumer', meterSNID: `${prefix}-CON-${rand}`, capacity: '100', dateInstalled: today },
-        { serviceType: 'battery', meterSNID: `${prefix}-BAT-${rand}`, capacity: '50', dateInstalled: today },
+        { serviceType: 'producer', meterSNID: `${prefix}-PRD-${rand}`, capacity: '3000', dateInstalled: today },
+        { serviceType: 'consumer', meterSNID: `${prefix}-CON-${rand}`, capacity: '5000', dateInstalled: today },
+        { serviceType: 'battery', meterSNID: `${prefix}-BAT-${rand}`, capacity: '10000', dateInstalled: today },
       ],
     }));
+  };
+
+  const handleAdminQuickCreate = async (preset, idx) => {
+    const emails = ['nida1@nida.com', 'nida2@nida.com', 'nida3@nida.com', 'nida4@nida.com'];
+    const email = emails[idx] || `nida${idx + 1}@nida.com`;
+    const password = 'nida123';
+
+    setAdminQuickLoading(preset.id);
+    try {
+      const res = await adminQuickRegister({
+        buildingName: preset.name,
+        email,
+        password,
+        address: preset.address,
+        city: preset.city,
+        postalCode: preset.postalCode,
+        mapUrl: preset.mapUrl,
+      });
+      alert(`✅ Admin Quick Create success!\n\nBuilding: ${preset.name}\nEmail: ${email}\nPassword: ${password}\nMeters: 3 created\nWallet: 10,000 tokens`);
+      console.log('Admin quick create result:', res.data);
+    } catch (err) {
+      alert(`❌ Failed: ${err?.response?.data?.error || err.message}`);
+      console.error('Admin quick create error:', err);
+    } finally {
+      setAdminQuickLoading(null);
+    }
   };
 
   const needsBuildingSection = registrationMode === REGISTRATION_MODES.BUILDING_ONLY || registrationMode === REGISTRATION_MODES.FULL || registrationMode === REGISTRATION_MODES.METER_ONLY;
@@ -219,6 +251,30 @@ export default function MeterRegistration() {
       return;
     }
 
+    // First click: send OTP and show modal
+    if (!showOtpStep) {
+      if (!formData.contactEmail) {
+        alert('Please enter your email first');
+        return;
+      }
+      setSendingOtp(true);
+      try {
+        await requestOtpEmail(formData.contactEmail);
+        setShowOtpStep(true);
+      } catch (e) {
+        alert(e?.response?.data?.error || 'Failed to send OTP');
+      } finally {
+        setSendingOtp(false);
+      }
+      return;
+    }
+
+    // Second click: validate & submit
+    if (!otpCode) {
+      alert('Please enter OTP code');
+      return;
+    }
+
     if (registrationMode === REGISTRATION_MODES.USER_ONLY) {
       if (!formData.contactName || !formData.contactEmail) {
         alert('Please fill in all required user fields');
@@ -262,10 +318,11 @@ export default function MeterRegistration() {
     setSubmitting(true);
     try {
       let buildingIdToUse = null;
+      const otp = otpCode;
 
       if (registrationMode === REGISTRATION_MODES.USER_ONLY) {
         const password = formData.initialPassword || Math.random().toString(36).slice(-8);
-        await registerUser(formData.contactName, formData.contactEmail, password, formData.phoneNumber);
+        await registerUser(formData.contactName, formData.contactEmail, password, formData.phoneNumber, otp);
       }
 
       if (registrationMode === REGISTRATION_MODES.BUILDING_ONLY) {
@@ -281,7 +338,7 @@ export default function MeterRegistration() {
 
       if (registrationMode === REGISTRATION_MODES.FULL) {
         const password = formData.initialPassword || Math.random().toString(36).slice(-8);
-        await registerUser(formData.contactName, formData.contactEmail, password, formData.phoneNumber);
+        await registerUser(formData.contactName, formData.contactEmail, password, formData.phoneNumber, otp);
 
         const building = await registerBuilding(
           formData.buildingName,
@@ -390,7 +447,30 @@ export default function MeterRegistration() {
         )}
 
         <div className="mb-6 flex items-center justify-between">
-          <div />
+          {/* Admin Quick Create */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {BUILDING_PRESETS.map((preset, idx) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => handleAdminQuickCreate(preset, idx)}
+                disabled={adminQuickLoading === preset.id}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: 6,
+                  border: '1px solid #f59e0b',
+                  background: adminQuickLoading === preset.id ? '#fde68a' : '#fef3c7',
+                  color: '#92400e',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  opacity: adminQuickLoading ? 0.6 : 1,
+                }}
+              >
+                {adminQuickLoading === preset.id ? '⏳' : '⚡'} {preset.name}
+              </button>
+            ))}
+          </div>
           <a href="/login" className="rounded-lg border border-gray-300 px-4 py-2 font-semibold text-gray-700 hover:bg-gray-50">
             Back to Login
           </a>
@@ -476,7 +556,7 @@ export default function MeterRegistration() {
                   required
                   type="email"
                   value={formData.contactEmail}
-                  onChange={(e) => handleFormChange('contactEmail', e.target.value)}
+                  onChange={(e) => { handleFormChange('contactEmail', e.target.value); setShowOtpStep(false); }}
                   className="w-full rounded border px-3 py-2"
                 />
               </div>
@@ -742,6 +822,8 @@ export default function MeterRegistration() {
             >
               {submitting
                 ? 'Submitting...'
+                : !showOtpStep
+                ? 'Continue →'
                 : registrationMode === REGISTRATION_MODES.USER_ONLY
                 ? 'Register User'
                 : registrationMode === REGISTRATION_MODES.BUILDING_ONLY
@@ -752,6 +834,69 @@ export default function MeterRegistration() {
             </button>
           </div>
         </form>
+
+        {/* OTP Modal */}
+        {showOtpStep && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4">
+              <div className="text-center mb-6">
+                <div className="text-4xl mb-3">📧</div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Verify Your Email</h2>
+                <p className="text-sm text-gray-600">
+                  We have sent a 6-digit OTP to <strong>{formData.contactEmail}</strong>.<br />
+                  Please enter it below to complete registration.
+                </p>
+              </div>
+              <div className="mb-6">
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\s/g, ''))}
+                  placeholder="000000"
+                  className="w-full text-center text-2xl tracking-[0.5em] font-bold rounded-lg border-2 border-gray-300 px-4 py-3 focus:border-blue-500 focus:outline-none"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setShowOtpStep(false); setOtpCode(''); }}
+                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!otpCode || submitting}
+                  onClick={() => handleSubmit({ preventDefault: () => {} })}
+                  className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {submitting ? 'Verifying...' : 'Verify & Submit'}
+                </button>
+              </div>
+              <button
+                type="button"
+                disabled={sendingOtp}
+                onClick={async () => {
+                  setSendingOtp(true);
+                  try {
+                    await requestOtpEmail(formData.contactEmail);
+                    alert('OTP resent!');
+                  } catch (e) {
+                    alert('Failed to resend OTP');
+                  } finally {
+                    setSendingOtp(false);
+                  }
+                }}
+                className="mt-3 w-full text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                {sendingOtp ? 'Resending...' : 'Resend OTP'}
+              </button>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

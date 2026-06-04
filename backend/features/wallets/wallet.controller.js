@@ -1,4 +1,5 @@
 const walletService = require('./wallet.service');
+const { sendTelegramMessage } = require('../../utils/telegram');
 
 async function getWallets(req, res) {
     try {
@@ -36,6 +37,13 @@ async function getBalance(req, res) {
 async function createWallet(req, res) {
     const { buildingId, email } = req.body;
     try {
+        // ตรวจสอบว่ามีกระเป๋าเงินสำหรับ email นี้อยู่แล้วหรือไม่
+        const existingWallet = await walletService.getWalletByEmail(email);
+        if (existingWallet) {
+            // ถ้ามีอยู่แล้ว ให้ตอบกลับเป็นกระเป๋าเดิมเลย ไม่ต้องสร้างใหม่ (ป้องกัน Error จาก Prisma)
+            return res.status(200).json(existingWallet);
+        }
+
         const newWallet = await walletService.createWallet({ buildingId, email });
         res.status(201).json(newWallet);
     } catch (e) {
@@ -62,6 +70,24 @@ async function addBalance(req, res) {
     try {
         const updatedWallet = await walletService.addBalance(email, amount, rate);
         res.json(updatedWallet);
+
+        // Notify via Telegram (fire-and-forget)
+        (async () => {
+            try {
+                let buildingName = email;
+                try {
+                    const { prisma: p } = require('../../utils/prisma');
+                    const b = await p.building.findFirst({ where: { email }, select: { name: true } });
+                    if (b?.name) buildingName = b.name;
+                } catch {}
+                const tokenAmount = Number(amount || 0);
+                const currentBalance = Number(updatedWallet?.tokenBalance ?? 0);
+                const text = `✅ เติมเงินเข้าอาคาร ${buildingName}\n+${tokenAmount.toLocaleString('en-US')} Token\nยอดคงเหลือ: ${currentBalance.toLocaleString('en-US')} Token`;
+                await sendTelegramMessage({ text });
+            } catch (e) {
+                console.error('Telegram notify (addBalance) failed:', e?.message || e);
+            }
+        })();
     } catch (e) {
         res.status(e.status || 500).json({ error: e.message || 'Failed to add balance' });
     }
@@ -72,7 +98,33 @@ async function topupByEmail(req, res) {
     const { amount, snid } = req.body;
     try {
         const result = await walletService.topupWalletByEmail(email, amount, snid);
-        res.status(201).json(result);
+                res.status(201).json(result);
+
+                // Notify via Telegram (fire-and-forget)
+                (async () => {
+                    try {
+                        // Resolve building name: try transaction first, then lookup by email
+                        let buildingName = result?.transaction?.buildingName;
+                        if (!buildingName || buildingName === 'Unknown building') {
+                            try {
+                                const { prisma: p } = require('../../utils/prisma');
+                                const b = await p.building.findFirst({ where: { email }, select: { name: true } });
+                                if (b?.name) buildingName = b.name;
+                            } catch {}
+                        }
+                        if (!buildingName || buildingName === 'Unknown building') {
+                            buildingName = email; // fallback to email
+                        }
+                    const tokenAmount = Number((result?.transaction?.tokenAmount ?? amount) || 0);
+                    const currentBalance = Number(result?.wallet?.tokenBalance ?? 0);
+                    const formattedAmount = tokenAmount.toLocaleString('en-US');
+                    const formattedBalance = currentBalance.toLocaleString('en-US');
+                    const text = `✅ เติมเงินเข้าอาคาร ${buildingName}\n+${formattedAmount} Token\nยอดคงเหลือ: ${formattedBalance} Token`;
+                    await sendTelegramMessage({ text });
+                    } catch (e) {
+                        console.error('Telegram notify (topup) failed:', e?.message || e);
+                    }
+                })();
     } catch (e) {
         res.status(e.status || 500).json({ error: e.message || 'Failed to top up wallet' });
     }
@@ -109,5 +161,3 @@ module.exports = {
     getWalletTransactions,
     recalculateWalletBalance
 };
-
-

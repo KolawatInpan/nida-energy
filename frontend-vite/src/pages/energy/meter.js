@@ -538,7 +538,7 @@ export default function Meter() {
     const trendChart = hourlyTrend;
     const yAxisMax = Math.max(Math.ceil(trendChart.maxValue || 0), 1);
     const yAxisStep = yAxisMax / 3;
-    const yAxisLabels = [yAxisMax, yAxisStep * 2, yAxisStep, 0].map((value) => Math.round(value * 100) / 100);
+    const yAxisLabels = [yAxisMax, yAxisStep * 2, yAxisStep, 0].map((value) => Math.round(value));
     const trendPath = buildTrendPath(trendChart.values);
     const areaPath = buildAreaPath(trendChart.values);
     let xAxisLabels = buildXAxisLabels(trendChart.labels, trendMode);
@@ -589,6 +589,9 @@ export default function Meter() {
         : `${formatWholeNumber(trendChart.total || 0)} kWh`;
     const summaryAccentClass = isConsumerMeter ? 'text-rose-600' : isBatteryMeter ? 'text-amber-600' : 'text-green-600';
     const progressBarClass = isConsumerMeter ? 'bg-rose-500' : isBatteryMeter ? 'bg-amber-500' : 'bg-green-500';
+    const trendColor = isConsumerMeter ? '#ef4444' : isBatteryMeter ? '#f97316' : '#22c55e';
+    const trendColorRgba = isConsumerMeter ? 'rgba(239,68,68,0.10)' : isBatteryMeter ? 'rgba(249,115,22,0.10)' : 'rgba(34,197,94,0.10)';
+    const trendBtnActive = isConsumerMeter ? 'bg-red-100 text-red-700 hover:bg-red-200' : isBatteryMeter ? 'bg-orange-100 text-orange-700 hover:bg-orange-200' : 'bg-green-100 text-green-700 hover:bg-green-200';
     const summaryProgressPercent = isBatteryMeter ? storagePercent : progressPercent;
     const summaryCardTitle = isConsumerMeter
         ? "Today's Consumption"
@@ -607,7 +610,7 @@ export default function Meter() {
     const trendTitle = isGridPanel ? 'Real-time Grid Import Trend' : 'Real-time Production Trend';
     const trendSubtitle = isGridPanel
         ? 'Energy drawn from the utility grid'
-        : (isConsumerMeter ? 'Energy consumption in kWh over 24 hours' : 'Energy generation in kWh over 24 hours');
+        : (isConsumerMeter ? 'Energy consumption in kWh over 24 hours' : trendMode === 'custom' ? 'Custom date range' : 'Energy generation in kWh over 24 hours');
 
     const handleBuildingChange = (nextBuildingName) => {
         setSelectedBuildingName(nextBuildingName);
@@ -707,27 +710,6 @@ export default function Meter() {
                     >
                         Back to Dashboard
                     </button>
-                    <button
-                        type="button"
-                        onClick={() => setTrendMode('custom')}
-                        className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${trendMode === 'custom' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                    >
-                        Custom
-                    </button>
-                    {trendMode === 'custom' && (
-                        <div className="ml-2 flex items-center">
-                            <DatePicker
-                                selectsRange={true}
-                                startDate={startDate}
-                                endDate={endDate}
-                                maxDate={new Date()}
-                                onChange={(update) => setCustomDateRange(update)}
-                                isClearable={true}
-                                placeholderText="Select date range"
-                                className="px-2 py-1 text-xs border border-gray-300 rounded w-48"
-                            />
-                        </div>
-                    )}
                 </div>
             </div>
         );
@@ -930,7 +912,7 @@ export default function Meter() {
                     </div>
 
                     {/* Simple line chart visualization */}
-                    <div className="relative h-64 bg-gradient-to-b from-green-50 to-transparent rounded-lg p-4">
+                    <div className={`relative h-64 rounded-lg p-4 ${isConsumerMeter ? 'bg-gradient-to-b from-red-50 to-transparent' : isBatteryMeter ? 'bg-gradient-to-b from-orange-50 to-transparent' : 'bg-gradient-to-b from-green-50 to-transparent'}`}>
                         <svg className="w-full h-full" viewBox="0 0 800 200" preserveAspectRatio="xMidYMid meet">
                             {/* Y-axis labels */}
                             <text x="5" y="20" className="text-xs fill-gray-400">{yAxisLabels[0]}</text>
@@ -947,7 +929,7 @@ export default function Meter() {
                             {areaPath ? (
                                 <path
                                     d={areaPath}
-                                    fill="rgba(34, 197, 94, 0.10)"
+                                    fill={trendColorRgba}
                                     stroke="none"
                                 />
                             ) : null}
@@ -955,7 +937,7 @@ export default function Meter() {
                             {trendPath ? (
                                 <path
                                     d={trendPath}
-                                    stroke="#22c55e"
+                                    stroke={trendColor}
                                     strokeWidth="3"
                                     fill="none"
                                 />
@@ -971,29 +953,51 @@ export default function Meter() {
                     </div>
 
                     {/* Chart controls */}
-                    <div className="flex justify-end gap-2 mt-4">
+                    <div className="flex justify-end gap-2 mt-4 items-center">
                         <button
                             type="button"
                             onClick={() => setTrendMode('today')}
-                            className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${trendMode === 'today' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                            className={`px-3 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap ${trendMode === 'today' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                         >
                             Today
                         </button>
                         <button
                             type="button"
                             onClick={() => setTrendMode('week')}
-                            className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${trendMode === 'week' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                            className={`px-3 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap ${trendMode === 'week' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                         >
                             Week
                         </button>
                         <button
                             type="button"
                             onClick={() => setTrendMode('month')}
-                            className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${trendMode === 'month' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                            className={`px-3 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap ${trendMode === 'month' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                         >
                             Month
                         </button>
+                        <button
+                            type="button"
+                            onClick={() => setTrendMode('custom')}
+                            className={`px-3 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap ${trendMode === 'custom' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        >
+                            Custom
+                        </button>
                     </div>
+                    {trendMode === 'custom' && (
+                        <div className="mt-1.5" style={{textAlign: 'right'}}>
+                            <DatePicker
+                                selectsRange={true}
+                                startDate={startDate}
+                                endDate={endDate}
+                                maxDate={new Date()}
+                                onChange={(update) => setCustomDateRange(update)}
+                                isClearable={true}
+                                placeholderText="Select date range"
+                                className="px-2 py-1 text-xs border border-gray-300 rounded w-52"
+                                wrapperClassName="inline-block"
+                            />
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex gap-6 mb-6">

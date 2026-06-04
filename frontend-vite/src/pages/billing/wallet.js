@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { getBuildings } from '../../core/data_connecter/register';
-import { getWalletBalance, getWalletByEmail, getWalletTransactions, recalculateWalletBalance, topupWalletByEmail } from '../../core/data_connecter/wallet';
+import { getWalletBalance, getWalletByEmail, getWalletTransactions, recalculateWalletBalance, topupWalletByEmail, createStripePaymentIntent } from '../../core/data_connecter/wallet';
 import { getQuotaWarnings } from '../../core/data_connecter/invoice';
-import { formatCurrency, formatEntityId, formatToken, formatVerificationStatus, getSignedTokenAmount, getTransactionDisplayType, toSafeNumber } from '../../utils/formatters';
+import { formatCurrency, formatEntityId, formatToken, formatTokenShort, formatVerificationStatus, getSignedTokenAmount, getTransactionDisplayType, toSafeNumber } from '../../utils/formatters';
 import { normalizeRoleName } from '../../utils/authSession';
 import { calculateQuotaStatus } from '../../utils/walletQuota';
 import { NoBuildingAssignedPage } from '../../components/shared';
@@ -39,6 +39,10 @@ export default function Wallet() {
   const [wallet, setWallet] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [quotaOverride, setQuotaOverride] = useState(null);
+  const [qrData, setQrData] = useState(null);
+  const [qrUrl, setQrUrl] = useState(null);
+  const [showTopupModal, setShowTopupModal] = useState(false);
+  const [toast, setToast] = useState(null);
   const rate = 1;
 
   const normalizeBuildings = (payload) => {
@@ -85,7 +89,14 @@ export default function Wallet() {
       const arr = normalizeBuildings(buildings);
       setAllBuildings(arr);
       const wantedName = decodeURIComponent((buildingName || '').toString()).toLowerCase();
-      const target = arr.find(b => (b.name || '').toString().toLowerCase() === wantedName) || null;
+      // Normalize building name: handle slug/hyphen and known name variants
+      const normalizeBuildingName = (name) => {
+        let n = (name || '').toString().toLowerCase().replace(/[-\s]+/g, '');
+        if (n === 'nidasumpan') n = 'nidasumpun';
+        if (n === 'narathip') n = 'naradhip';
+        return n;
+      };
+      const target = arr.find(b => normalizeBuildingName(b.name) === normalizeBuildingName(wantedName)) || null;
       setBuilding(target);
 
       const assignedBuilding = arr.find((item) => String(item?.email || '').toLowerCase() === memberEmail) || null;
@@ -171,6 +182,7 @@ export default function Wallet() {
 
   const handleQuickAmount = (amount) => {
     setExchangeAmount(amount);
+    setQrData(null);
   };
 
   const handleBuildingChange = (event) => {
@@ -180,25 +192,51 @@ export default function Wallet() {
   };
 
   const handleConfirmExchange = async () => {
+    if (!showTopupModal) {
+      // First click — show QR code modal
+      if (!building?.email) return;
+      const amt = Number(exchangeAmount || 0);
+      if (amt <= 0) { setToast({ type: 'error', title: 'Invalid Amount', message: 'Please enter a valid amount' }); return; }
+      try {
+        setLoading(true);
+        const paymentRes = await createStripePaymentIntent(building.email, amt);
+        const paymentData = paymentRes?.data || paymentRes;
+        setQrUrl(paymentData?.qrUrl || null);
+        setQrData({ buildingName: building?.name, amount: amt, email: building?.email });
+        setShowTopupModal(true);
+      } catch (e) {
+        setToast({ type: 'error', title: 'QR Generation Failed', message: e?.response?.data?.error || e.message || 'Failed to generate QR code' });
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    // Second click — execute topup from modal
     try {
       if (!building?.email) return;
       const amt = Number(exchangeAmount || 0);
-      if (amt <= 0) {
-        alert('Please enter a valid amount');
-        return;
-      }
+      if (amt <= 0) return;
       setLoading(true);
+      setShowTopupModal(false);
       const result = await topupWalletByEmail(building.email, amt);
       await loadData();
       const verification = result?.data?.verification;
-      const verificationLine = verification?.verified
-        ? `\nVerified on chain: ${verification.txHash}`
+      const vStatus = verification?.verified
+        ? `Verified on chain`
         : verification?.reason
-        ? `\nVerification pending: ${verification.reason}`
-        : '';
-      alert(`Top-up successful: +${formatToken(amt)} Token${verificationLine}`);
+        ? `Verification pending: ${verification.reason}`
+        : null;
+      setToast({
+        type: 'success',
+        title: 'Top-up Successful! 🎉',
+        message: `+${formatToken(amt)} Token added to your wallet.`,
+        sub: vStatus,
+      });
+      setExchangeAmount(0);
+      setQrData(null);
+      setQrUrl(null);
     } catch (e) {
-      alert(e?.response?.data?.error || e.message || 'Top-up failed');
+      setToast({ type: 'error', title: 'Top-up Failed', message: e?.response?.data?.error || e.message || 'Top-up failed' });
     } finally {
       setLoading(false);
     }
@@ -211,9 +249,9 @@ export default function Wallet() {
       const result = await recalculateWalletBalance(wallet.id);
       await loadData();
       const nextBalance = result?.data?.recalculatedBalance;
-      alert(`Wallet balance recalculated from ledger.\nNew balance: ${formatToken(nextBalance)} Token`);
+      setToast({ type: 'success', title: 'Balance Recalculated', message: `New balance: ${formatToken(nextBalance)} Token` });
     } catch (e) {
-      alert(e?.response?.data?.error || e.message || 'Failed to recalculate wallet balance');
+      setToast({ type: 'error', title: 'Recalculation Failed', message: e?.response?.data?.error || e.message || 'Failed to recalculate wallet balance' });
     } finally {
       setLoading(false);
     }
@@ -224,7 +262,7 @@ export default function Wallet() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 to-yellow-50 p-6">
+    <><div className="min-h-screen bg-gradient-to-br from-amber-50 to-yellow-50 p-6">
       <TORWallet />
       <div className="max-w-7xl mx-auto">
         {/* Page Header */}
@@ -377,7 +415,7 @@ export default function Wallet() {
                 <input 
                   type="number"
                   value={exchangeAmount}
-                  onChange={(e) => setExchangeAmount(parseInt(e.target.value) || 0)}
+                  onChange={(e) => { setExchangeAmount(parseInt(e.target.value) || 0); setQrData(null); }}
                   className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg bg-white text-gray-900 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
                 />
                 
@@ -429,20 +467,99 @@ export default function Wallet() {
                 {/* Payment Method Card */}
                 <div className="bg-blue-50 rounded-lg border border-blue-200 p-4">
                   <h4 className="text-sm font-bold text-gray-900 mb-2">Payment Method</h4>
-                  <div className="text-sm font-semibold text-gray-900">Bank Transfer</div>
-                  <div className="text-xs text-gray-600">Direct bank transfer</div>
+                  <div className="text-sm font-semibold text-gray-900">Bank Transfer / PromptPay</div>
+                  <div className="text-xs text-gray-600">Scan QR code to pay</div>
                 </div>
 
               </div>
             </div>
             
             {/* Confirm Button */}
-            <button onClick={handleConfirmExchange} disabled={loading} className="w-full mt-6 px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all shadow-md disabled:opacity-50">
-              ✓ CONFIRM EXCHANGE
+            <button onClick={handleConfirmExchange} disabled={loading || showTopupModal} className="w-full mt-6 px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all shadow-md disabled:opacity-50">
+              {showTopupModal ? '⏳ WAITING FOR PAYMENT' : '✓ CONFIRM EXCHANGE'}
             </button>
             {error && <div className="mt-3 text-red-600 text-sm">{error}</div>}
           </div>
         </div>
+
+        {/* QR Code Payment Modal */}
+        {showTopupModal && qrUrl && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
+            <div className="relative bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-3 animate-slideUp max-h-[90vh] flex flex-col">
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 px-5 pt-4 pb-14 text-center relative shrink-0">
+                <button
+                  onClick={() => { setShowTopupModal(false); setQrData(null); setQrUrl(null); }}
+                  className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-all text-sm"
+                >
+                  ✕
+                </button>
+                <div className="text-3xl mb-1">💳</div>
+                <h3 className="text-lg font-bold text-white">Scan to Pay</h3>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="overflow-y-auto px-5 pb-5 -mt-10">
+                {/* QR Code Card */}
+                <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-4 text-center shrink-0">
+                  <div className="bg-gradient-to-br from-gray-50 to-blue-50 p-3 rounded-xl inline-block mb-2">
+                    <img src={qrUrl} alt="PromptPay QR Code" className="w-44 h-44 mx-auto" />
+                  </div>
+                  <div className="flex items-center justify-center gap-1.5 text-xs text-gray-500">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                    PromptPay
+                  </div>
+                </div>
+
+                {/* Payment Details */}
+                <div className="mt-3 bg-gray-50 rounded-xl border border-gray-200 divide-y divide-gray-200 text-sm">
+                  <div className="flex items-center justify-between px-3 py-2.5">
+                    <span className="text-gray-500">Building</span>
+                    <span className="font-semibold text-gray-900 truncate ml-2">{qrData?.buildingName || '-'}</span>
+                  </div>
+                  <div className="flex items-center justify-between px-3 py-2.5">
+                    <span className="text-gray-500">Amount</span>
+                    <span className="font-bold text-blue-600">฿{formatCurrency(qrData?.amount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between px-3 py-2.5">
+                    <span className="text-gray-500">You'll Receive</span>
+                    <span className="font-bold text-emerald-600">{formatToken(qrData?.amount)} Token</span>
+                  </div>
+                </div>
+
+                {/* Compact Steps */}
+                <div className="mt-3 flex items-center justify-center gap-4 text-xs text-gray-500">
+                  <span className="flex items-center gap-1"><span className="w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center">1</span> Scan</span>
+                  <span className="text-gray-300">→</span>
+                  <span className="flex items-center gap-1"><span className="w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center">2</span> Pay</span>
+                  <span className="text-gray-300">→</span>
+                  <span className="flex items-center gap-1"><span className="w-5 h-5 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center">3</span> Confirm</span>
+                </div>
+
+                {/* Action Buttons */}
+                <button
+                  onClick={handleConfirmExchange}
+                  disabled={loading}
+                  className="w-full mt-4 py-3 bg-gradient-to-r from-emerald-500 to-green-600 text-white font-bold rounded-xl hover:from-emerald-600 hover:to-green-700 transition-all shadow-md shadow-emerald-200 disabled:opacity-50 disabled:shadow-none active:scale-[0.98]"
+                >
+                  {loading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      Processing...
+                    </span>
+                  ) : "✅ I've Paid — Confirm"}
+                </button>
+
+                <button
+                  onClick={() => { setShowTopupModal(false); setQrData(null); setQrUrl(null); }}
+                  className="w-full mt-1.5 py-2.5 text-xs text-gray-400 hover:text-gray-600 font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Recent History Section */}
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-8">
@@ -460,8 +577,8 @@ export default function Wallet() {
                   <th className="w-[15%] overflow-hidden px-4 py-4 text-center text-sm font-bold text-gray-900 whitespace-nowrap">Date & Time</th>
                   <th className="w-[14%] overflow-hidden px-4 py-4 text-center text-sm font-bold text-gray-900">Transaction ID</th>
                   <th className="w-[11%] overflow-hidden px-4 py-4 text-center text-sm font-bold text-gray-900">Type</th>
-                  <th className="w-[11%] overflow-hidden px-4 py-4 text-center text-sm font-bold text-gray-900">Amount Paid</th>
-                  <th className="w-[13%] overflow-hidden px-4 py-4 text-center text-sm font-bold text-gray-900">Token Received</th>
+                  <th className="w-[11%] overflow-hidden px-4 py-4 text-center text-sm font-bold text-gray-900">Amount (฿)</th>
+                  <th className="w-[13%] overflow-hidden px-4 py-4 text-center text-sm font-bold text-gray-900">Token</th>
                   <th className="w-[12%] overflow-hidden px-4 py-4 text-center text-sm font-bold text-gray-900">Building / SNID</th>
                   <th className="w-[11%] overflow-hidden px-4 py-4 text-center text-sm font-bold text-gray-900">Status</th>
                   <th className="w-[11%] overflow-hidden px-4 py-4 text-center text-sm font-bold text-gray-900">Verification</th>
@@ -480,10 +597,10 @@ export default function Wallet() {
                       <span className="inline-block max-w-full truncate rounded-full bg-amber-50 px-3 py-1 text-sm font-bold text-amber-600" title={tx.txid}>{formatEntityId('TX', tx.txid)}</span>
                     </td>
                     <td className="overflow-hidden truncate whitespace-nowrap px-4 py-4 text-center text-sm text-gray-700" title={getTransactionDisplayType(tx)}>{getTransactionDisplayType(tx)}</td>
-                    <td className="py-4 px-6 text-gray-900 font-semibold">฿{formatCurrency(tx.tokenAmount)}</td>
+                    <td className={`py-4 px-6 font-semibold ${getSignedTokenAmount(tx) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{getSignedTokenAmount(tx) >= 0 ? '+' : '-'}{formatTokenShort(Math.abs(getSignedTokenAmount(tx)))}</td>
                     <td className="overflow-hidden px-4 py-4 text-center">
                       <span className={`text-lg font-bold ${getSignedTokenAmount(tx) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {getSignedTokenAmount(tx) >= 0 ? '+' : '-'}{formatToken(Math.abs(getSignedTokenAmount(tx)))} Token
+                        {getSignedTokenAmount(tx) >= 0 ? '+' : '-'}{formatTokenShort(Math.abs(getSignedTokenAmount(tx)))}
                       </span>
                     </td>
                     <td className="overflow-hidden truncate whitespace-nowrap px-4 py-4 text-center text-sm text-gray-700" title={tx.buildingName || tx.snid || '-'}>{tx.buildingName || tx.snid || '-'}</td>
@@ -581,6 +698,33 @@ export default function Wallet() {
         </div>
       </div>
     </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 text-center animate-slideUp">
+            {toast.type === 'success' ? (
+              <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+              </div>
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+              </div>
+            )}
+            <h3 className="text-xl font-bold text-gray-900 mb-2">{toast.title}</h3>
+            <p className="text-gray-600 text-sm mb-1">{toast.message}</p>
+            {toast.sub && <p className="text-xs text-blue-600 font-medium mb-1">{toast.sub}</p>}
+            <button
+              onClick={() => setToast(null)}
+              className="mt-4 px-6 py-2.5 bg-gradient-to-r from-gray-700 to-gray-800 text-white font-semibold rounded-xl hover:from-gray-800 hover:to-gray-900 transition-all"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

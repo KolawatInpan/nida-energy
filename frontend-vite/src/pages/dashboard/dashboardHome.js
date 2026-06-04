@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory } from 'react-router-dom';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import TORMeter from '../../components/TOR/TORMeter';
 import { getAllTransactions } from '../../core/data_connecter/api_caller';
 import { getRecentBlockchainTransactions } from '../../core/data_connecter/blockExplorer';
@@ -91,13 +93,18 @@ const getLatestAvailableDate = (items = [], fallback = new Date()) => {
   return timestamps.length ? new Date(Math.max(...timestamps)) : fallback;
 };
 
-const buildEmptySystemTrend = (mode = '30d', endDate = new Date()) => {
+const buildEmptySystemTrend = (mode = '30d', endDate = new Date(), startDate = null) => {
   if (mode === '1d') {
     const labels = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`);
     return { labels, production: Array(24).fill(0), consumption: Array(24).fill(0) };
   }
 
-  const daysBack = mode === '7d' ? 7 : 30;
+  let daysBack;
+  if (mode === '7d') daysBack = 7;
+  else if (mode === 'custom' && startDate) {
+    daysBack = Math.max(1, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1);
+  } else daysBack = 30;
+
   const labels = Array.from({ length: daysBack }, (_, index) => {
     const date = new Date(endDate);
     date.setDate(endDate.getDate() - (daysBack - 1 - index));
@@ -119,8 +126,13 @@ const buildSystemXAxisLabels = (labels = [], mode = '30d') => {
     indices = [0, Math.floor((labels.length - 1) * 0.25), Math.floor((labels.length - 1) * 0.5), Math.floor((labels.length - 1) * 0.75), labels.length - 1];
   } else if (mode === '7d') {
     indices = labels.map((_, index) => index);
+  } else if (mode === 'custom') {
+    // Show at most ~8 labels, evenly spaced
+    const step = Math.max(1, Math.ceil(labels.length / 8));
+    indices = labels.map((_, index) => index).filter((index) => index % step === 0 || index === labels.length - 1);
   } else {
-    indices = labels.map((_, index) => index).filter((index) => index % 3 === 0 || index === labels.length - 1);
+    // 30d: show every 2nd day (~15 labels) for better readability
+    indices = labels.map((_, index) => index).filter((index) => index % 2 === 0 || index === labels.length - 1);
   }
 
   return [...new Set(indices)].map((index) => ({ index, label: labels[index] }));
@@ -201,6 +213,8 @@ export default function DashboardHome() {
     activity: [],
   });
   const [systemEnergyMode, setSystemEnergyMode] = useState('30d');
+  const [customDateRange, setCustomDateRange] = useState([null, null]);
+  const [customStart, customEnd] = customDateRange;
   const [systemEnergyTrend, setSystemEnergyTrend] = useState(() => buildEmptySystemTrend('30d'));
   const [systemEnergyLoading, setSystemEnergyLoading] = useState(false);
   const [energyRates, setEnergyRates] = useState([]);
@@ -440,16 +454,20 @@ export default function DashboardHome() {
 
         if (!producerIds.length && !consumerIds.length) {
           if (!mounted) return;
-          setSystemEnergyTrend(buildEmptySystemTrend(systemEnergyMode, now));
+          setSystemEnergyTrend(buildEmptySystemTrend(systemEnergyMode, now, customStart));
           return;
         }
 
         if (systemEnergyMode === '1d') {
-          const today = formatDateLocal(now);
+          const todayStr = formatDateLocal(now);
           const loadHourlyRows = async (snid) => {
-            const todayRows = await getHourlyEnergyByMeter(snid, today).catch(() => []);
-            if (Array.isArray(todayRows) && todayRows.length > 0) return todayRows;
-            return getHourlyEnergyByMeter(snid).catch(() => []);
+            try {
+              const rows = await getHourlyEnergyByMeter(snid, todayStr);
+              return Array.isArray(rows) ? rows : [];
+            } catch (e) {
+              console.warn(`[dashboard] No hourly data for snid=${snid} date=${todayStr}`, e.message);
+              return [];
+            }
           };
           const [producerRows, consumerRows] = await Promise.all([
             Promise.all(producerIds.map((snid) => loadHourlyRows(snid))),
@@ -458,10 +476,9 @@ export default function DashboardHome() {
 
           const labels = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`);
           const sumHourlyRows = (rowsList = []) => labels.map((_, hour) => rowsList.reduce((sum, rows) => {
-            const latestRow = Array.isArray(rows) && rows.length > 0
-              ? [...rows].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))[0]
-              : null;
-            return sum + toNumber(latestRow?.hours?.[`h${hour}`]);
+            // Sum ALL rows for today (each meter may have multiple entries per day)
+            const allRows = Array.isArray(rows) ? rows : [];
+            return sum + allRows.reduce((acc, row) => acc + toNumber(row?.hours?.[`h${hour}`]), 0);
           }, 0));
 
           if (!mounted) return;
@@ -473,62 +490,95 @@ export default function DashboardHome() {
           return;
         }
 
-        const currentMonth = now.getMonth() + 1;
-        const currentYear = now.getFullYear();
-        const previousDate = new Date(now);
-        previousDate.setMonth(now.getMonth() - 1);
-        const previousMonth = previousDate.getMonth() + 1;
-        const previousYear = previousDate.getFullYear();
+        // For 7d / 30d / custom — daily aggregation
+        const isCustom = systemEnergyMode === 'custom' && customStart && customEnd;
+        const rangeEnd = isCustom ? new Date(customEnd) : now;
+        const rangeStart = isCustom ? new Date(customStart) : new Date(now);
+        if (!isCustom) {
+          const daysBack = systemEnergyMode === '7d' ? 7 : 30;
+          rangeStart.setDate(now.getDate() - daysBack + 1);
+        }
+        rangeEnd.setHours(23, 59, 59, 999);
+        rangeStart.setHours(0, 0, 0, 0);
 
-        const loadDailyRows = (snid) => Promise.all([
-          getDailyEnergyByMeter(snid, currentMonth).catch(() => []),
-          previousMonth !== currentMonth || previousYear !== currentYear
-            ? getDailyEnergyByMeter(snid, previousMonth).catch(() => [])
-            : Promise.resolve([]),
-        ]);
+        // Collect all months spanned by the range
+        // IMPORTANT: start cursor at day 1 to avoid Date overflow (Apr 29 + 1 month = May 29 > rangeEnd)
+        const monthsNeeded = new Set();
+        const cursor = new Date(rangeStart);
+        cursor.setDate(1); // reset to 1st — setMonth(+1) always stays within month bounds
+        while (cursor <= rangeEnd) {
+          monthsNeeded.add(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`);
+          cursor.setMonth(cursor.getMonth() + 1);
+        }
 
+        const loadDailyForMonth = async (snid, monthStr) => {
+          const [y, m] = monthStr.split('-').map(Number);
+          try {
+            const data = await getDailyEnergyByMeter(snid, m, y);
+            if (!Array.isArray(data) || data.length === 0) {
+              console.warn(`[dashboard] No DailyEnergy for snid=${snid} month=${m} year=${y}`);
+            }
+            return Array.isArray(data) ? data : [];
+          } catch (e) {
+            console.error(`[dashboard] Failed DailyEnergy snid=${snid} month=${m} year=${y}`, e);
+            return [];
+          }
+        };
+
+        const monthsArr = [...monthsNeeded];
         const [producerRows, consumerRows] = await Promise.all([
-          Promise.all(producerIds.map((snid) => loadDailyRows(snid))),
-          Promise.all(consumerIds.map((snid) => loadDailyRows(snid))),
+          Promise.all(producerIds.map(async (snid) => {
+            const monthData = await Promise.all(monthsArr.map((m) => loadDailyForMonth(snid, m)));
+            return monthData.flat();
+          })),
+          Promise.all(consumerIds.map(async (snid) => {
+            const monthData = await Promise.all(monthsArr.map((m) => loadDailyForMonth(snid, m)));
+            return monthData.flat();
+          })),
         ]);
 
         const accumulateDailyTotals = (groupedRows = []) => {
           const totals = new Map();
-
-          const addRowsToTotals = (rows, month, year) => {
-            const latestRow = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-            if (!latestRow?.days) return;
-
-            for (let day = 1; day <= 31; day += 1) {
-              const rawValue = toNumber(latestRow.days[`d${day}`]);
-              if (!rawValue) continue;
-              const key = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-              totals.set(key, (totals.get(key) || 0) + rawValue);
-            }
-          };
-
-          groupedRows.forEach(([currentRows, prevRows]) => {
-            addRowsToTotals(currentRows, currentMonth, currentYear);
-            addRowsToTotals(prevRows, previousMonth, previousYear);
+          groupedRows.forEach((rows) => {
+            const allRows = Array.isArray(rows) ? rows : [];
+            allRows.forEach((row) => {
+              if (!row?.days) return;
+              const y = row.year ?? (row.date ? new Date(row.date).getFullYear() : null);
+              const m = row.month ?? (row.date ? new Date(row.date).getMonth() + 1 : null);
+              if (!y || !m) return;
+              for (let day = 1; day <= 31; day += 1) {
+                const rawValue = toNumber(row.days[`d${day}`]);
+                if (!rawValue) continue;
+                const key = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                totals.set(key, (totals.get(key) || 0) + rawValue);
+              }
+            });
           });
-
           return totals;
         };
 
         const productionTotals = accumulateDailyTotals(producerRows);
         const consumptionTotals = accumulateDailyTotals(consumerRows);
-        const daysBack = systemEnergyMode === '7d' ? 7 : 30;
+
+        console.log('[dashboard] 30d totals', {
+          mode: systemEnergyMode,
+          monthsNeeded: [...monthsNeeded],
+          producerKeys: [...productionTotals.keys()].slice(0, 5),
+          consumerKeys: [...consumptionTotals.keys()].slice(0, 5),
+          producerTotalKeys: productionTotals.size,
+          consumerTotalKeys: consumptionTotals.size,
+        });
+
         const labels = [];
         const production = [];
         const consumption = [];
-
-        for (let offset = daysBack - 1; offset >= 0; offset -= 1) {
-          const date = new Date(now);
-          date.setDate(now.getDate() - offset);
-          const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-          labels.push(`${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`);
+        const dayCursor = new Date(rangeStart);
+        while (dayCursor <= rangeEnd) {
+          const key = `${dayCursor.getFullYear()}-${String(dayCursor.getMonth() + 1).padStart(2, '0')}-${String(dayCursor.getDate()).padStart(2, '0')}`;
+          labels.push(`${String(dayCursor.getDate()).padStart(2, '0')}/${String(dayCursor.getMonth() + 1).padStart(2, '0')}`);
           production.push(toNumber(productionTotals.get(key)));
           consumption.push(toNumber(consumptionTotals.get(key)));
+          dayCursor.setDate(dayCursor.getDate() + 1);
         }
 
         if (!mounted) return;
@@ -536,7 +586,7 @@ export default function DashboardHome() {
       } catch (error) {
         console.error('Failed to load system energy trend:', error);
         if (!mounted) return;
-        setSystemEnergyTrend(buildEmptySystemTrend(systemEnergyMode, new Date()));
+        setSystemEnergyTrend(buildEmptySystemTrend(systemEnergyMode, new Date(), customStart));
       } finally {
         if (mounted) {
           setSystemEnergyLoading(false);
@@ -549,7 +599,7 @@ export default function DashboardHome() {
     return () => {
       mounted = false;
     };
-  }, [systemEnergyMode]);
+  }, [systemEnergyMode, customStart, customEnd]);
 
   useEffect(() => {
     let mounted = true;
@@ -1021,13 +1071,18 @@ export default function DashboardHome() {
     const labels = Array.isArray(systemEnergyTrend?.labels) ? systemEnergyTrend.labels : [];
     const production = Array.isArray(systemEnergyTrend?.production) ? systemEnergyTrend.production : [];
     const consumption = Array.isArray(systemEnergyTrend?.consumption) ? systemEnergyTrend.consumption : [];
-    const maxValue = Math.max(1, ...production, ...consumption);
+
+    // Use 90th percentile for y-axis max so outliers don't flatten the chart
+    const allValues = [...production, ...consumption].filter((v) => v > 0).sort((a, b) => a - b);
+    const p90Index = Math.floor(allValues.length * 0.9);
+    const maxValue = allValues.length > 0 ? Math.max(1, allValues[p90Index] || allValues[allValues.length - 1]) : 1;
+
     const points = labels.map((label, index) => ({
       label,
       production: toNumber(production[index]),
       consumption: toNumber(consumption[index]),
-      productionPct: Math.max(4, Math.round((toNumber(production[index]) / maxValue) * 100)),
-      consumptionPct: Math.max(4, Math.round((toNumber(consumption[index]) / maxValue) * 100)),
+      productionPct: Math.max(5, Math.round(Math.min(100, (toNumber(production[index]) / maxValue) * 100))),
+      consumptionPct: Math.max(5, Math.round(Math.min(100, (toNumber(consumption[index]) / maxValue) * 100))),
     }));
 
     return {
@@ -1081,7 +1136,7 @@ export default function DashboardHome() {
               <div>
                 <h2 className="text-sm font-semibold text-gray-800">System Energy Production vs Consumption</h2>
                 <div className="text-xs text-gray-500">
-                  {systemEnergyMode === '1d' ? 'Aggregated live output for today' : systemEnergyMode === '7d' ? 'Aggregated system totals for the last 7 days' : 'Aggregated system totals for the last 30 days'}
+                  {systemEnergyMode === '1d' ? 'Aggregated live output for today' : systemEnergyMode === '7d' ? 'Aggregated system totals for the last 7 days' : systemEnergyMode === 'custom' ? 'Custom date range' : 'Aggregated system totals for the last 30 days'}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1089,6 +1144,7 @@ export default function DashboardHome() {
                   { key: '1d', label: '1D' },
                   { key: '7d', label: '7D' },
                   { key: '30d', label: '30D' },
+                  { key: 'custom', label: 'Custom' },
                 ].map((option) => (
                   <button
                     key={option.key}
@@ -1103,6 +1159,18 @@ export default function DashboardHome() {
                     {option.label}
                   </button>
                 ))}
+                {systemEnergyMode === 'custom' && (
+                  <DatePicker
+                    selectsRange={true}
+                    startDate={customStart}
+                    endDate={customEnd}
+                    maxDate={new Date()}
+                    onChange={(update) => setCustomDateRange(update)}
+                    isClearable={true}
+                    placeholderText="Select date range"
+                    className="px-2 py-1 text-xs border border-gray-300 rounded w-52"
+                  />
+                )}
               </div>
             </div>
             <div className="mb-4 flex flex-col gap-3 md:flex-row">
@@ -1233,8 +1301,8 @@ export default function DashboardHome() {
                   No building consumption ranking available from live transaction data yet.
                 </div>
               )}
-              {topConsumers.map((row) => (
-                <div key={row.name}>
+              {topConsumers.map((row, i) => (
+                <div key={row.name + '-' + i}>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-700">{row.name}</span>
                     <span className="font-semibold text-gray-900">{formatEnergy(row.value)} kWh</span>
@@ -1337,7 +1405,7 @@ export default function DashboardHome() {
                     }).join(' ');
 
                     return (
-                      <div key={chart?.buildingName || index} className="w-full min-w-0 space-y-4 lg:basis-1/2 lg:flex-1">
+                      <div key={'chart-' + (chart?.buildingName || '') + '-' + index} className="w-full min-w-0 space-y-4 lg:basis-1/2 lg:flex-1">
                         <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
                           <div className="mb-3 text-sm font-semibold text-gray-800">
                             {chart?.buildingName || 'Building'}: {chart?.hasBattery ? 'Produce vs Consume vs Battery' : 'Produce vs Consume'}
@@ -1522,8 +1590,8 @@ export default function DashboardHome() {
                   <div className="text-xs text-green-700 mt-1">All building wallets are above their expected monthly requirement.</div>
                 </div>
               )}
-              {warnings.map((w) => (
-                <div key={w.buildingId || w.buildingName} className="rounded-lg border border-orange-100 bg-orange-50 p-3">
+              {warnings.map((w, i) => (
+                <div key={w.buildingId || (w.buildingName + '-' + i)} className="rounded-lg border border-orange-100 bg-orange-50 p-3">
                   <div className="flex items-center justify-between">
                     <div className="text-sm font-medium text-gray-800">{w.buildingName}</div>
                     <span className="text-[10px] text-red-500 font-bold">{String(w.level || 'warning').toUpperCase()}</span>
@@ -1540,7 +1608,52 @@ export default function DashboardHome() {
           <Card className="p-4 min-h-[280px] w-1/2">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-gray-800">System Notifications</h2>
-              <span className="text-xs text-blue-500">Mark All Read</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={async () => {
+                    const bld = prompt('Enter building name (e.g. Ratchaphruek):');
+                    if (!bld) return;
+                    try {
+                      const apiBase = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+                      const res = await fetch(`${apiBase}/demo/mock-auto-trade`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ buildingName: bld }),
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        alert(`✅ ${data.building}\nBattery: ${data.battery.currentKwh}/${data.battery.capacity} kWh (${data.battery.pct}%)\nThreshold: ${data.threshold.pct}% (${data.threshold.kwh} kWh)\nAbove: ${data.aboveThreshold ? 'YES ⚡' : 'NO'}\nTrade: ${data.tradeTriggered ? 'TRIGGERED ✅' : 'NOT triggered'}`);
+                      } else {
+                        alert('❌ ' + (data.error || 'Failed'));
+                      }
+                    } catch (e) { alert('❌ ' + e.message); }
+                  }}
+                  className="px-2 py-1 text-[10px] font-semibold bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition-colors"
+                  title="Sync energy & trigger auto-trade if battery above threshold"
+                >
+                  ⚡ Test Auto-Trade
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const apiBase = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+                      const res = await fetch(`${apiBase}/demo/test-meter-notify`, { method: 'POST' });
+                      const data = await res.json();
+                      if (data.success) {
+                        alert(`✅ Test notification sent!\nMeter: ${data.meter?.snid}\nBuilding: ${data.meter?.buildingName}`);
+                      } else {
+                        alert(`❌ Failed: ${data.error}`);
+                      }
+                    } catch (e) {
+                      alert('❌ Error: ' + e.message);
+                    }
+                  }}
+                  className="px-2 py-1 text-[10px] font-semibold bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors"
+                  title="Send test meter inactive notification to Telegram"
+                >
+                  🧪 Test Meter Alert
+                </button>
+                <span className="text-xs text-blue-500">Mark All Read</span>
+              </div>
             </div>
             <div className="space-y-2">
               {notifications.length === 0 && (

@@ -80,6 +80,21 @@ export const login = (data, cb) => {
     };
 };
 
+// ADMIN LOGIN (password only)
+export const loginAdmin = (data, cb) => {
+    return (dispatch) => {
+        dispatch(loginLoading());
+        axios
+            .post(`${Api.AUTH_ADMIN_LOGIN}`, data)
+            .then((response) => {
+                dispatch(loginSuccess(response, cb));
+            })
+            .catch((error) => {
+                dispatch(loginFailed(error?.response));
+            });
+    };
+};
+
 // VALIDATE AUTH
 export const validateAuthLoading = () => ({
     type: authAction.VALIDATE_AUTH_LOADING,

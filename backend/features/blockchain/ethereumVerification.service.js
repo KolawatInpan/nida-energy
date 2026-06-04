@@ -51,9 +51,11 @@ function buildVerificationPayload(transaction) {
     type: String(transaction.type || ''),
     tokenAmount: Number(transaction.tokenAmount || 0),
     status: String(transaction.status || ''),
-    timestamp: transaction.timestamp instanceof Date
-      ? transaction.timestamp.toISOString()
-      : new Date(transaction.timestamp).toISOString(),
+    timestamp: (() => {
+      if (transaction.timestamp instanceof Date) return transaction.timestamp.toISOString();
+      const d = new Date(transaction.timestamp);
+      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+    })(),
   };
 }
 

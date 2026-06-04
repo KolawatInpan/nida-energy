@@ -1,6 +1,10 @@
-const TransactionModel = require('../transactions/transaction.model');
+const transactionRepo = require('../transactions/transaction.repository');
 const BlockTransactionModel = require('./blockTransaction.model');
 const EthereumVerificationService = require('./ethereumVerification.service');
+
+function getTransactionById(id) {
+  return transactionRepo.getTransactionByIdRaw(id);
+}
 
 function buildStoredVerification(transaction) {
   const preview = EthereumVerificationService.getVerificationPreview(transaction);
@@ -26,7 +30,7 @@ function buildStoredVerification(transaction) {
 
 async function persistVerificationResult(transaction, verification) {
   try {
-    const updatedTransaction = await TransactionModel.updateVerification(transaction.txid, verification);
+    const updatedTransaction = await transactionRepo.updateVerification(transaction.txid, verification);
     if (verification?.txHash) {
       await BlockTransactionModel.upsertFromVerification(updatedTransaction || transaction, verification);
     }
@@ -39,7 +43,7 @@ async function persistVerificationResult(transaction, verification) {
 
 async function verifyTransaction(transaction, options = {}) {
   const force = Boolean(options.force);
-  const currentTransaction = await TransactionModel.getTransactionById(transaction.txid) || transaction;
+  const currentTransaction = await getTransactionById(transaction.txid) || transaction;
 
   if (!force && currentTransaction?.txHash && String(currentTransaction?.verificationStatus || '').toUpperCase() === 'VERIFIED') {
     return {
@@ -81,7 +85,7 @@ async function verifyTransaction(transaction, options = {}) {
 }
 
 async function verifyTransactionById(txid, options = {}) {
-  const transaction = await TransactionModel.getTransactionById(txid);
+  const transaction = await getTransactionById(txid);
   if (!transaction) {
     const error = new Error('transaction not found');
     error.status = 404;

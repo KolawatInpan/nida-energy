@@ -1,15 +1,13 @@
 import axios from "axios";
-console.log(process.env.REACT_APP_APPAPI)
+import { getApiBase } from './apiBase';
+
+const API = getApiBase();
+
 export default axios.create({
-    baseURL: process.env.REACT_APP_APPAPI,
+    baseURL: API,
     headers: {
         "Content-Type": "application/json",
-        "Accept":"*/*"
+        "Accept": "*/*"
     },
 });
-const confirmationAxios = axios.create({
-    baseURL:process.env.REACT_APP_DATAAPI
-});
-
-export {confirmationAxios}
 
