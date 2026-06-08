@@ -1,5 +1,5 @@
 # nida-dashboard-ui
-ทดสอบ
+
 Lightweight local dev setup for the NIDA energy dashboard (frontend, backend, Postgres, blockchain).
 
 Quick start (recommended)
