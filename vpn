@@ -7,14 +7,8 @@ Yzqd7681
 ssh ssa@10.10.161.239
 Obfhk2565
 
-full node 
+full node (the rest)
 ssh ubuntu@192.168.100.221
 
-database c8m32d500
-ssh ubuntu@192.168.100.222 
-
-light node
-ssh ubuntu@192.168.100.223
-
-web proxy
+web proxy (frontend)
 ssh ubuntu@192.168.100.224

@@ -1,0 +1,83 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam component {
+  BorderColor Black
+  BackgroundColor White
+  FontColor Black
+}
+skinparam database {
+  BorderColor Black
+  BackgroundColor White
+  FontColor Black
+}
+skinparam node {
+  BorderColor Black
+  BackgroundColor White
+  FontColor Black
+}
+skinparam rectangle {
+  BorderColor Black
+  BackgroundColor White
+  FontColor Black
+}
+skinparam arrow {
+  Color Black
+  FontColor Black
+}
+
+title "NIDA Smart Grid — Network Architecture"
+
+' ========== PC ==========
+rectangle "💻 Your PC\n(Developer)" as PC #LightBlue
+rectangle "Ports: 8080, 8000, 5050" as PC_PORTS #LightBlue
+
+' ========== VPN ==========
+rectangle "🔒 VPN Tunnel\n(OpenVPN)" as VPN #LightGray
+
+' ========== Compute3 ==========
+node "🖥️ compute3 (Jump Host)" as COMPUTE3 #LightYellow {
+  rectangle "Host IP: 10.10.161.239\nWebsite IP: 10.10.161.224" as C3_IP
+  rectangle "Nginx Reverse Proxy" as NGINX {
+    rectangle "8080 → webproxy:80" as N_WEB
+    rectangle "8000 → fullnode:8000" as N_API
+    rectangle "5050 → fullnode:5050" as N_PGA
+  }
+}
+
+' ========== Private Network ==========
+node "Fullnode VM\n192.168.100.221" as FULLNODE #LightGreen {
+  database "PostgreSQL 16\nnida-db:5432" as DB
+  rectangle "Backend API (Express)\nnida-backend:8000" as API
+  rectangle "Blockchain (Hardhat)\nnida-blockchain:8545" as BC
+  rectangle "pgAdmin\nnida-pgadmin:5050" as PGA
+  rectangle "Prisma ORM\nnida-prisma" as PRISMA
+}
+
+node "Webproxy VM\n192.168.100.224" as WEBPROXY #LightCoral {
+  rectangle "Frontend (React + Vite)\nnida-frontend:80" as FE
+}
+
+' ========== Connections ==========
+PC --> VPN : "VPN tunnel"
+VPN --> COMPUTE3 : "10.10.161.x"
+
+' PC → compute3 services
+PC -down-> N_WEB : "http://10.10.161.224:8080"
+PC -down-> N_API : "http://10.10.161.224:8000/api/"
+PC -down-> N_PGA : "http://10.10.161.224:5050"
+PC -down-> N_API : "http://10.10.161.224:8000/api-docs (Swagger)"
+
+' compute3 → VMs
+N_WEB --> FE : "proxy_pass 192.168.100.224:80"
+N_API --> API : "proxy_pass 192.168.100.221:8000"
+N_PGA --> PGA : "proxy_pass 192.168.100.221:5050"
+
+' Internal (all localhost on fullnode)
+API -down-> DB : "localhost:5432"
+PRISMA -down-> DB : "localhost:5432"
+PGA -down-> DB : "localhost:5432"
+API -down-> BC : "localhost:8545"
+
+@enduml
