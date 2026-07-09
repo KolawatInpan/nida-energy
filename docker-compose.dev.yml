@@ -13,6 +13,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-energy_trading}"]
       interval: 5s
@@ -100,7 +101,7 @@ services:
       - 8.8.4.4
     env_file:
       - .env.dev
-    command: sh -c "npm install --legacy-peer-deps --no-audit --no-fund && ./node_modules/.bin/prisma db push --accept-data-loss --schema=./prisma/schema.prisma && ./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma && ./node_modules/.bin/nodemon -L --watch . --ext js,json --exec 'node server.js'"
+    command: sh -c "npm install --legacy-peer-deps --no-audit --no-fund && ./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma && sh /app/prisma/push-both-dbs.sh --accept-data-loss --schema ./prisma/schema.prisma && node tools/backfillBatterySource.js && ./node_modules/.bin/nodemon -L --watch . --ext js,json --exec 'node server.js'"
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Space, Button, Input } from "antd";
+import { Card, Space, Button, Input, message } from "antd";
 import { formatEnergy, formatToken } from '../../utils/formatters';
 
 function toNumber(value) {
@@ -47,11 +47,12 @@ export default function EnergySellingPanel({
 }) {
   const produceSource = sourceEnergyStatus?.produce || { current: 0, capacity: 0, percentage: '0.00', available: false };
   const batterySource = sourceEnergyStatus?.battery || { current: 0, capacity: 0, percentage: '0.00', available: false };
-  const totalProduceKwh = Number(produceSource?.totalProduce || marketSnapshot?.producedKwh || 0);
-  const totalConsumeKwh = Number(produceSource?.totalConsume || marketSnapshot?.consumedKwh || 0);
-  const producedKwh = totalProduceKwh;
-  const consumedKwh = totalConsumeKwh;
-  const netKwh = producedKwh - consumedKwh;
+  // Use live meter value for Available Energy (reflects decrements from offers)
+  const availableEnergyKwh = toNumber(produceSource?.current || 0);
+  const availableBatteryKwh = toNumber(batterySource?.current || 0);
+  const todayProductionKwh = Number(produceSource?.totalProduce || marketSnapshot?.producedKwh || 0);
+  const todayConsumptionKwh = Number(produceSource?.totalConsume || marketSnapshot?.consumedKwh || 0);
+  const netKwh = availableEnergyKwh - todayConsumptionKwh;
   const marketPrice = Number(marketSnapshot?.marketPrice || selectedBuilding?.price || 0);
   const gridPrice = Number(marketSnapshot?.gridPrice || 4);
   const priceDelta = Number(marketSnapshot?.priceDelta || 0);
@@ -73,8 +74,8 @@ export default function EnergySellingPanel({
   const isStorageSelfConsumeMode = pendingStorageNormalized === 'SELF_CONSUME';
   const isStorageAutoTradeMode = pendingStorageNormalized === 'AUTO_BATTERY_THRESHOLD';
   const isStorageManualMode = pendingStorageNormalized === 'MANUAL';
-  const producedRatio = Math.min(100, Math.max(0, produceSource?.capacity ? (producedKwh / Math.max(produceSource.capacity, producedKwh, 1)) * 100 : producedKwh > 0 ? 100 : 0));
-  const consumedRatio = Math.min(100, Math.max(0, producedKwh > 0 ? (consumedKwh / producedKwh) * 100 : consumedKwh > 0 ? 100 : 0));
+  const producedRatio = Math.min(100, Math.max(0, produceSource?.capacity ? (availableEnergyKwh / Math.max(produceSource.capacity, availableEnergyKwh, 1)) * 100 : availableEnergyKwh > 0 ? 100 : 0));
+  const consumedRatio = Math.min(100, Math.max(0, availableEnergyKwh > 0 ? (todayConsumptionKwh / availableEnergyKwh) * 100 : todayConsumptionKwh > 0 ? 100 : 0));
   const netLabel = netKwh >= 0 ? 'Net Surplus: Selling to Grid' : 'Net Deficit: Buying from Grid';
   const netColor = netKwh >= 0 ? '#52c41a' : '#ff4d4f';
   const netBg = netKwh >= 0 ? '#f6ffed' : '#fff1f0';
@@ -85,10 +86,11 @@ export default function EnergySellingPanel({
   const [storageMode, setStorageMode] = useState('AUTO_BATTERY_THRESHOLD');
   const [storageBuyTrigger, setStorageBuyTrigger] = useState('3.00');
   const [storageSellTrigger, setStorageSellTrigger] = useState('4.50');
-  const [storageReserveMin, setStorageReserveMin] = useState(80);
   const [storageTradeAmount, setStorageTradeAmount] = useState('');
   const [storageLimitPrice, setStorageLimitPrice] = useState('');
   const [chartRange, setChartRange] = useState('1H');
+  const [solarSelfPercent, setSolarSelfPercent] = useState(80);
+  const [offeredKwh, setOfferedKwh] = useState(0);
 
   // Sync storageMode from parent batteryTradeMode when building changes
   const normalizedBatteryMode = String(batteryTradeMode || normalizedTradeMode || 'AUTO_BATTERY_THRESHOLD').toUpperCase();
@@ -106,12 +108,32 @@ export default function EnergySellingPanel({
     setPendingStorageMode(storageMode);
   }, [storageMode]);
 
+  // Fetch offered energy in marketplace for this battery
+  useEffect(() => {
+    if (!hasBatteryMeter || !selectedBuilding?.name) { setOfferedKwh(0); return; }
+    const base = (window.__RUNTIME_CONFIG__?.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+    fetch(`${base}/market/orders?side=OFFER&status=OPEN`)
+      .then(r => r.json())
+      .then(data => {
+        const orders = data?.orders || [];
+        // Match this building's offers (active, not yet fully filled)
+        const buildingOffers = orders.filter(o =>
+          String(o.buildingName || '') === selectedBuilding.name
+        );
+        const total = buildingOffers.reduce((s, o) =>
+          s + Math.max(0, Number(o.quantity || 0) - Number(o.filled || 0)), 0
+        );
+        setOfferedKwh(Math.round(total * 100) / 100);
+      })
+      .catch(() => setOfferedKwh(0));
+  }, [hasBatteryMeter, selectedBuilding?.name]);
+
   const isSolarArrayTarget = assetConfigTarget === 'SOLAR_ARRAY';
   const showSolarManualControls = !showTradePolicyControls || (isSolarArrayTarget && isManualMode);
   const batteryCurrentKwh = toNumber(batterySource.current);
   const batteryCapacityKwh = Math.max(toNumber(batterySource.capacity), batteryCurrentKwh, 1);
   const storageSoc = Math.max(0, Math.min(100, (batteryCurrentKwh / batteryCapacityKwh) * 100));
-  const reserveKwh = (batteryCapacityKwh * Number(storageReserveMin || 0)) / 100;
+  const reserveKwh = (batteryCapacityKwh * Number(batterySellThreshold || 80)) / 100;
   const availableDischargeKwh = Math.max(0, batteryCurrentKwh - reserveKwh);
   const availableChargeKwh = Math.max(0, batteryCapacityKwh - batteryCurrentKwh);
   const tradeModeOptions = [
@@ -212,16 +234,20 @@ export default function EnergySellingPanel({
           <div style={{ display: "grid", gridTemplateColumns: `${hasSolarMeter ? '1fr 1fr' : '1fr'}`, gap: 12, marginBottom: 12 }}>
             {hasSolarMeter && (
               <div style={{ border: "2px solid #52c41a", borderRadius: 8, padding: 12 }}>
-                <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>TOTAL SOLAR GENERATION</div>
-                <div style={{ fontSize: 24, fontWeight: 700 }}>{formatEnergy(totalProduceKwh)} <span style={{ fontSize: 14 }}>kWH</span></div>
+                <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>TODAY'S PRODUCTION</div>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>{formatEnergy(Math.max(0, todayProductionKwh))} <span style={{ fontSize: 14 }}>kWH</span></div>
                 <div style={{ width: "100%", height: 4, background: "#f0f0f0", borderRadius: 2, marginTop: 8 }}>
                   <div style={{ width: `${producedRatio}%`, height: "100%", background: "#52c41a", borderRadius: 2 }}></div>
+                </div>
+                <div style={{ marginTop: 10, padding: "6px 8px", background: "#f6ffed", borderRadius: 6, border: "1px solid #b7eb8f" }}>
+                  <div style={{ fontSize: 10, color: "#389e0d", marginBottom: 2 }}>AVAILABLE TO SELL</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#135200" }}>{Math.max(0, availableEnergyKwh).toFixed(2)} <span style={{ fontSize: 11 }}>kWH</span></div>
                 </div>
               </div>
             )}
             <div style={{ border: "2px solid #ff4d4f", borderRadius: 8, padding: 12 }}>
-              <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>TOTAL CONSUMPTION</div>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatEnergy(totalConsumeKwh)} <span style={{ fontSize: 14 }}>kWH</span></div>
+              <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>TODAY'S CONSUMPTION</div>
+              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatEnergy(Math.max(0, todayConsumptionKwh))} <span style={{ fontSize: 14 }}>kWH</span></div>
               <div style={{ width: "100%", height: 4, background: "#f0f0f0", borderRadius: 2, marginTop: 8 }}>
                 <div style={{ width: `${consumedRatio}%`, height: "100%", background: "#ff4d4f", borderRadius: 2 }}></div>
               </div>
@@ -361,7 +387,7 @@ export default function EnergySellingPanel({
               {hasSolarMeter && (
                 <button
                   type="button"
-                  onClick={() => setAssetConfigTarget('SOLAR_ARRAY')}
+                  onClick={() => { setAssetConfigTarget('SOLAR_ARRAY'); setSellSource('produce'); }}
                   style={{
                     border: isSolarArrayTarget ? '2px solid #2563eb' : '2px solid #e5e7eb',
                     background: isSolarArrayTarget ? '#eff6ff' : '#fff',
@@ -384,7 +410,7 @@ export default function EnergySellingPanel({
               {hasBatteryMeter && (
                 <button
                   type="button"
-                  onClick={() => setAssetConfigTarget('STORAGE_SYSTEM')}
+                  onClick={() => { setAssetConfigTarget('STORAGE_SYSTEM'); setSellSource('battery'); }}
                   style={{
                     border: !isSolarArrayTarget ? '2px solid #2563eb' : '2px solid #e5e7eb',
                     background: !isSolarArrayTarget ? '#eff6ff' : '#fff',
@@ -483,25 +509,21 @@ export default function EnergySellingPanel({
 
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, fontWeight: 700, color: '#4b5563' }}>
-                        <span>Surplus Sell Threshold</span>
-                        <span>{Number(batterySellThreshold || 0)}%</span>
+                        <span>☀️ Solar Self-Consume</span>
+                        <span style={{ color: '#f59e0b' }}>{solarSelfPercent}%</span>
                       </div>
                       <input
                         type="range"
                         min="0"
                         max="100"
-                        value={Number(batterySellThreshold || 0)}
-                        onChange={(e) => setBatterySellThreshold(Number(e.target.value || 0))}
+                        value={solarSelfPercent}
+                        onChange={(e) => setSolarSelfPercent(Number(e.target.value || 0))}
                         style={{ width: '100%' }}
                       />
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: '#6b7280' }}>
-                        <span>0% - Hold All</span>
-                        <span>100% - Sell All Surplus</span>
+                        <span>Sell all solar</span>
+                        <span>Keep all solar</span>
                       </div>
-                    </div>
-
-                    <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.5 }}>
-                      Solar surplus above threshold will be auto-sold at the set price.
                     </div>
                   </div>
                 )}
@@ -509,10 +531,16 @@ export default function EnergySellingPanel({
                 {( <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, border: '1px solid #e5e7eb', borderRadius: 14, background: '#fff', boxSizing: 'border-box' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
                       {hasSolarMeter && (
-                        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, boxSizing: 'border-box' }}>
-                          <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, lineHeight: 1.2 }}>Total Solar Generation</div>
-                          <div style={{ fontSize: 14, fontWeight: 800, color: '#111827', marginTop: 6 }}>{formatEnergy(totalProduceKwh)} kWh</div>
-                        </div>
+                        <>
+                          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, boxSizing: 'border-box' }}>
+                            <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, lineHeight: 1.2 }}>Today's Production</div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: '#111827', marginTop: 6 }}>{formatEnergy(Math.max(0, todayProductionKwh))} kWh</div>
+                          </div>
+                          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: 10, boxSizing: 'border-box' }}>
+                            <div style={{ fontSize: 10, color: '#166534', textTransform: 'uppercase', fontWeight: 700, lineHeight: 1.2 }}>Available to Sell</div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: '#14532d', marginTop: 6 }}>{Math.max(0, availableEnergyKwh).toFixed(2)} kWh</div>
+                          </div>
+                        </>
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center' }}>Use the panel below to place your order</div>
@@ -541,10 +569,17 @@ export default function EnergySellingPanel({
                     <span style={{ fontSize: 12, color: '#334155', fontWeight: 700 }}>State of Charge (SoC)</span>
                     <span style={{ fontSize: 12, color: '#059669', fontWeight: 800 }}>{Math.round(storageSoc)}%</span>
                   </div>
-                  <div style={{ width: '100%', height: 8, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden', marginBottom: 6 }}>
-                    <div style={{ width: `${storageSoc}%`, height: '100%', background: '#10b981' }}></div>
+                  <div style={{ width: '100%', height: 8, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden', marginBottom: 6, display: 'flex' }}>
+                    <div style={{ width: `${Math.max(0, storageSoc - (batteryCapacityKwh > 0 ? (offeredKwh / batteryCapacityKwh) * 100 : 0))}%`, height: '100%', background: '#10b981' }}></div>
+                    {offeredKwh > 0 && (
+                      <div style={{ width: `${Math.min(storageSoc, (offeredKwh / Math.max(batteryCapacityKwh, 1)) * 100)}%`, height: '100%', background: '#3b82f6' }}></div>
+                    )}
                   </div>
-                  <div style={{ fontSize: 11, color: '#64748b' }}>{formatEnergy(batteryCurrentKwh)} kWh available</div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>
+                    {offeredKwh > 0
+                      ? `${formatEnergy(Math.max(0, batteryCurrentKwh - offeredKwh))} kWh available · ${offeredKwh.toFixed(1)} kWh on market`
+                      : `${formatEnergy(batteryCurrentKwh)} kWh available`}
+                  </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
@@ -650,20 +685,23 @@ export default function EnergySellingPanel({
 
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, fontWeight: 700, color: '#4b5563' }}>
-                        <span>Emergency Reserve (Min SoC)</span>
-                        <span style={{ color: '#ef4444' }}>{Number(storageReserveMin || 0)}%</span>
+                        <span>🔋 Target SoC</span>
+                        <span style={{ color: '#ef4444' }}>{Number(batterySellThreshold || 80)}%</span>
                       </div>
                       <input
                         type="range"
                         min="0"
                         max="100"
-                        value={Number(storageReserveMin || 0)}
-                        onChange={(e) => setStorageReserveMin(Number(e.target.value || 0))}
+                        value={Number(batterySellThreshold || 80)}
+                        onChange={(e) => setBatterySellThreshold(Number(e.target.value || 0))}
                         style={{ width: '100%' }}
                       />
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: '#6b7280' }}>
-                        <span>Discharge to 0%</span>
-                        <span>Keep reserve 100%</span>
+                        <span>0% — Sell all</span>
+                        <span>100% — Keep all</span>
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 11, color: '#64748b', background: '#f1f5f9', padding: '6px 8px', borderRadius: 6 }}>
+                        💡 SoC maintained at ~{Number(batterySellThreshold || 80)}% — charge below, auto-sell surplus above
                       </div>
                     </div>
 
@@ -719,48 +757,26 @@ export default function EnergySellingPanel({
                   <Button
                     type="default"
                     onClick={async () => {
+                      if (!selectedBuilding?.id) { message.warning('No building selected'); return; }
                       const apiBase = (window.__RUNTIME_CONFIG__?.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
                       try {
-                        const resp = await fetch(`${apiBase}/buildings/${selectedBuilding?.id}/trigger-battery`, { method: 'POST' });
+                        const resp = await fetch(`${apiBase}/buildings/${selectedBuilding.id}/trigger-battery`, { method: 'POST' });
                         const data = await resp.json();
                         if (data.created) {
-                          let successMsg = `✅ Battery surplus posted!`;
-                          if (data.offersCount && data.offersCount > 1) {
-                            successMsg += `\n${data.offersCount} offers × ~${data.batchSize} kWh each`;
-                          }
-                          successMsg += `\n${Math.round(data.created.kWH)} kWh at ${data.created.ratePerkWH} THB/kWh`;
-                          alert(successMsg);
+                          message.success(`Battery surplus posted: ${Math.round(data.created.kWH)} kWh at ${data.created.ratePerkWH} THB/kWh`);
                         } else {
                           const dbg = data.debug;
-                          let msg = '';
-                          if (data.reason === 'battery-threshold-not-met') {
-                            msg = `SoC ${Math.round(storageSoc)}% — below ${batterySellThreshold || 80}% reserve threshold.`;
-                            if (dbg) {
-                              msg += `\n\nDebug (backend values):`;
-                              msg += `\n  batteryCurrent: ${dbg.batteryCurrent} kWh`;
-                              msg += `\n  batteryCapacity: ${dbg.batteryCapacity} kWh`;
-                              msg += `\n  thresholdPct: ${dbg.thresholdPct}%`;
-                              msg += `\n  thresholdKwh: ${dbg.thresholdKwh} kWh`;
-                              msg += `\n  sellableKwh: ${dbg.sellableKwh} kWh`;
-                              msg += `\n  batteryMode: ${dbg.batteryMode}`;
-                            }
-                          } else if (data.reason === 'solar-no-surplus') {
-                            msg = `Solar surplus too small (< 0.01 kWh) to create an offer.`;
-                          } else if (data.reason === 'no-auto-mode-active') {
-                            msg = `Battery mode must be set to Auto-Trade (🤖) to auto-sell surplus.`;
-                          } else if (data.reason === 'battery-offer-already-exists') {
-                            msg = `Battery offer already active in marketplace. Wait for it to sell first.`;
-                          } else if (data.reason === 'seller-wallet-not-found') {
-                            msg = `Building has no wallet. Please create a wallet first.`;
-                          } else if (data.reason === 'building-not-found') {
-                            msg = `Building not found in the system.`;
-                          } else {
-                            msg = data.reason || `SoC ${Math.round(storageSoc)}% — below ${batterySellThreshold || 80}% reserve threshold.`;
+                          let msg = data.reason
+                            ? `[${data.reason}]`
+                            : 'No surplus to sell';
+                          if (data.debug && Object.keys(data.debug).length > 0) {
+                            const d = data.debug;
+                            msg += ` SoC: ${Math.round(d.batteryCurrent||0)}/${Math.round(d.batteryCapacity||0)} kWh, surplus: ${Math.round(d.sellableKwh||0)} kWh, mode: ${d.batteryMode || '?'}`;
                           }
-                          alert(`ℹ️ ${msg}`);
+                          message.info(msg);
                         }
                       } catch (e) {
-                        alert(`❌ Trigger failed: ${e.message}`);
+                        message.error(`Trigger failed: ${e.message}`);
                       }
                     }}
                     style={{ width: '100%', height: 36, fontWeight: 600, fontSize: 12, borderColor: '#f97316', color: '#f97316' }}
@@ -774,67 +790,64 @@ export default function EnergySellingPanel({
           </Card>
         )}
 
-        {isManualMode && (
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              <select
-                value={marketType || 'DAY_AHEAD'}
-                onChange={(e) => setMarketType?.(e.target.value)}
-                style={{
-                  flex: 1, padding: '6px 10px', borderRadius: 6,
-                  border: '1px solid #d9d9d9', fontSize: 12, fontWeight: 600,
-                  background: marketType === 'INTRADAY' ? '#fff7e6' : '#e6f7ff'
-                }}
-              >
-                <option value="DAY_AHEAD">🌅 Day-Ahead (฿3.50/kWh)</option>
-                <option value="INTRADAY">⚡ Intraday (฿3.50+/kWh)</option>
-              </select>
-              <select
-                value={orderSide || 'OFFER'}
-                onChange={(e) => setOrderSide?.(e.target.value)}
-                style={{
-                  width: 100, padding: '6px 10px', borderRadius: 6,
-                  border: '1px solid #d9d9d9', fontSize: 12, fontWeight: 600,
-                  background: orderSide === 'BID' ? '#f6ffed' : '#fff1f0'
-                }}
-              >
-                <option value="OFFER">📤 SELL</option>
-                <option value="BID">📥 BUY</option>
-              </select>
-            </div>
-          )}
+        {/* Market type + Buy/Sell toggle — always visible */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <select
+            value={marketType || 'DAY_AHEAD'}
+            onChange={(e) => setMarketType?.(e.target.value)}
+            style={{
+              flex: 1, padding: '6px 10px', borderRadius: 6,
+              border: '1px solid #d9d9d9', fontSize: 12, fontWeight: 600,
+              background: marketType === 'INTRADAY' ? '#fff7e6' : '#e6f7ff'
+            }}
+          >
+            <option value="DAY_AHEAD">🌅 Day-Ahead (฿3.50/kWh)</option>
+            <option value="INTRADAY">⚡ Intraday (฿3.50+/kWh)</option>
+          </select>
+          <select
+            value={orderSide || 'OFFER'}
+            onChange={(e) => setOrderSide?.(e.target.value)}
+            style={{
+              width: 100, padding: '6px 10px', borderRadius: 6,
+              border: '1px solid #d9d9d9', fontSize: 12, fontWeight: 600,
+              background: orderSide === 'BID' ? '#f6ffed' : '#fff1f0'
+            }}
+          >
+            <option value="OFFER">📤 SELL</option>
+            <option value="BID">📥 BUY</option>
+          </select>
+        </div>
 
-        {/* Manual trade inputs */}
-        {isManualMode && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4, fontWeight: 600 }}>Amount (kWh)</div>
-              <Input
-                type="number"
-                placeholder="0.00"
-                value={energyAmount}
-                onChange={(e) => setEnergyAmount(e.target.value)}
-                min={0}
-                style={{ width: '100%' }}
-                suffix="kWh"
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4, fontWeight: 600 }}>Price (THB/kWh)</div>
-              <Input
-                type="number"
-                placeholder="0.00"
-                value={energyRate}
-                onChange={(e) => setEnergyRate(e.target.value)}
-                min={0}
-                step="0.01"
-                style={{ width: '100%' }}
-                suffix="THB"
-              />
-            </div>
+        {/* Manual trade inputs — always visible */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4, fontWeight: 600 }}>Amount (kWh)</div>
+            <Input
+              type="number"
+              placeholder="0.00"
+              value={energyAmount}
+              onChange={(e) => setEnergyAmount(e.target.value)}
+              min={0}
+              style={{ width: '100%' }}
+              suffix="kWh"
+            />
           </div>
-        )}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4, fontWeight: 600 }}>Price (THB/kWh)</div>
+            <Input
+              type="number"
+              placeholder="0.00"
+              value={energyRate}
+              onChange={(e) => setEnergyRate(e.target.value)}
+              min={0}
+              step="0.01"
+              style={{ width: '100%' }}
+              suffix="THB"
+            />
+          </div>
+        </div>
 
-        {isManualMode && energyAmount && energyRate && (
+        {energyAmount && energyRate && (
           <div style={{ fontSize: 12, color: '#52c41a', marginBottom: 12, fontWeight: 600, textAlign: 'center' }}>
             💰 Total: {(Number(energyAmount) * Number(energyRate)).toFixed(2)} THB
           </div>
@@ -844,8 +857,13 @@ export default function EnergySellingPanel({
           <Button
             type="primary"
             size="large"
-            disabled={!canManualSell}
-            onClick={orderSide === 'BID' ? onBuy : onSell}
+            onClick={() => {
+              const effectiveSource = (!isSolarArrayTarget && hasBatteryMeter) ? 'battery' : 'produce';
+              setSellSource(effectiveSource);
+              if (orderSide === 'BID') onBuy();
+              else onSell(effectiveSource);
+            }}
+            disabled={!canSellFromSelectedBuilding}
             style={{
               height: 56, fontSize: 14, fontWeight: 700,
               background: orderSide === 'BID' ? '#52c41a' : '#ff4d4f',
@@ -869,21 +887,6 @@ export default function EnergySellingPanel({
             fontWeight: 600
           }}>
             Selling is only available for the building linked to your contact email.
-          </div>
-        )}
-
-        {canSellFromSelectedBuilding && !canManualSell && (
-          <div style={{
-            marginTop: 10,
-            padding: "10px 12px",
-            borderRadius: 8,
-            background: "#fff7e6",
-            border: "1px solid #ffd591",
-            color: "#ad6800",
-            fontSize: 12,
-            fontWeight: 600
-          }}>
-            Manual sell is disabled for current mode. Switch to MANUAL mode to post offers by user action.
           </div>
         )}
 

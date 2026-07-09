@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Card, Space, Button, Input, Select } from "antd";
+import { Card, Space, Button, Input, Select, message } from "antd";
 import { useHistory } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { createOffer, createBid, getOffers } from '../../core/data_connecter/market';
@@ -368,18 +368,17 @@ export default function EnergySelling() {
                 };
             };
 
-            // Fetch total production & consumption from energy data (consistent source)
+            // Fetch today's production & consumption from energy data
             let totalProduce = 0;
             let totalConsume = 0;
             try {
-                const farPast = '2024-01-01';
                 const today = new Date();
-                const endStr = today.toISOString().slice(0, 10);
+                const todayStr = today.toISOString().slice(0, 10);
                 const energyRes = await searchBuildingEnergy({
                     building: realBuilding.name,
                     buildingId: realBuilding.id,
-                    start: farPast,
-                    end: endStr,
+                    start: todayStr,
+                    end: todayStr,
                     timeunit: 'day',
                 });
                 const payload = energyRes?.data || {};
@@ -551,23 +550,29 @@ export default function EnergySelling() {
 
     const handleBuy = async () => {
         if (!energyAmount) {
-            alert('Please enter energy amount');
+            message.warning('Please enter energy amount');
             return;
         }
         const amount = toNumber(energyAmount);
         const rate = toNumber(energyRate);
-        if (amount <= 0) { alert('Please enter energy amount'); return; }
-        if (rate <= 0) { alert('Please enter energy rate'); return; }
+        if (amount <= 0) { message.warning('Please enter energy amount'); return; }
+        if (rate <= 0) { message.warning('Please enter energy rate'); return; }
 
         try {
             const buildingsRes = await getBuildings();
             const buildings = Array.isArray(buildingsRes) ? buildingsRes : (buildingsRes?.data || buildingsRes?.buildings || []);
             const realBuilding = buildings.find(b => b.name && b.name.toLowerCase().includes(selectedBuilding.name.toLowerCase()));
-            if (!realBuilding) { alert('Building not found'); return; }
+            if (!realBuilding) { message.error('Building not found'); return; }
+
+            // Only allow bid for own building
+            if (!isOwnedByCurrentUser(realBuilding)) {
+                message.error('You can only place bids for your own building');
+                return;
+            }
 
             const walletRes = await getWalletByEmail(realBuilding.email);
             const buyerWalletId = walletRes?.data?.id ? String(walletRes.data.id) : '';
-            if (!buyerWalletId) { alert('Wallet not found'); return; }
+            if (!buyerWalletId) { message.error('Wallet not found'); return; }
 
             const res = await createBid({
                 buyerWalletId,
@@ -577,12 +582,12 @@ export default function EnergySelling() {
                 targetDate: marketType === 'DAY_AHEAD' ? new Date(Date.now() + 86400000).toISOString().split('T')[0] : null,
             });
             if (res && res.status === 201) {
-                alert(`✅ Bid placed: ${amount} kWh at ${rate} Token/kWh\nMarket: ${marketType}\nBuilding: ${realBuilding.name}`);
+                message.success(`${amount} kWh bid placed at ${rate} Token/kWh — ${realBuilding.name}`);
                 handleClosePanel();
                 history.push('/market');
             }
         } catch (err) {
-            alert('Error placing bid: ' + (err.response?.data?.error || err.message));
+            message.error('Error placing bid: ' + (err.response?.data?.error || err.message));
         }
     };
 
@@ -605,7 +610,7 @@ export default function EnergySelling() {
 
     const handleSaveTradePolicy = async (modeOverrides = {}) => {
       if (!selectedBuilding?.id) {
-        alert('Please select a building first.');
+        message.warning('Please select a building first.');
         return;
       }
 
@@ -615,8 +620,7 @@ export default function EnergySelling() {
       const effectiveBattery = modeOverrides.batteryTradeMode || batteryTradeMode;
       const normalizedTradeMode = String(effectiveTrade || 'AUTO_BATTERY_THRESHOLD').toUpperCase();
       // Solar uses 'AUTO' (not 'AUTO_BATTERY_THRESHOLD') per backend validation
-      const rawSolar = String(effectiveSolar || normalizedTradeMode).toUpperCase();
-      const normalizedSolar = rawSolar === 'AUTO_BATTERY_THRESHOLD' ? 'AUTO' : rawSolar;
+      const normalizedSolar = String(effectiveSolar || normalizedTradeMode).toUpperCase();
       const normalizedBattery = String(effectiveBattery || normalizedTradeMode).toUpperCase();
       const threshold = Number(batterySellThreshold);
       if (normalizedBattery === 'AUTO_BATTERY_THRESHOLD') {
@@ -651,19 +655,17 @@ export default function EnergySelling() {
       }
     };
 
-    const handleSell = async () => {
-      if (!isManualMode) {
-        const currentModes = [];
-        if (selectedBuilding) {
-          currentModes.push(`Solar: ${solarTradeMode || 'N/A'}`);
-          currentModes.push(`Battery: ${batteryTradeMode || 'N/A'}`);
-        }
-        alert(`⚠️ Cannot post manual offer while in Auto-Trade mode.\n\nCurrent settings: ${currentModes.join(' | ')}\n\nPlease switch to MANUAL mode first.\nGo to the Mode Configuration section and change both Solar & Battery to ✋ Manual.`);
+    const handleSell = async (sourceOverride) => {
+        const effectiveSource = sourceOverride || sellSource || 'produce';
+      // Check if building has any energy source (solar or battery)
+      const hasEnergySource = (sourceEnergyStatus?.produce?.capacity > 0) || (sourceEnergyStatus?.battery?.capacity > 0);
+      if (!hasEnergySource) {
+        message.warning('This building has no solar panels or battery storage — selling energy is not available.');
         return;
       }
 
       if (!selectedBuildingOwnedByUser) {
-            alert('⚠️ You can only post sell offers for the building linked to your contact email.');
+            message.warning('You can only post sell offers for the building linked to your contact email.');
             return;
         }
 
@@ -674,23 +676,23 @@ export default function EnergySelling() {
       const rate = toNumber(energyRate);
 
       if (!amount || amount <= 0) {
-            alert('Please enter energy amount');
+            message.warning('Please enter energy amount');
             return;
         }
       if (!rate || rate <= 0) {
-            alert('Please enter energy rate');
+            message.warning('Please enter energy rate');
             return;
         }
-      const produceAvailableTotal = Number(sourceEnergyStatus?.produce?.totalProduce || 0);
-      const effectiveAvailable = sellSource === 'produce' && produceAvailableTotal > 0
-        ? produceAvailableTotal
-        : selectedSourceStatus.current;
-      if (sourceEnergyStatus && amount > effectiveAvailable) {
-            alert(`⚠️ Cannot sell more energy than available.\nTotal ${selectedSourceLabel} energy: ${Math.round(effectiveAvailable)} kWh\nRequested: ${energyAmount} kWh`);
+      const effectiveAvailable = selectedSourceStatus.current;
+      // Round both to 2 decimals to match display — prevents false positives from e.g. 1.995 showing as "2.00"
+      const availRounded = Math.round(effectiveAvailable * 100) / 100;
+      const amountRounded = Math.round(amount * 100) / 100;
+      if (sourceEnergyStatus && amountRounded > availRounded) {
+            message.warning(`Not enough energy. ${selectedSourceLabel}: ${availRounded.toFixed(2)} kWh, Requested: ${amountRounded.toFixed(2)} kWh`);
             return;
         }
         if (sourceEnergyStatus && !selectedSourceStatus.available) {
-            alert(`⚠️ No energy available to sell from the ${selectedSourceLabel}.`);
+            message.warning(`No energy available to sell from the ${selectedSourceLabel}.`);
             return;
         }
         
@@ -704,11 +706,11 @@ export default function EnergySelling() {
             realBuilding = buildings.find(b => b.name && b.name.toLowerCase().includes(selectedBuilding.name.toLowerCase()));
             
             if (!realBuilding) {
-                alert('⚠️ Building not found. Please select a valid building.');
+                message.error('Building not found. Please select a valid building.');
                 return;
             }
             if (!isOwnedByCurrentUser(realBuilding)) {
-                alert('⚠️ You can only post sell offers for the building linked to your contact email.');
+                message.warning('You can only post sell offers for the building linked to your contact email.');
                 return;
             }
             
@@ -717,25 +719,26 @@ export default function EnergySelling() {
             sellerWalletId = walletRes?.data?.id ? String(walletRes.data.id) : '';
             
             if (!sellerWalletId) {
-                alert('⚠️ Wallet not found for this building. Please contact administrator.');
+                message.error('Wallet not found for this building. Please contact administrator.');
                 return;
             }
             
+            // Determine source from sellSource state (set by Asset Config tabs)
             offer = {
                 sellerWalletId,
               kwh: amount,
               ratePerKwh: rate,
-              sourceType: sellSource,
+              sourceType: effectiveSource,
               marketType,
               targetDate: marketType === 'DAY_AHEAD' ? new Date(Date.now() + 86400000).toISOString().split('T')[0] : null,
             };
             
-            console.log('Creating offer:', offer);
+            console.log('Creating offer: sourceType=', effectiveSource);
             
             const res = await createOffer(offer);
             if (res && res.status === 201) {
                 console.log('Offer created successfully:', res.data);
-              alert(`✅ Successfully listed ${amount} kWh at ${rate.toFixed(2)} Token/kWh from ${realBuilding.name}\n🔋 Source: ${sellSource === 'battery' ? 'Battery' : 'Produce meter'}\n💰 Total Listing Amount: ${(amount * rate).toFixed(2)} Tokens`);
+              message.success(`${amount} kWh listed at ${rate.toFixed(2)} Token/kWh — ${realBuilding.name} (${effectiveSource === 'battery' ? 'Battery' : 'Produce'})`);
                 // Reset form
                 setBID(0);
                 setShowPanel(false);
@@ -749,35 +752,17 @@ export default function EnergySelling() {
                 history.push('/market');
             } else {
                 console.error('Offer creation failed:', res);
-                alert(`Failed to create offer: ${res?.response?.data?.error || res?.message || 'Please try again.'}`);
+                message.error(`Failed to create offer: ${res?.response?.data?.error || res?.message || 'Please try again.'}`);
             }
         } catch (err) {
             console.error('Error creating offer:', err);
             const errorMsg = err.response?.data?.error || err.message;
-            // Day-Ahead lock: offer admin bypass
+            // Day-Ahead lock: notify user
             if (errorMsg && errorMsg.includes('Day-Ahead market is locked')) {
-                const useBypass = window.confirm(`🔒 ${errorMsg}\n\nEnter admin password to bypass?`);
-                if (useBypass) {
-                    const adminPwd = window.prompt('Enter admin bypass password:', '');
-                    if (adminPwd && adminPwd.trim()) {
-                        try {
-                            const retryRes = await createOffer({ ...offer, bypassLock: adminPwd.trim() });
-                            if (retryRes && retryRes.status === 201) {
-                                alert(`✅ Admin bypass: Successfully listed ${amount} kWh at ${rate.toFixed(2)} Token/kWh from ${realBuilding.name}`);
-                                setBID(0); setShowPanel(false); setSelectedBuilding(null);
-                                setEnergyAmount(''); setEnergyRate('');
-                                setSellSource('produce'); setTargetBuildingForPurchase(null);
-                                setSourceEnergyStatus(null); history.push('/market');
-                                return;
-                            }
-                        } catch (retryErr) {
-                            alert('❌ Admin bypass failed: ' + (retryErr.response?.data?.error || retryErr.message));
-                            return;
-                        }
-                    }
-                }
+                message.warning('Day-Ahead market is locked (after 18:00). Use IntraDay or wait until 06:00.');
+                return;
             }
-            alert('Error creating offer: ' + errorMsg);
+            message.error('Error creating offer: ' + errorMsg);
         }
     };
 
@@ -1211,8 +1196,10 @@ export default function EnergySelling() {
             rateNum={rateNum}
             totalToken={totalToken}
             canSellFromSelectedBuilding={selectedBuildingOwnedByUser}
-            canManualSell={selectedBuildingOwnedByUser && isManualMode}
-            showTradePolicyControls
+            canManualSell={selectedBuildingOwnedByUser}
+            showTradePolicyControls={Boolean(
+                (sourceEnergyStatus?.produce?.capacity > 0) || (sourceEnergyStatus?.battery?.capacity > 0)
+            )}
             tradeMode={tradeMode}
             setTradeMode={handleTradeModeChange}
             solarTradeMode={solarTradeMode}
@@ -1268,8 +1255,8 @@ export default function EnergySelling() {
           <div className="bbtn btn4" bid="4" title="Malai" onClick={buildOn}></div>
           <div className="bbtn btn5" bid="5" title="Narathip" onClick={buildOn}></div>
           <div className="bbtn btn6" bid="6" title="Navamin" onClick={buildOn}></div>
-          <div className="bbtn btn7" bid="7" title="Nida House" onClick={buildOn}></div>
-          <div className="bbtn btn8" bid="8" title="Nida Sumpan" onClick={buildOn}></div>
+          <div className="bbtn btn7" bid="7" title="Nida house" onClick={buildOn}></div>
+          <div className="bbtn btn8" bid="8" title="Nidasumpan" onClick={buildOn}></div>
           <div className="bbtn btn9" bid="9" title="Ratchaphruek" onClick={buildOn}></div>
           <div className="bbtn btn10" bid="10" title="Serithai" onClick={buildOn}></div>
           <div className="bbtn btn11" bid="11" title="Siam" onClick={buildOn}></div>

@@ -1,6 +1,16 @@
 import axios from 'axios';
 import { getApiBase } from './apiBase';
 
+/**
+ * Check if a user exists in real DB, demo DB, or both.
+ * Returns { email, real: {name, role}|null, demo: {name, role}|null }
+ */
+export async function checkUser(email) {
+    const base = getApiBase();
+    const response = await axios.post(`${base}/users/check-user`, { email });
+    return response.data;
+}
+
 export async function requestOtpEmail(email) {
     try {
         const base = getApiBase();
@@ -12,10 +22,11 @@ export async function requestOtpEmail(email) {
     }
 }
 
-export async function registerUser(name, email, password, telNum, otp) {
+export async function registerUser(name, email, password, telNum, otp, dataMode) {
     try {
         const base = getApiBase();
-        const response = await axios.post(`${base}/users/register`, { name, email, password, telNum, otp });
+        const config = dataMode ? { headers: { 'x-data-mode': dataMode } } : {};
+        const response = await axios.post(`${base}/users/register`, { name, email, password, telNum, otp }, config);
         return response.data;
     } catch (error) {
         console.error('Error registering user:', error);
@@ -171,10 +182,11 @@ export async function insertRunningLog(snid, timestamp, kW, kWH, txid = null) {
         throw error;
     }
 }
-export async function registerBuilding(name, mapURL, addr, province, postalCode, email) {
+export async function registerBuilding(name, mapURL, addr, province, postalCode, email, dataMode) {
     try {
         const base = getApiBase();
-        const response = await axios.post(`${base}/buildings/register`, { name, mapURL, address: addr, province, postalCode, email });
+        const config = dataMode ? { headers: { 'x-data-mode': dataMode } } : {};
+        const response = await axios.post(`${base}/buildings/register`, { name, mapURL, address: addr, province, postalCode, email }, config);
         return response.data;
     } catch (error) {
         console.error('Error registering building:', error);
@@ -182,13 +194,14 @@ export async function registerBuilding(name, mapURL, addr, province, postalCode,
     }
 }
 
-export async function registerMeter(buildingId, meterType, meterNumber, capacity, dateInstalled) {
+export async function registerMeter(buildingId, meterType, meterNumber, capacity, dateInstalled, dataMode) {
     try {
         const base = getApiBase();
         const payload = { buildingId, meterType, meterNumber };
         if (typeof capacity !== 'undefined') payload.capacity = capacity;
         if (typeof dateInstalled !== 'undefined' && dateInstalled !== '') payload.dateInstalled = dateInstalled;
-        const response = await axios.post(`${base}/meters/register`, payload);
+        const config = dataMode ? { headers: { 'x-data-mode': dataMode } } : {};
+        const response = await axios.post(`${base}/meters/register`, payload, config);
         return response.data;
     } catch (error) {
         console.error('Error registering meter:', error);
@@ -196,10 +209,11 @@ export async function registerMeter(buildingId, meterType, meterNumber, capacity
     }
 }
 
-export async function registerWallet(userId, email) {
+export async function registerWallet(userId, email, dataMode) {
     try {
         const base = getApiBase();
-        const response = await axios.post(`${base}/wallets/register`, { userId, email });
+        const config = dataMode ? { headers: { 'x-data-mode': dataMode } } : {};
+        const response = await axios.post(`${base}/wallets/register`, { userId, email }, config);
         return response.data;
     } catch (error) {
         console.error('Error registering wallet:', error);
@@ -210,8 +224,11 @@ export async function registerWallet(userId, email) {
 /**
  * Admin Quick Register: User + Building + 3 Meters + Wallet in one call.
  * Bypasses OTP — only for admin use (no auth check on this endpoint itself).
+ * @param {Object} data - Registration payload
+ * @param {string} [dataMode] - Optional 'real' or 'demo' to target a specific database
  */
-export async function adminQuickRegister(data) {
+export async function adminQuickRegister(data, dataMode) {
     const base = getApiBase();
-    return axios.post(`${base}/users/admin-quick-register`, data);
+    const config = dataMode ? { headers: { 'x-data-mode': dataMode } } : {};
+    return axios.post(`${base}/users/admin-quick-register`, data, config);
 }

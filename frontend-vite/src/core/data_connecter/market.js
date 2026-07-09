@@ -78,14 +78,14 @@ export function triggerClearing() {
  */
 export function createBid(bid) {
     const base = getApiBase();
-    return axios.post(`${base}/market/orders`, { side: 'BID', walletId: bid.buyerWalletId, kwh: bid.kwh, price: bid.ratePerKwh, marketType: bid.marketType, targetDate: bid.targetDate })
+    return axios.post(`${base}/market/orders`, { side: 'BID', walletId: bid.buyerWalletId, kwh: bid.kwh, price: bid.ratePerKwh, marketType: bid.marketType, targetDate: bid.targetDate, bypassLock: bid.bypassLock })
         .then(ress => ress)
         .catch(error => { console.error('createBid error:', error); throw error; });
 }
 
-export function sellToBid({ orderId, sellerWalletId, kwh, price } = {}) {
+export function sellToBid({ orderId, sellerWalletId, kwh, price, sourceType = 'solar' } = {}) {
     const base = getApiBase();
-    return axios.post(`${base}/market/sell-to-bid`, { orderId, sellerWalletId, kwh, price })
+    return axios.post(`${base}/market/sell-to-bid`, { orderId, sellerWalletId, kwh, price, sourceType })
         .then(ress => ress)
         .catch(err => { console.error('sellToBid error:', err); throw err; });
 }

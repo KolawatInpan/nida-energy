@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { getApiBase } from '../../core/data_connecter/apiBase';
 
-const API = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+const API = getApiBase();
 
 const BUILDINGS = ['Ratchaphruek', 'Malai', 'Auditorium', 'Nida Sumpan'];
 const COLORS = ['#2d7dd2', '#f59e0b', '#10b981', '#8b5cf6'];

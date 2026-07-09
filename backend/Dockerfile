@@ -61,4 +61,4 @@ COPY backend/ ./
 
 EXPOSE 8000
  
-CMD ["sh", "-c", "./node_modules/.bin/prisma db push --accept-data-loss && ./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma && if [ \"$RUN_PRISMA_MIGRATE\" = \"true\" ]; then ./node_modules/.bin/prisma migrate deploy --schema=./prisma/schema.prisma; fi && node server.js"]
+CMD ["sh", "-c", "sh /app/prisma/push-both-dbs.sh --accept-data-loss --schema /app/prisma/schema.prisma && ./node_modules/.bin/prisma generate --schema=/app/prisma/schema.prisma && if [ \"$RUN_PRISMA_MIGRATE\" = \"true\" ]; then sh /app/prisma/migrate-both-dbs.sh --schema /app/prisma/schema.prisma; fi && node server.js"]

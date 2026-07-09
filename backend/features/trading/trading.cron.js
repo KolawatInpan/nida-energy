@@ -4,6 +4,15 @@ const tradeEngine = require('./trade.engine');
 const { prisma } = require('../../utils/prisma');
 
 function initTradingCron() {
+    // 🌅 Day-Ahead Market Schedule:
+    // 🟢 06:00 — Market opens (openMarketForDay)
+    // 🔴 18:00 — Submissions locked (preMatchLock)
+    // ⚡ 00:00 — Matching executed (executeMarketClearing)
+    // ✅ 05:00 — Market cleared (finalizeRun)
+    //
+    // ⚡ IntraDay Market: Always Open — real-time manual P2P trading (min rate ฿4.0/kWh)
+    // IntraDay does NOT go through clearing — it's purely manual.
+
     // 1. ระบบ Auto-Trade (เวลา 15:00 น.)
     // สแกนตึกที่กำหนดโหมดการเทรด (ไม่ใช่ MANUAL) แล้วรันกฎอัตโนมัติ (Solar/Battery)
     // รองรับทั้ง legacy tradeMode และ per-asset solarTradeMode / batteryTradeMode
@@ -50,13 +59,13 @@ function initTradingCron() {
         }
     });
 
-    // 00:00 - Run matching for Day-Ahead (midnight)
+    // ⚡ 00:00 - Execute Day-Ahead Matching + Force Distribution
     cron.schedule('0 0 * * *', async () => {
-        console.log('[CRON] Executing Day-Ahead Market Clearing (00:00)');
+        console.log('[CRON] Executing Day-Ahead Market Clearing (00:00) — Matching + Force Distribution');
         try {
             await marketService.executeMarketClearing();
         } catch (error) {
-            console.error('[CRON] Market Clearing Failed:', error);
+            console.error('[CRON] Day-Ahead Market Clearing Failed:', error);
         }
     });
 

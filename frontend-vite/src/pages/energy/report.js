@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useDispatch, useSelector } from "react-redux";
+import Plot from 'react-plotly.js';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { validateAuth } from "../../store/auth/auth.action";
@@ -8,7 +9,9 @@ import { getMember } from '../../store/member/member.action';
 import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/register';
 import { searchBuildingEnergy } from '../../core/data_connecter/dashboard';
 import Key from '../../global/key';
-import { buildThreeHourSeries, formatDateLocal, getLatestMeterDate, toNumeric } from '../../utils/energyAnalytics';
+import { formatDateLocal, toNumeric } from '../../utils/energyAnalytics';
+import { buildComparisonXAxisLabels, buildNiceScale, swapComparisonSelection } from '../../utils/dashboardCharts';
+import { formatEnergy } from '../../utils/formatters';
 import TORReport from '../../components/TOR/TORReport';
 
 const buildEmptyChartData = (days) => Array.from({ length: days }, (_, index) => ({
@@ -28,30 +31,6 @@ const slugify = (name) => String(name || '').toLowerCase().replace(/\s+/g, '-').
 
 const meterTypeOf = (m) => (m?.type || '').toString().toLowerCase();
 const hasBatteryMeter = (m) => meterTypeOf(m).includes('battery');
-
-const polarToCartesian = (cx, cy, radius, angleInDegrees) => {
-    const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
-    return {
-        x: cx + (radius * Math.cos(angleInRadians)),
-        y: cy + (radius * Math.sin(angleInRadians)),
-    };
-};
-
-const describeArc = (cx, cy, radius, startAngle, endAngle) => {
-    const start = polarToCartesian(cx, cy, radius, endAngle);
-    const end = polarToCartesian(cx, cy, radius, startAngle);
-    const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
-    return [
-        'M', cx, cy,
-        'L', start.x, start.y,
-        'A', radius, radius, 0, largeArcFlag, 0, end.x, end.y,
-        'Z',
-    ].join(' ');
-};
-
-const diamondPoints = (cx, cy, size) => {
-    return `${cx},${cy - size} ${cx + size},${cy} ${cx},${cy + size} ${cx - size},${cy}`;
-};
 
 const downloadBlobFile = (content, filename, mimeType) => {
     const blob = new Blob([content], { type: mimeType });
@@ -226,13 +205,33 @@ export default function Report() {
     const [buildingOptions, setBuildingOptions] = useState([]);
     const [buildingStats, setBuildingStats] = useState({});
     const [topConsumers, setTopConsumers] = useState([]);
-    const [compareWithBattery, setCompareWithBattery] = useState('');
-    const [compareWithoutBattery, setCompareWithoutBattery] = useState('');
-    const [comparisonCharts, setComparisonCharts] = useState({});
+    const [comparisonRange, setComparisonRange] = useState('7d');
+    const [selectedComparisonA, setSelectedComparisonA] = useState('');
+    const [selectedComparisonB, setSelectedComparisonB] = useState('');
+    const [selectedGridBuilding, setSelectedGridBuilding] = useState('');
+    const [comparisonSeriesByBuilding, setComparisonSeriesByBuilding] = useState({});
     const [member, setMember] = useState(DEFAULT_MEMBER);
     const [selectedBuildings, setSelectedBuildings] = useState([]); // empty = all
     const [perBuildingChart, setPerBuildingChart] = useState({}); // { buildingName: [{day,pvProduction,consumption}] }
     const [chartToggle, setChartToggle] = useState({ showProduce: true, showConsume: true, showSoC: true });
+    const [showExportModal, setShowExportModal] = useState(false);
+    const [exportBuildings, setExportBuildings] = useState([]); // empty = all
+    const [exportStartDate, setExportStartDate] = useState(new Date());
+    const [exportEndDate, setExportEndDate] = useState(new Date());
+    const [exportFormat, setExportFormat] = useState('excel');
+    const [exporting, setExporting] = useState(false);
+
+    const handleSelectComparisonA = (nextValue) => {
+        const next = swapComparisonSelection(selectedComparisonA, selectedComparisonB, nextValue, 'A');
+        setSelectedComparisonA(next.a);
+        setSelectedComparisonB(next.b);
+    };
+
+    const handleSelectComparisonB = (nextValue) => {
+        const next = swapComparisonSelection(selectedComparisonA, selectedComparisonB, nextValue, 'B');
+        setSelectedComparisonA(next.a);
+        setSelectedComparisonB(next.b);
+    };
 
     useEffect(() => {
         dispatch(validateAuth());
@@ -333,12 +332,12 @@ export default function Report() {
                 const withBattery = Object.values(statsMap).find((x) => x.hasBattery);
                 const withoutBattery = Object.values(statsMap).find((x) => !x.hasBattery);
 
-                if (!compareWithBattery || !statsMap[compareWithBattery]) {
-                    setCompareWithBattery(withBattery?.name || ranked[0]?.name || '');
+                if (!selectedComparisonA || !statsMap[selectedComparisonA]) {
+                    setSelectedComparisonA(withBattery?.name || ranked[0]?.name || '');
                 }
-                if (!compareWithoutBattery || !statsMap[compareWithoutBattery]) {
+                if (!selectedComparisonB || !statsMap[selectedComparisonB]) {
                     const fallback = withoutBattery?.name || ranked[1]?.name || ranked[0]?.name || '';
-                    setCompareWithoutBattery(fallback);
+                    setSelectedComparisonB(fallback);
                 }
             } catch (err) {
                 console.error('fetchReportMetrics error', err);
@@ -346,7 +345,7 @@ export default function Report() {
         };
 
         fetchReportMetrics();
-    }, [timeRange, compareWithBattery, compareWithoutBattery, customStart, customEnd]);
+    }, [timeRange, customStart, customEnd]);
 
     useEffect(() => {
         const fetchChartData = async () => {
@@ -662,58 +661,190 @@ export default function Report() {
     }, [selectedBuildings, timeRange, customStart, customEnd]);
 
     useEffect(() => {
-        const fetchComparisonCharts = async () => {
-            const selectedNames = [compareWithBattery, compareWithoutBattery].filter(Boolean);
-            if (!selectedNames.length) {
-                setComparisonCharts({});
-                return;
-            }
-
+        let mounted = true;
+        const fetchComparisonData = async () => {
             try {
                 const buildingsRes = await getBuildings();
+                if (!mounted) return;
                 const buildings = Array.isArray(buildingsRes) ? buildingsRes : (buildingsRes?.data || buildingsRes?.buildings || []);
+                if (!buildings.length) {
+                    setComparisonSeriesByBuilding({});
+                    return;
+                }
 
-                const entries = await Promise.all(selectedNames.map(async (name) => {
-                    const building = buildings.find((item) => item?.name === name);
-                    let anchorDate = formatDateLocal(new Date());
+                const endDate = new Date();
+                const start1d = new Date(endDate);
+                start1d.setDate(start1d.getDate() - 1);
+                const start7d = new Date(endDate);
+                start7d.setDate(start7d.getDate() - 7);
 
-                    if (building?.id) {
-                        try {
-                            const metersRes = await getMetersByBuilding(building.id);
-                            const meters = Array.isArray(metersRes) ? metersRes : (metersRes?.data || []);
-                            anchorDate = getLatestMeterDate(meters);
-                        } catch (error) {
-                            anchorDate = formatDateLocal(new Date());
-                        }
+                const allNames = buildings.map(b => b?.name || '').filter(Boolean);
+                const seriesMap = {};
+
+                await Promise.all(allNames.map(async (name) => {
+                    if (!mounted) return;
+                    try {
+                        const building = buildings.find(b => b?.name === name);
+                        const [res1d, res7d] = await Promise.all([
+                            searchBuildingEnergy({
+                                building: normalizeBackendBuildingName(name),
+                                buildingId: building?.id || null,
+                                start: formatDateLocal(start1d),
+                                end: formatDateLocal(endDate),
+                                timeunit: 'hour',
+                            }),
+                            searchBuildingEnergy({
+                                building: normalizeBackendBuildingName(name),
+                                buildingId: building?.id || null,
+                                start: formatDateLocal(start7d),
+                                end: formatDateLocal(endDate),
+                                timeunit: 'day',
+                            }),
+                        ]);
+
+                        const p1d = res1d?.data?.result === 'success' ? res1d.data : {};
+                        const p7d = res7d?.data?.result === 'success' ? res7d.data : {};
+
+                        const stats = buildingStats[name] || {};
+                        const hasBattery = !!stats.hasBattery;
+
+                        seriesMap[name] = {
+                            buildingName: name,
+                            hasBattery,
+                            batteryValue: toNumeric(stats.batteryValue),
+                            batteryCap: toNumeric(stats.batteryCap),
+                            batteryPct: toNumeric(stats.batteryPct),
+                            ranges: {
+                                '1d': buildRangeSeries(p1d),
+                                '7d': buildRangeSeries(p7d),
+                            },
+                        };
+                    } catch (e) {
+                        // skip failed buildings
                     }
-
-                    const response = await searchBuildingEnergy({
-                        building: normalizeBackendBuildingName(name),
-                        start: anchorDate,
-                        end: anchorDate,
-                        timeunit: 'hour',
-                    });
-
-                    const payload = response?.data?.result === 'success' ? response.data : {};
-                    return [name, buildThreeHourSeries(payload)];
                 }));
 
-                setComparisonCharts(Object.fromEntries(entries));
+                if (mounted) setComparisonSeriesByBuilding(seriesMap);
             } catch (error) {
-                console.error('Failed to load comparison charts:', error);
-                setComparisonCharts({});
+                console.error('Failed to load comparison data:', error);
+                if (mounted) setComparisonSeriesByBuilding({});
             }
         };
 
-        fetchComparisonCharts();
-    }, [compareWithBattery, compareWithoutBattery]);
+        fetchComparisonData();
+        return () => { mounted = false; };
+    }, [buildingStats]);
+
+    // Build { labels, solar, consumption, battery } from searchBuildingEnergy response
+    // Aligns all arrays by timestamp (not by index) to handle mismatched lengths,
+    // e.g. production has 13 hours (06:00-18:00) but consumption has 24 hours.
+    const buildRangeSeries = (payload) => {
+        const productionVals = payload?.production?.value || [];
+        const consumptionVals = payload?.consumption?.value || [];
+        const batteryVals = payload?.battery?.value || [];
+        const productionLabels = payload?.production?.datetime || [];
+        const consumptionLabels = payload?.consumption?.datetime || [];
+        const batteryLabels = payload?.battery?.datetime || [];
+
+        // Build maps: raw timestamp → value for each type
+        const prodMap = new Map(productionLabels.map((l, i) => [String(l), toNumeric(productionVals[i])]));
+        const conMap = new Map(consumptionLabels.map((l, i) => [String(l), toNumeric(consumptionVals[i])]));
+        const batMap = new Map(batteryLabels.map((l, i) => [String(l), toNumeric(batteryVals[i])]));
+
+        // Union all labels, sorted
+        const allLabels = Array.from(new Set([...productionLabels.map(String), ...consumptionLabels.map(String), ...batteryLabels.map(String)])).sort();
+
+        if (!allLabels.length) return { labels: [], solar: [], consumption: [], battery: [] };
+
+        // Format labels: "2026-05-23" → "May 23", "2026-05-23 14:00" → "14:00"
+        const labels = allLabels.map((label) => {
+            const str = String(label || '');
+            const spaceIdx = str.indexOf(' ');
+            if (spaceIdx > 0) {
+                const timePart = str.includes('T') ? str.split('T')[1] : str.slice(spaceIdx + 1);
+                return timePart.slice(0, 5);
+            }
+            const d = new Date(str);
+            if (!isNaN(d.getTime())) {
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }
+            return str;
+        });
+
+        const solar = allLabels.map((l) => prodMap.get(String(l)) || 0);
+        const consumption = allLabels.map((l) => conMap.get(String(l)) || 0);
+        const battery = allLabels.map((l) => batMap.get(String(l)) || 0);
+        return { labels, solar, consumption, battery };
+    };
+
+    const comparisonOptions = useMemo(() => {
+        const options = [];
+        const names = buildingOptions.length ? buildingOptions : Object.keys(buildingStats);
+        names.forEach(name => {
+            const stats = buildingStats[name] || {};
+            options.push({
+                name,
+                hasBattery: !!stats.hasBattery,
+            });
+        });
+        return options.sort((a, b) => a.name.localeCompare(b.name));
+    }, [buildingOptions, buildingStats]);
+
+    useEffect(() => {
+        if (!comparisonOptions.length) {
+            setSelectedComparisonA('');
+            setSelectedComparisonB('');
+            return;
+        }
+        setSelectedComparisonA((prev) => prev || comparisonOptions[0]?.name || '');
+        setSelectedComparisonB((prev) => {
+            if (prev) return prev;
+            const fallback = comparisonOptions.find((item) => item.name !== (comparisonOptions[0]?.name || ''));
+            return fallback?.name || comparisonOptions[0]?.name || '';
+        });
+    }, [comparisonOptions]);
+
+    const selectedComparisonCharts = useMemo(() => {
+        const seriesByBuilding = comparisonSeriesByBuilding || {};
+        const buildChart = (buildingName) => {
+            const item = seriesByBuilding[buildingName];
+            const rangeData = item?.ranges?.[comparisonRange] || { labels: [], solar: [], consumption: [], battery: [] };
+            const maxValue = Math.max(1, ...rangeData.solar, ...rangeData.consumption, ...rangeData.battery);
+            const visibleLabels = buildComparisonXAxisLabels(rangeData.labels, comparisonRange);
+            const points = rangeData.labels.map((label, index) => ({
+                label,
+                displayLabel: visibleLabels.has(label) ? label : '',
+                solar: toNumeric(rangeData.solar[index]),
+                consumption: toNumeric(rangeData.consumption[index]),
+                battery: toNumeric(rangeData.battery[index]),
+            })).map((point) => ({
+                ...point,
+                solarPct: point.solar > 0 ? Math.max(4, Math.round((point.solar / maxValue) * 100)) : 0,
+                consumptionPct: point.consumption > 0 ? Math.max(4, Math.round((point.consumption / maxValue) * 100)) : 0,
+                batteryPct: point.battery > 0 ? Math.max(4, Math.round((point.battery / maxValue) * 100)) : 0,
+            }));
+
+            return {
+                buildingName,
+                hasBattery: !!item?.hasBattery,
+                batteryValue: toNumeric(item?.batteryValue),
+                batteryCap: toNumeric(item?.batteryCap),
+                batteryPct: toNumeric(item?.batteryPct),
+                labels: rangeData.labels,
+                points,
+                maxValue,
+                netSeries: points.map((point) => point.solar + point.battery - point.consumption),
+            };
+        };
+
+        return {
+            left: selectedComparisonA ? buildChart(selectedComparisonA) : null,
+            right: selectedComparisonB ? buildChart(selectedComparisonB) : null,
+        };
+    }, [comparisonSeriesByBuilding, comparisonRange, selectedComparisonA, selectedComparisonB]);
 
     const totalTopConsumption = topConsumers.reduce((sum, row) => sum + Number(row.consumption || 0), 0);
     const topConsumptionMax = Math.max(1, ...topConsumers.map((r) => Number(r.consumption || 0)));
-    const compareLeft = buildingStats[compareWithBattery] || null;
-    const compareRight = buildingStats[compareWithoutBattery] || null;
-    const compareLeftSeries = comparisonCharts[compareWithBattery] || buildThreeHourSeries({});
-    const compareRightSeries = comparisonCharts[compareWithoutBattery] || buildThreeHourSeries({});
     const memberRoleLabel = useMemo(() => normalizeRoleName(member), [member]);
     const memberInitials = useMemo(() => getMemberInitials(member), [member]);
     const batteryAssets = useMemo(() => (
@@ -737,25 +868,107 @@ export default function Report() {
             pct: Math.round((item.value / total) * 100),
         }));
 
-        let startAngle = 0;
-        const arcs = items.map((item, index) => {
-            const rawSweep = (item.value / total) * 360;
-            const sweep = index === items.length - 1 ? Math.max(0, 360 - startAngle) : rawSweep;
-            const arc = {
-                ...item,
-                path: describeArc(140, 140, 120, startAngle, startAngle + sweep),
-            };
-            startAngle += sweep;
-            return arc;
-        });
-
-        return { items: arcs, total };
+        return { items, total };
     }, [buildingStats]);
     const maintenanceAlert = useMemo(() => (
         batteryAssets
             .filter((entry) => toNumeric(entry.batteryPct) > 0)
             .sort((a, b) => toNumeric(a.batteryPct) - toNumeric(b.batteryPct))[0] || null
     ), [batteryAssets]);
+
+    // Export modal handler
+    const handleModalExport = async () => {
+        setExporting(true);
+        try {
+            const startStr = formatDateLocal(exportStartDate);
+            const endStr = formatDateLocal(exportEndDate);
+            const allBuildings = Object.values(buildingStats);
+            const buildings = exportBuildings.length > 0
+                ? allBuildings.filter(b => exportBuildings.includes(b.name))
+                : allBuildings;
+
+            if (buildings.length === 0) {
+                alert('No buildings selected.');
+                setExporting(false);
+                return;
+            }
+
+            // Fetch data for each building
+            const allRows = [];
+            for (const b of buildings) {
+                const res = await searchBuildingEnergy({
+                    building: normalizeBackendBuildingName(b.name),
+                    buildingId: b.id,
+                    start: startStr,
+                    end: endStr,
+                    timeunit: 'hour',
+                });
+                const payload = res?.data || {};
+                const pVals = payload?.production?.value || [];
+                const cVals = payload?.consumption?.value || [];
+                const bVals = payload?.battery?.value || [];
+                // Use longest label array from any type (not just production)
+                const pLabels = payload?.production?.datetime || [];
+                const cLabels = payload?.consumption?.datetime || [];
+                const bLabels = payload?.battery?.datetime || [];
+                const labels = [pLabels, cLabels, bLabels].reduce((a, b) => a.length >= b.length ? a : b, []);
+
+                // Group by day for all 3 types
+                const daily = {};
+                for (let i = 0; i < labels.length; i++) {
+                    const day = (labels[i] || '').substring(0, 10);
+                    if (!daily[day]) daily[day] = { p: 0, c: 0, b: 0 };
+                    daily[day].p += Number(pVals[i] || 0);
+                    daily[day].c += Number(cVals[i] || 0);
+                    daily[day].b += Number(bVals[i] || 0);
+                }
+                Object.entries(daily).sort().forEach(([day, vals]) => {
+                    allRows.push({
+                        building: b.name,
+                        date: day,
+                        production: vals.p.toFixed(2),
+                        consumption: vals.c.toFixed(2),
+                        battery: vals.b.toFixed(2),
+                    });
+                });
+            }
+
+            if (allRows.length === 0) {
+                alert('No data found.');
+                setExporting(false);
+                return;
+            }
+
+            if (exportFormat === 'excel') {
+                const header = 'Building,Date,Production (kWh),Consumption (kWh),Battery (kWh)';
+                const csv = [header, ...allRows.map(r => `${r.building},${r.date},${r.production},${r.consumption},${r.battery}`)].join('\n');
+                const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `analytics_report_${startStr}_to_${endStr}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            } else {
+                const rowsHtml = allRows.map(r => `<tr><td>${r.building}</td><td>${r.date}</td><td>${r.production}</td><td>${r.consumption}</td><td>${r.battery}</td></tr>`).join('');
+                const html = `<html><head><title>Energy Report</title>
+                    <style>body{font-family:Arial;padding:20px} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:8px} th{background:#f5f5f5}</style>
+                    </head><body><h1>Energy Analytics Report</h1><p>${startStr} to ${endStr}</p>
+                    <table><tr><th>Building</th><th>Date</th><th>Production (kWh)</th><th>Consumption (kWh)</th><th>Battery (kWh)</th></tr>${rowsHtml}</table></body></html>`;
+                const w = window.open('', '_blank');
+                w.document.write(html);
+                w.document.close();
+                setTimeout(() => w.print(), 500);
+            }
+
+            setShowExportModal(false);
+        } catch (err) {
+            console.error('Export error:', err);
+            alert('Export failed: ' + (err?.message || 'Unknown error'));
+        } finally {
+            setExporting(false);
+        }
+    };
 
     const exportCurrentReport = () => {
         const generatedAt = new Date();
@@ -782,14 +995,16 @@ export default function Report() {
             totalTopConsumption > 0 ? `${((toNumeric(entry.consumption) / totalTopConsumption) * 100).toFixed(2)}%` : '0.00%',
         ]));
 
+        const compareLeft = selectedComparisonCharts.left;
+        const compareRight = selectedComparisonCharts.right;
         const compareRows = [
-            ['With Battery', compareLeft?.name || '-'],
-            ['With Battery Production (kWh)', toNumeric(compareLeft?.production).toFixed(2)],
-            ['With Battery Consumption (kWh)', toNumeric(compareLeft?.consumption).toFixed(2)],
-            ['With Battery SoC (%)', toNumeric(compareLeft?.batteryPct).toFixed(0)],
-            ['Without Battery', compareRight?.name || '-'],
-            ['Without Battery Production (kWh)', toNumeric(compareRight?.production).toFixed(2)],
-            ['Without Battery Consumption (kWh)', toNumeric(compareRight?.consumption).toFixed(2)],
+            ['With Battery', compareLeft?.buildingName || '-'],
+            ['With Battery Production (kWh)', '-'],
+            ['With Battery Consumption (kWh)', '-'],
+            ['With Battery SoC (%)', compareLeft?.hasBattery && compareLeft?.batteryPct != null ? `${compareLeft.batteryPct}%` : '-'],
+            ['Without Battery', compareRight?.buildingName || '-'],
+            ['Without Battery Production (kWh)', '-'],
+            ['Without Battery Consumption (kWh)', '-'],
         ];
 
         const csvRows = [
@@ -904,193 +1119,94 @@ export default function Report() {
         printWindow.print();
     };
 
-    const ComparisonBarChart = ({ series = [], showBattery = false }) => {
-        const width = 500;
-        const height = 300;
-        const padding = { top: 24, right: 20, bottom: 48, left: 50 };
-        const chartWidth = width - padding.left - padding.right;
-        const chartHeight = height - padding.top - padding.bottom;
-        const maxValue = Math.max(
-            1,
-            ...series.flatMap((entry) => showBattery
-                ? [toNumeric(entry.pvProduction), toNumeric(entry.consumption), toNumeric(entry.batteryDischarge)]
-                : [toNumeric(entry.pvProduction), toNumeric(entry.consumption)])
-        );
-        const ticks = 5;
-        const roundedMax = Math.ceil(maxValue / 10) * 10;
-        const groupWidth = chartWidth / Math.max(series.length, 1);
-        const barsPerGroup = showBattery ? 3 : 2;
-        const barWidth = Math.min(18, Math.max(10, (groupWidth - 16) / barsPerGroup));
-        const groupInnerWidth = barWidth * barsPerGroup + 8 * (barsPerGroup - 1);
-        const yScale = (value) => padding.top + chartHeight - (toNumeric(value) / roundedMax) * chartHeight;
-
-        return (
-            <svg width="100%" height="300" viewBox={`0 0 ${width} ${height}`} className="bg-white rounded-lg">
-                {Array.from({ length: ticks + 1 }, (_, index) => {
-                    const y = padding.top + (index * chartHeight / ticks);
-                    const value = Math.round(roundedMax - (index * roundedMax / ticks));
-                    return (
-                        <g key={`cmp-grid-${index}`}>
-                            <line x1={padding.left} y1={y} x2={padding.left + chartWidth} y2={y} stroke="#e5e7eb" strokeWidth="1" />
-                            <text x={padding.left - 10} y={y} textAnchor="end" fontSize="11" fill="#6b7280" dominantBaseline="middle">
-                                {value}
-                            </text>
-                        </g>
-                    );
-                })}
-
-                {series.map((entry, index) => {
-                    const groupX = padding.left + index * groupWidth + (groupWidth - groupInnerWidth) / 2;
-                    const pvHeight = chartHeight - (yScale(entry.pvProduction) - padding.top);
-                    const consumptionHeight = chartHeight - (yScale(entry.consumption) - padding.top);
-                    const batteryHeight = chartHeight - (yScale(entry.batteryDischarge) - padding.top);
-                    return (
-                        <g key={`cmp-group-${entry.label}`}>
-                            <rect x={groupX} y={yScale(entry.pvProduction)} width={barWidth} height={pvHeight} fill="#22c55e" rx="3" />
-                            <rect x={groupX + barWidth + 8} y={yScale(entry.consumption)} width={barWidth} height={consumptionHeight} fill="#ef4444" rx="3" />
-                            {showBattery && (
-                                <rect x={groupX + (barWidth + 8) * 2} y={yScale(entry.batteryDischarge)} width={barWidth} height={batteryHeight} fill="#f97316" rx="3" />
-                            )}
-                            <text x={padding.left + index * groupWidth + groupWidth / 2} y={height - 18} textAnchor="middle" fontSize="11" fill="#6b7280">
-                                {entry.label}
-                            </text>
-                        </g>
-                    );
-                })}
-
-                <text x="22" y="18" fontSize="11" fill="#6b7280" fontWeight="500">kWH</text>
-            </svg>
-        );
-    };
-
     // SVG Chart Component — supports multi-building series
+    // Plotly Chart Component — supports multi-building series
     const EnergyChart = ({ data, series = [], showBattery = true, showProduce = true, showConsume = true, showSoC = true }) => {
         const hasSeries = series.length > 0;
         const sampleData = hasSeries ? series[0].data : data;
         const dataLen = Math.max(sampleData.length, 1);
-        const width = 880;
-        const height = 400;
-        const padding = { top: 20, right: 140, bottom: 40, left: 60 };
-        const chartWidth = width - padding.left - padding.right;
-        const chartHeight = height - padding.top - padding.bottom;
+        const labels = sampleData.map((d) => d.day);
 
-        // Dynamic scale from actual data
-        const allValues = hasSeries
-            ? series.flatMap((s) => s.data.flatMap((d) => [toNumeric(d.pvProduction), toNumeric(d.consumption)]))
-            : data.flatMap((d) => [toNumeric(d.pvProduction), toNumeric(d.consumption)]);
-        const maxVal = Math.max(10, ...allValues);
-        const roundedMax = Math.ceil(maxVal / 100) * 100;
+        const traces = [];
+        const yAxis2Traces = [];
 
-        const maxSoC = hasSeries ? 100 : 70;
-        const minSoC = hasSeries ? 0 : 45;
+        if (!hasSeries) {
+            // AGGREGATED VIEW
+            if (showProduce) {
+                traces.push({
+                    x: labels, y: data.map((d) => toNumeric(d.pvProduction)),
+                    type: 'scatter', mode: 'lines+markers', name: 'Production',
+                    line: { color: '#22c55e', width: 3 }, marker: { color: '#22c55e', size: 5 },
+                    fill: 'tozeroy', fillcolor: 'rgba(34,197,94,0.1)',
+                    hovertemplate: '%{x}<br>Production: %{y:,.0f} kWh<extra></extra>',
+                });
+            }
+            if (showConsume) {
+                traces.push({
+                    x: labels, y: data.map((d) => toNumeric(d.consumption)),
+                    type: 'scatter', mode: 'lines+markers', name: 'Consumption',
+                    line: { color: '#ef4444', width: 3 }, marker: { color: '#ef4444', size: 5 },
+                    hovertemplate: '%{x}<br>Consumption: %{y:,.0f} kWh<extra></extra>',
+                });
+            }
+        } else {
+            // PER-BUILDING VIEW
+            series.forEach((s, si) => {
+                const col = BUILDING_COLORS[si % BUILDING_COLORS.length];
+                const bName = s.buildingName || `Building ${si + 1}`;
+                if (showProduce) {
+                    traces.push({
+                        x: labels, y: s.data.map((d) => toNumeric(d.pvProduction)),
+                        type: 'scatter', mode: 'lines+markers', name: `${bName} PV`,
+                        line: { color: col, width: 2.5 }, marker: { color: col, size: 4 },
+                    });
+                }
+                if (showConsume) {
+                    traces.push({
+                        x: labels, y: s.data.map((d) => toNumeric(d.consumption)),
+                        type: 'scatter', mode: 'lines+markers', name: `${bName} Cons`,
+                        line: { color: col, width: 2, dash: 'dash' },
+                        marker: { color: 'white', size: 4, line: { color: col, width: 1.5 } },
+                    });
+                }
+                if (showSoC && s.hasBattery && s.data.some((d) => d.batterySoC != null)) {
+                    yAxis2Traces.push(si);
+                    traces.push({
+                        x: labels, y: s.data.map((d) => toNumeric(d.batterySoC)),
+                        type: 'scatter', mode: 'lines+markers', name: `${bName} SoC`,
+                        yaxis: 'y2',
+                        line: { color: col, width: 2, dash: 'dot' }, marker: { color: col, size: 5, symbol: 'diamond' },
+                    });
+                }
+            });
+        }
 
-        const xScale = (index) => padding.left + (index / (dataLen - 1)) * chartWidth;
-        const yScaleEnergy = (value) => padding.top + chartHeight - (toNumeric(value) / roundedMax) * chartHeight;
-        const yScaleSoC = (value) => padding.top + chartHeight - ((toNumeric(value) - minSoC) / (maxSoC - minSoC)) * chartHeight;
-
-        const createPath = (dataArr, key, scale) => {
-            return dataArr.map((d, i) => {
-                const x = xScale(i);
-                const y = scale(d[key]);
-                return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-            }).join(' ');
+        const layout = {
+            autosize: true, height: 400,
+            margin: { l: 60, r: 20, t: 10, b: 50 },
+            xaxis: { tickfont: { size: 11, color: '#6b7280' }, gridcolor: '#e5e7eb', automargin: true, nticks: 7 },
+            yaxis: {
+                title: { text: 'Energy (kWh)', font: { size: 12, color: '#6b7280' } },
+                tickfont: { size: 11, color: '#6b7280' }, gridcolor: '#e5e7eb',
+                rangemode: 'nonnegative',
+            },
+            paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+            showlegend: hasSeries,
+            legend: { orientation: 'h', y: -0.2, font: { size: 10 } },
+            hovermode: 'x unified',
         };
+        if (yAxis2Traces.length > 0) {
+            layout.yaxis2 = { title: { text: 'SoC (%)', font: { size: 12, color: '#f97316' } }, tickfont: { size: 11, color: '#f97316' }, overlaying: 'y', side: 'right', range: [0, 100] };
+            layout.margin.r = 70;
+        }
 
-        const gridLines = [0, 1, 2, 3, 4];
-        const yTicks = gridLines.map((i) => Math.round((roundedMax / 4) * i));
+        // Ensure at least one trace so Plotly renders the chart area
+        if (traces.length === 0) {
+            const safeLabels = labels.length > 0 ? labels : ['No data'];
+            traces.push({ x: safeLabels, y: safeLabels.map(() => 0), type: 'scatter', mode: 'lines', line: { color: 'transparent' }, showlegend: false });
+        }
 
-        return (
-            <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
-                {/* Grid lines */}
-                {gridLines.map((i) => {
-                    const y = padding.top + (i * chartHeight / 4);
-                    return (
-                        <line key={`grid-${i}`} x1={padding.left} y1={y} x2={padding.left + chartWidth} y2={y} stroke="#e5e7eb" strokeWidth="1" />
-                    );
-                })}
-
-                {!hasSeries ? (
-                    <>
-                        {/* AGGREGATED VIEW */}
-                        {showProduce && <>
-                            <path d={createPath(data, 'pvProduction', yScaleEnergy) + ` L ${xScale(data.length - 1)} ${padding.top + chartHeight} L ${padding.left} ${padding.top + chartHeight} Z`} fill="rgba(34, 197, 94, 0.1)" stroke="none" />
-                            <path d={createPath(data, 'pvProduction', yScaleEnergy)} fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                        </>}
-                        {showConsume && <path d={createPath(data, 'consumption', yScaleEnergy)} fill="none" stroke="#ef4444" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />}
-                        {showProduce && data.map((d, i) => (
-                            <circle key={`pv-${i}`} cx={xScale(i)} cy={yScaleEnergy(d.pvProduction)} r="4" fill="#22c55e" stroke="white" strokeWidth="2" />
-                        ))}
-                        {showConsume && data.map((d, i) => (
-                            <circle key={`con-${i}`} cx={xScale(i)} cy={yScaleEnergy(d.consumption)} r="4" fill="#ef4444" stroke="white" strokeWidth="2" />
-                        ))}
-                    </>
-                ) : (
-                    <>
-                        {/* PER-BUILDING VIEW — PV production (solid) + consumption (dashed) + battery SoC (dotted) */}
-                        {series.map((s, si) => {
-                            const col = BUILDING_COLORS[si % BUILDING_COLORS.length];
-                            const hasBat = s.hasBattery === true;
-                            const validBatSoC = hasBat && s.data.some(d => d.batterySoC != null);
-                            return (
-                                <g key={`series-${si}`}>
-                                    {/* PV Production - solid line */}
-                                    {showProduce && <path d={createPath(s.data, 'pvProduction', yScaleEnergy)} fill="none" stroke={col} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
-                                    {/* Consumption - dashed line */}
-                                    {showConsume && <path d={createPath(s.data, 'consumption', yScaleEnergy)} fill="none" stroke={col} strokeWidth="2" strokeDasharray="6,3" strokeLinecap="round" strokeLinejoin="round" />}
-                                    {/* Battery SoC - dotted line (clearly distinct from solid/dashed Produce/Consume) */}
-                                    {validBatSoC && showSoC && (
-                                        <path d={createPath(s.data, 'batterySoC', yScaleSoC)} fill="none" stroke={col} strokeWidth="4" strokeDasharray="1,6" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
-                                    )}
-                                    {/* Data points */}
-                                    {showProduce && s.data.map((d, i) => (
-                                        <circle key={`s${si}-pv-${i}`} cx={xScale(i)} cy={yScaleEnergy(d.pvProduction)} r="3" fill={col} stroke="white" strokeWidth="1.5" />
-                                    ))}
-                                    {showConsume && s.data.map((d, i) => (
-                                        <circle key={`s${si}-con-${i}`} cx={xScale(i)} cy={yScaleEnergy(d.consumption)} r="3" fill="white" stroke={col} strokeWidth="1.5" />
-                                    ))}
-                                    {/* Battery SoC diamonds + label */}
-                                    {validBatSoC && showSoC && (
-                                        <>
-                                            {s.data.map((d, i) => d.batterySoC != null && (
-                                                <polygon key={`s${si}-bat-${i}`} points={diamondPoints(xScale(i), yScaleSoC(d.batterySoC), 3.5)} fill={col} stroke="white" strokeWidth="1" />
-                                            ))}
-                                            {s.data[s.data.length - 1]?.batterySoC != null && (
-                                                <text x={xScale(s.data.length - 1) + 8} y={yScaleSoC(s.data[s.data.length - 1].batterySoC)} fill={col} fontSize="9" dominantBaseline="middle" fontWeight="bold">
-                                                    SoC {Math.round(s.data[s.data.length - 1].batterySoC)}%
-                                                </text>
-                                            )}
-                                        </>
-                                    )}
-                                </g>
-                            );
-                        })}
-                    </>
-                )}
-
-                {/* Y-axis labels (left - Energy) */}
-                {yTicks.map((value, i) => (
-                    <text key={`y-energy-${i}`} x={padding.left - 10} y={yScaleEnergy(value)} textAnchor="end" fontSize="12" fill="#6b7280" dominantBaseline="middle">{value}</text>
-                ))}
-
-                {/* Y-axis labels (right - Battery SoC) — aggregated mode has fixed 45-70 range, per-building has 0-100 */}
-                {showSoC && hasSeries && series.some(s => s.hasBattery) && [0, 25, 50, 75, 100].map((value, i) => (
-                    <text key={`y-soc-${i}`} x={padding.left + chartWidth + 35} y={yScaleSoC(value)} textAnchor="start" fontSize="12" fill="#f97316" fontWeight="500" dominantBaseline="middle">{value}</text>
-                ))}
-
-                {/* X-axis labels */}
-                {sampleData.map((d, i) => {
-                    const showLabel = dataLen <= 7 ? true : i % Math.ceil(dataLen / 7) === 0;
-                    if (!showLabel) return null;
-                    return (
-                        <text key={`x-${i}`} x={xScale(i)} y={padding.top + chartHeight + 25} textAnchor="middle" fontSize="12" fill="#6b7280">{d.day}</text>
-                    );
-                })}
-
-                <text x={padding.left - 45} y={padding.top + chartHeight / 2} textAnchor="middle" fontSize="12" fill="#6b7280" transform={`rotate(-90 ${padding.left - 45} ${padding.top + chartHeight / 2})`}>Energy (kWH)</text>
-                {showSoC && hasSeries && series.some(s => s.hasBattery) && <text x={padding.left + chartWidth + 100} y={padding.top + chartHeight / 2} textAnchor="middle" fontSize="12" fill="#f97316" fontWeight="600" transform={`rotate(90 ${padding.left + chartWidth + 100} ${padding.top + chartHeight / 2})`}>State of Charge (SoC) (%)</text>}
-                <text x={padding.left + chartWidth / 2} y={height - 5} textAnchor="middle" fontSize="13" fill="#6b7280" fontWeight="500">Timeline</text>
-            </svg>
-        );
+        return <Plot data={traces} layout={layout} config={{ displayModeBar: false }} useResizeHandler style={{ width: '100%', height: 400 }} revision={dataLen} />;
     };
 
     return (
@@ -1115,7 +1231,10 @@ export default function Report() {
                             </div>
                         </div>
                         <button
-                            onClick={exportCurrentReport}
+                            onClick={() => {
+                                setExportBuildings([...selectedBuildings]);
+                                setShowExportModal(true);
+                            }}
                             className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-lg"
                         >
                             <span>⬇️</span>
@@ -1340,26 +1459,25 @@ export default function Report() {
                             </button>
                         </div>
 
-                        {/* Donut Chart */}
+                        {/* Donut Chart — Plotly */}
                         <div className="flex items-center justify-center mb-6">
-                            <svg width="280" height="280" viewBox="0 0 280 280">
-                                <defs>
-                                    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-                                        <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.1"/>
-                                    </filter>
-                                </defs>
-                                {sourceBreakdown.items.map((item) => (
-                                    <path
-                                        key={item.key}
-                                        d={item.path}
-                                        fill={item.color}
-                                        filter="url(#shadow)"
-                                    />
-                                ))}
-                                
-                                {/* Center white circle for donut effect */}
-                                <circle cx="140" cy="140" r="85" fill="white"/>
-                            </svg>
+                            <Plot
+                                data={[{
+                                    values: sourceBreakdown.items.map(i => i.value),
+                                    labels: sourceBreakdown.items.map(i => i.label),
+                                    marker: { colors: sourceBreakdown.items.map(i => i.color) },
+                                    type: 'pie', hole: 0.6,
+                                    textinfo: 'none',
+                                    hovertemplate: '%{label}<br>%{value:,.0f} kWh (%{percent})<extra></extra>',
+                                }]}
+                                layout={{
+                                    autosize: true, height: 280, width: 280,
+                                    margin: { l: 0, r: 0, t: 0, b: 0 },
+                                    paper_bgcolor: 'transparent',
+                                    showlegend: false,
+                                }}
+                                config={{ displayModeBar: false }}
+                            />
                         </div>
 
                         {/* Breakdown List */}
@@ -1430,342 +1548,335 @@ export default function Report() {
                     </div>
                 </div>
 
-                {/* Building Comparison Report */}
+                {/* Building Energy Comparison */}
                 <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-                    <div className="mb-6">
-                        <h2 className="text-xl font-bold text-gray-900 mb-1">Building Comparison Report</h2>
-                        <p className="text-sm text-gray-600">Side-by-side energy flow analysis</p>
-                    </div>
-
-                    <div className="flex gap-6">
-                        {/* Left: Ratchaphruk Building (With Battery) */}
-                        <div className="flex-1 bg-gray-50 rounded-xl p-5">
-                            <div className="flex items-center justify-between mb-4">
-                                <div>
-                                    <h3 className="text-lg font-bold text-gray-900">Production vs Consumption vs Battery</h3>
-                                    <p className="text-sm text-gray-600">
-                                        {compareLeft?.name || 'Select building'} ({compareLeft?.hasBattery ? 'With Battery' : 'Without Battery'})
-                                    </p>
-                                </div>
-                                <select
-                                    value={compareWithBattery}
-                                    onChange={(e) => setCompareWithBattery(e.target.value)}
-                                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium bg-white"
-                                >
-                                    {buildingOptions.map((name) => (
-                                        <option key={`left-${name}`} value={name}>{name}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {/* Legend */}
-                            <div className="flex items-center gap-4 mb-4 justify-center">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-1 bg-green-500 rounded"></div>
-                                    <span className="text-xs text-gray-700 font-medium">PV Production</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-1 bg-red-500 rounded"></div>
-                                    <span className="text-xs text-gray-700 font-medium">Consumption</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-3 bg-orange-500 rounded"></div>
-                                    <span className="text-xs text-gray-700 font-medium">Battery Discharge</span>
-                                </div>
-                            </div>
-
-                            <ComparisonBarChart
-                                series={compareLeftSeries}
-                                showBattery={Boolean(compareLeft?.hasBattery)}
-                            />
-
-                            {/* Insight */}
-                            <div className="mt-4 bg-blue-50 border-l-4 border-blue-500 p-3 rounded">
-                                <div className="flex items-start gap-2">
-                                    <span className="text-blue-600 text-lg">ℹ️</span>
-                                    <p className="text-sm text-gray-800">
-                                        {compareLeft?.hasBattery
-                                            ? <>Battery available: <span className="font-bold text-blue-700">{compareLeft?.batteryPct || 0}%</span> SoC ({compareLeft?.batteryValue || 0} / {compareLeft?.batteryCap || 0} kWh)</>
-                                            : <>No battery meter found for this building.</>}
-                                    </p>
-                                </div>
-                            </div>
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
+                            <h2 className="text-xl font-bold text-gray-900 mb-1">Building Energy Comparison</h2>
+                            <p className="text-sm text-gray-600">Compare energy flow between two buildings</p>
                         </div>
-
-                        {/* Right: Malai Building (Without Battery) */}
-                        <div className="flex-1 bg-gray-50 rounded-xl p-5">
-                            <div className="flex items-center justify-between mb-4">
-                                <div>
-                                    <h3 className="text-lg font-bold text-gray-900">Production vs Consumption</h3>
-                                    <p className="text-sm text-gray-600">
-                                        {compareRight?.name || 'Select building'} ({compareRight?.hasBattery ? 'With Battery' : 'Without Battery'})
-                                    </p>
-                                </div>
-                                <select
-                                    value={compareWithoutBattery}
-                                    onChange={(e) => setCompareWithoutBattery(e.target.value)}
-                                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium bg-white"
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500">Time Range:</span>
+                            {[
+                                { key: '1d', label: '1 Day' },
+                                { key: '7d', label: '7 Days' },
+                            ].map((option) => (
+                                <button
+                                    key={option.key}
+                                    type="button"
+                                    onClick={() => setComparisonRange(option.key)}
+                                    className={`rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
+                                        comparisonRange === option.key
+                                            ? 'bg-blue-600 text-white'
+                                            : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                                    }`}
                                 >
-                                    {buildingOptions.map((name) => (
-                                        <option key={`right-${name}`} value={name}>{name}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {/* Legend */}
-                            <div className="flex items-center gap-4 mb-4 justify-center">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-1 bg-green-500 rounded"></div>
-                                    <span className="text-xs text-gray-700 font-medium">PV Production</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-1 bg-red-500 rounded"></div>
-                                    <span className="text-xs text-gray-700 font-medium">Consumption</span>
-                                </div>
-                            </div>
-
-                            <ComparisonBarChart
-                                series={compareRightSeries}
-                                showBattery={Boolean(compareRight?.hasBattery)}
-                            />
-
-                            {/* Warning */}
-                            <div className="mt-4 bg-orange-50 border-l-4 border-orange-500 p-3 rounded">
-                                <div className="flex items-start gap-2">
-                                    <span className="text-orange-600 text-lg">🔥</span>
-                                    <p className="text-sm text-gray-800">
-                                        <span className="font-bold text-orange-700">Production {Number(compareRight?.production || 0).toLocaleString()} kWh</span>
-                                        {' '}vs consumption {Number(compareRight?.consumption || 0).toLocaleString()} kWh.
-                                    </p>
-                                </div>
-                            </div>
+                                    {option.label}
+                                </button>
+                            ))}
                         </div>
                     </div>
+
+                    {comparisonOptions.length === 0 ? (
+                        <div className="w-full h-36 rounded-lg border border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-xs text-gray-500">
+                            No per-building energy comparison available yet
+                        </div>
+                    ) : (
+                        <>
+                            <div className="mb-4 flex flex-col gap-4 lg:flex-row">
+                                <div className="w-full min-w-0 lg:basis-1/2 lg:flex-1">
+                                    <div className="mb-2 text-xs text-gray-500">Select first building</div>
+                                    <select
+                                        value={selectedComparisonA}
+                                        onChange={(e) => handleSelectComparisonA(e.target.value)}
+                                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700"
+                                    >
+                                        {comparisonOptions.map((option) => (
+                                            <option key={`a-${option.name}`} value={option.name}>
+                                                {option.name} {option.hasBattery ? '(with Battery)' : '(without Battery)'}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="w-full min-w-0 lg:basis-1/2 lg:flex-1">
+                                    <div className="mb-2 text-xs text-gray-500">Select second building</div>
+                                    <select
+                                        value={selectedComparisonB}
+                                        onChange={(e) => handleSelectComparisonB(e.target.value)}
+                                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700"
+                                    >
+                                        {comparisonOptions.map((option) => (
+                                            <option key={`b-${option.name}`} value={option.name}>
+                                                {option.name} {option.hasBattery ? '(with Battery)' : '(without Battery)'}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-4 lg:flex-row">
+                                {[selectedComparisonCharts.left, selectedComparisonCharts.right].filter(Boolean).map((chart, index) => {
+                                    const yTicks = [chart?.maxValue || 0, (chart?.maxValue || 0) * 0.75, (chart?.maxValue || 0) * 0.5, (chart?.maxValue || 0) * 0.25, 0];
+                                    const lineValues = (chart?.points || []).flatMap((point) => (
+                                        chart?.hasBattery
+                                            ? [point.solar, point.consumption, point.battery]
+                                            : [point.solar, point.consumption]
+                                    )).map(toNumeric);
+                                    const lineScale = buildNiceScale(lineValues);
+                                    const lineChartMin = lineScale.min;
+                                    const lineChartMax = lineScale.max;
+                                    const lineChartRange = Math.max(1, lineChartMax - lineChartMin);
+                                    const lineYTicks = lineScale.ticks;
+                                    const width = Math.max(240, (chart?.points?.length || 1) - 1) * 24;
+                                    const totalNet = (chart?.netSeries || []).reduce((sum, value) => sum + value, 0);
+                                    const currentBatteryPct = chart?.hasBattery ? toNumeric(chart?.batteryPct) : null;
+                                    const polyline = (values) => values.map((value, valueIndex) => {
+                                        const x = (valueIndex / Math.max(1, values.length - 1)) * width;
+                                        const y = 160 - (((toNumeric(value) - lineChartMin) / lineChartRange) * 140);
+                                        return `${x},${y}`;
+                                    }).join(' ');
+
+                                    return (
+                                        <div key={`chart-${chart?.buildingName || '?'}-${comparisonRange}-${index}`} className="w-full min-w-0 space-y-4 lg:basis-1/2 lg:flex-1">
+                                            <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                <div className="mb-3 text-sm font-semibold text-gray-800">
+                                                    {chart?.buildingName || 'Building'}: {chart?.hasBattery ? 'Produce vs Consume vs Battery' : 'Produce vs Consume'}
+                                                </div>
+                                                <div className="mb-3 flex items-center gap-4 text-[11px] text-gray-500">
+                                                    <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-amber-400" />PV Production</span>
+                                                    <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-rose-300" />Total Consumption</span>
+                                                    {chart?.hasBattery && <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />Battery</span>}
+                                                </div>
+                                                <div className="rounded-lg border border-gray-100 bg-white p-3">
+                                                    <div className="flex gap-3">
+                                                        <div className="w-10">
+                                                            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">kWh</div>
+                                                            <div className="flex h-40 flex-col justify-between text-[10px] text-gray-500">
+                                                                {yTicks.map((tick, tickIndex) => (
+                                                                    <span key={`${chart?.buildingName || index}-bar-y-${comparisonRange}-${tickIndex}`} className="text-right">
+                                                                        {Math.round(tick)}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex h-40 items-end gap-1">
+                                                                {chart?.points?.map((point) => (
+                                                                    <div
+                                                                        key={`${chart.buildingName}-${point.label}-${comparisonRange}`}
+                                                                        className="flex min-w-0 flex-1 flex-col items-center gap-2"
+                                                                    >
+                                                                        <div className="flex h-32 w-full items-end gap-1">
+                                                                            <div className="w-1/3 rounded-t bg-amber-400" style={{ height: `${point.solarPct}%` }} />
+                                                                            <div className={`rounded-t bg-rose-300 ${chart.hasBattery ? 'w-1/3' : 'w-2/3'}`} style={{ height: `${point.consumptionPct}%` }} />
+                                                                            {chart?.hasBattery && <div className="w-1/3 rounded-t bg-emerald-500" style={{ height: `${point.batteryPct}%` }} />}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            <div className="mt-3 flex items-center justify-between text-[10px] text-gray-500">
+                                                                {chart?.points?.filter(p => p.displayLabel).map((point) => (
+                                                                    <span key={`${chart.buildingName}-${point.label}-bar-x-${comparisonRange}`} className="text-center">{point.displayLabel}</span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                                <div className="mb-3 text-sm font-semibold text-gray-800">
+                                                    {chart?.buildingName || 'Building'}: {chart?.hasBattery ? 'Grid & Battery Flow' : 'Net Grid Flow'}
+                                                </div>
+                                                <div className="mb-3 flex items-center gap-4 text-[11px] text-gray-500">
+                                                    <span className="inline-flex items-center gap-2"><span className="h-0.5 w-4 bg-amber-400" />PV Produce</span>
+                                                    <span className="inline-flex items-center gap-2"><span className="h-0.5 w-4 bg-rose-400" />Grid Import</span>
+                                                    {chart?.hasBattery && <span className="inline-flex items-center gap-2"><span className="h-0.5 w-4 bg-emerald-500" />Battery</span>}
+                                                </div>
+                                                <div className="rounded-lg border border-gray-100 bg-white p-3">
+                                                    <div className="flex gap-3">
+                                                        <div className="w-10">
+                                                            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">kWh</div>
+                                                            <div className="flex h-44 flex-col justify-between text-[10px] text-gray-500">
+                                                                {lineYTicks.map((tick, tickIndex) => (
+                                                                    <span key={`${chart?.buildingName || index}-line-y-${comparisonRange}-${tickIndex}`} className="text-right">
+                                                                        {Math.round(tick)}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <svg viewBox={`0 0 ${width} 180`} className="h-44 w-full">
+                                                                <polyline fill="none" stroke="#fbbf24" strokeWidth="20" points={polyline((chart?.points || []).map((point) => point.solar))} />
+                                                                <polyline fill="none" stroke="#fb7185" strokeWidth="20" points={polyline((chart?.points || []).map((point) => point.consumption))} />
+                                                                {chart?.hasBattery && (
+                                                                    <polyline fill="none" stroke="#22c55e" strokeWidth="20" points={polyline((chart?.points || []).map((point) => point.battery))} />
+                                                                )}
+                                                            </svg>
+                                                            <div className="mt-2 flex items-center justify-between text-[10px] text-gray-500">
+                                                                {chart?.points?.filter(p => p.displayLabel).map((point) => (
+                                                                    <span key={`${chart.buildingName}-${point.label}-line-x-${comparisonRange}`} className="text-center">{point.displayLabel}</span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-3 grid grid-cols-2 gap-3">
+                                                    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
+                                                        <span className="text-xs text-gray-500">Current Battery SoC</span>
+                                                        <div className="mt-1 font-semibold text-gray-900">
+                                                            {chart?.hasBattery && currentBatteryPct != null ? `${currentBatteryPct}%` : 'N/A'}
+                                                        </div>
+                                                    </div>
+                                                    <div className={`rounded-lg border px-3 py-2 text-sm ${totalNet >= 0 ? 'border-blue-100 bg-blue-50' : 'border-gray-200 bg-white'}`}>
+                                                        <span className="text-xs text-gray-500">Battery Status</span>
+                                                        <div className={`mt-1 font-semibold ${chart?.hasBattery ? 'text-blue-600' : 'text-gray-900'}`}>
+                                                            {chart?.hasBattery ? 'State of Health (SoH)' : 'No Battery'}
+                                                        </div>
+                                                        {!chart?.hasBattery && (
+                                                            <div className="mt-1 text-xs text-gray-500">
+                                                                {`${totalNet >= 0 ? '+' : ''}${formatEnergy(totalNet)} kWh`}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 {/* Grid & Battery Flow and Net Grid Flow */}
+                {(() => {
+                    // Use selected building or fallback to first battery-equipped
+                    const gridOpts = comparisonOptions.filter(o => comparisonSeriesByBuilding[o.name]?.ranges?.['1d']);
+                    const gridBuildingName = selectedGridBuilding && comparisonSeriesByBuilding[selectedGridBuilding]
+                        ? selectedGridBuilding
+                        : gridOpts[0]?.name || comparisonOptions[0]?.name;
+                    const gridData = comparisonSeriesByBuilding[gridBuildingName]?.ranges?.['1d'];
+                    if (!gridData) return null;
+                    const { labels: gLabels, solar: gSolar, consumption: gConsumption, battery: gBattery } = gridData;
+                    const hourlyLen = gLabels.length || 24;
+                    const gridPoints = Array.from({ length: hourlyLen }, (_, i) => ({
+                        label: gLabels[i] || '',
+                        solar: toNumeric(gSolar[i]),
+                        consumption: toNumeric(gConsumption[i]),
+                        battery: toNumeric(gBattery[i]),
+                    }));
+                    // Grid import = max(0, consumption - solar - battery)
+                    const gridImport = gridPoints.map(p => Math.max(0, p.consumption - p.solar - p.battery));
+                    // Net grid flow: net = consumption - solar - battery (保持符号)
+                    const netFlow = gridPoints.map(p => p.consumption - p.solar - p.battery);
+                    const gridLabels = gridPoints.map(p => p.label);
+
+                    return (
                 <div className="flex gap-6 mb-6">
                     {/* Left: Grid & Battery Flow */}
                     <div className="flex-1 bg-white rounded-2xl shadow-lg p-6">
                         <div className="flex items-center justify-between mb-6">
-                            <div className="flex-1">
-                                <div className="flex items-center gap-3 mb-1">
-                                    <h2 className="text-xl font-bold text-gray-900">Grid & Battery Flow</h2>
-                                    <span className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-sm font-bold">
-                                        Optimized
-                                    </span>
-                                </div>
-                                <p className="text-sm text-gray-600">Energy Arbitrage Analysis - Ratchaphruk</p>
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-900">Grid & Battery Flow</h2>
+                                <p className="text-sm text-gray-600">Hourly Grid Import vs Battery Discharge</p>
                             </div>
+                            <select value={gridBuildingName} onChange={(e) => setSelectedGridBuilding(e.target.value)}
+                                className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                {gridOpts.map(o => <option key={o.name} value={o.name}>{o.name}</option>)}
+                            </select>
                         </div>
-
-                        {/* Legend */}
                         <div className="flex items-center gap-4 mb-4 justify-center">
-                            <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 bg-blue-500 rounded"></div>
-                                <span className="text-sm text-gray-700 font-medium">Grid Import</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 bg-orange-500 rounded"></div>
-                                <span className="text-sm text-gray-700 font-medium">Battery Discharge</span>
-                            </div>
+                            <div className="flex items-center gap-2"><div className="w-4 h-4 bg-blue-500 rounded" /><span className="text-sm text-gray-700 font-medium">Grid Import</span></div>
+                            <div className="flex items-center gap-2"><div className="w-4 h-4 bg-orange-500 rounded" /><span className="text-sm text-gray-700 font-medium">Battery Discharge</span></div>
                         </div>
-
-                        {/* Bar Chart */}
-                        <svg width="100%" height="350" viewBox="0 0 600 350">
-                            {/* Grid lines */}
-                            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-                                <line
-                                    key={`grid-line-${i}`}
-                                    x1="60"
-                                    y1={40 + i * 40}
-                                    x2="580"
-                                    y2={40 + i * 40}
-                                    stroke="#e5e7eb"
-                                    strokeWidth="1"
-                                />
-                            ))}
-
-                            {/* Bar data points */}
-                            {/* 00:00 - Grid Import 120 kWH */}
-                            <rect x="65" y="80" width="50" height="200" fill="#3b82f6" rx="4"/>
-                            
-                            {/* 03:00 - Grid Import 100 kWH */}
-                            <rect x="135" y="113" width="50" height="167" fill="#3b82f6" rx="4"/>
-                            
-                            {/* 06:00 - Grid Import 50 kWH */}
-                            <rect x="205" y="197" width="50" height="83" fill="#3b82f6" rx="4"/>
-                            
-                            {/* 09:00-15:00 - No bars (solar covers consumption) */}
-                            
-                            {/* 18:00 - Battery Discharge 80 kWH */}
-                            <rect x="415" y="147" width="50" height="133" fill="#f97316" rx="4"/>
-                            
-                            {/* 21:00 - Grid Import 80 kWH + Battery Discharge 60 kWH */}
-                            <rect x="485" y="147" width="50" height="133" fill="#3b82f6" rx="4"/>
-                            <rect x="485" y="47" width="50" height="100" fill="#f97316" rx="4"/>
-
-                            {/* Y-axis labels */}
-                            {[0, 20, 40, 60, 80, 100, 120, 140].map((value, i) => (
-                                <text
-                                    key={`y-label-${i}`}
-                                    x="50"
-                                    y={280 - i * 33.33}
-                                    textAnchor="end"
-                                    fontSize="12"
-                                    fill="#6b7280"
-                                >
-                                    {value}
-                                </text>
-                            ))}
-
-                            {/* X-axis labels */}
-                            {['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'].map((time, i) => (
-                                <text
-                                    key={`x-label-${i}`}
-                                    x={90 + i * 70}
-                                    y="300"
-                                    textAnchor="middle"
-                                    fontSize="12"
-                                    fill="#6b7280"
-                                >
-                                    {time}
-                                </text>
-                            ))}
-
-                            {/* Y-axis label */}
-                            <text
-                                x="20"
-                                y="160"
-                                textAnchor="middle"
-                                fontSize="13"
-                                fill="#6b7280"
-                                fontWeight="500"
-                                transform="rotate(-90 20 160)"
-                            >
-                                kWH
-                            </text>
-                        </svg>
+                        <div key={`grid-battery-div-${gridBuildingName}-${hourlyLen}`}>
+                        <Plot
+                            data={[
+                                { x: gridLabels, y: gridImport, type: 'bar', name: 'Grid Import', marker: { color: '#3b82f6', opacity: 0.9 } },
+                                { x: gridLabels, y: gridPoints.map(p => p.battery), type: 'bar', name: 'Battery Discharge', marker: { color: '#f97316', opacity: 0.9 } },
+                            ]}
+                            layout={{
+                                autosize: true, height: 350, barmode: 'stack',
+                                margin: { l: 55, r: 10, t: 10, b: 40 },
+                                xaxis: { tickfont: { size: 10, color: '#6b7280' }, gridcolor: '#e5e7eb', automargin: true, nticks: 4 },
+                                yaxis: { title: { text: 'kWh', font: { size: 12, color: '#6b7280' } }, tickfont: { size: 10, color: '#6b7280' }, gridcolor: '#e5e7eb', rangemode: 'tozero' },
+                                paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+                                showlegend: false,
+                            }}
+                            config={{ displayModeBar: false }}
+                            useResizeHandler style={{ width: '100%', height: '100%' }}
+                        />
+                        </div>
                     </div>
 
                     {/* Right: Net Grid Flow */}
                     <div className="flex-1 bg-white rounded-2xl shadow-lg p-6">
-                        <div className="flex items-center justify-between mb-6">
-                            <div className="flex-1">
-                                <div className="flex items-center gap-3 mb-1">
-                                    <h2 className="text-xl font-bold text-gray-900">Net Grid Flow</h2>
-                                    <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-lg text-sm font-bold">
-                                        High Import
-                                    </span>
-                                </div>
-                                <p className="text-sm text-gray-600">Grid Import Analysis - Malai Building</p>
-                            </div>
+                        <div>
+                            <h2 className="text-xl font-bold text-gray-900">Net Grid Flow</h2>
+                            <p className="text-sm text-gray-600">Net Grid Exchange (Consumption − Solar − Battery) — {gridBuildingName}</p>
                         </div>
-
-                        {/* Legend */}
-                        <div className="flex items-center gap-4 mb-4 justify-center">
-                            <div className="flex items-center gap-2">
-                                <div className="w-4 h-1 bg-blue-600 rounded"></div>
-                                <span className="text-sm text-gray-700 font-medium">Net Grid Import</span>
-                            </div>
+                        <div className="flex items-center gap-4 mb-4 justify-center mt-4">
+                            <div className="flex items-center gap-2"><div className="w-4 h-1 bg-blue-600 rounded" /><span className="text-sm text-gray-700 font-medium">Net Grid</span></div>
                         </div>
-
-                        {/* Line Chart */}
-                        <svg width="100%" height="350" viewBox="0 0 600 350">
-                            {/* Grid lines */}
-                            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-                                <line
-                                    key={`net-grid-line-${i}`}
-                                    x1="60"
-                                    y1={40 + i * 40}
-                                    x2="580"
-                                    y2={40 + i * 40}
-                                    stroke="#e5e7eb"
-                                    strokeWidth="1"
-                                />
-                            ))}
-
-                            {/* Data path - Net Grid Import line */}
-                            <path
-                                d="M 90,47 L 160,67 L 230,127 L 300,207 L 370,267 L 440,240 L 510,87 L 580,47"
-                                fill="none"
-                                stroke="#2563eb"
-                                strokeWidth="3"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                            />
-
-                            {/* Fill area under the line */}
-                            <path
-                                d="M 90,47 L 160,67 L 230,127 L 300,207 L 370,267 L 440,240 L 510,87 L 580,47 L 580,280 L 90,280 Z"
-                                fill="rgba(37, 99, 235, 0.1)"
-                            />
-
-                            {/* Data points */}
-                            {[
-                                {x: 90, y: 47},
-                                {x: 160, y: 67},
-                                {x: 230, y: 127},
-                                {x: 300, y: 207},
-                                {x: 370, y: 267},
-                                {x: 440, y: 240},
-                                {x: 510, y: 87},
-                                {x: 580, y: 47}
-                            ].map((point, i) => (
-                                <circle
-                                    key={`point-${i}`}
-                                    cx={point.x}
-                                    cy={point.y}
-                                    r="4"
-                                    fill="#2563eb"
-                                    stroke="white"
-                                    strokeWidth="2"
-                                />
-                            ))}
-
-                            {/* Y-axis labels */}
-                            {[0, 20, 40, 60, 80, 100, 120].map((value, i) => (
-                                <text
-                                    key={`net-y-label-${i}`}
-                                    x="50"
-                                    y={280 - i * 40}
-                                    textAnchor="end"
-                                    fontSize="12"
-                                    fill="#6b7280"
-                                >
-                                    {value}
-                                </text>
-                            ))}
-
-                            {/* X-axis labels */}
-                            {['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'].map((time, i) => (
-                                <text
-                                    key={`net-x-label-${i}`}
-                                    x={90 + i * 70}
-                                    y="300"
-                                    textAnchor="middle"
-                                    fontSize="12"
-                                    fill="#6b7280"
-                                >
-                                    {time}
-                                </text>
-                            ))}
-
-                            {/* Y-axis label */}
-                            <text
-                                x="20"
-                                y="160"
-                                textAnchor="middle"
-                                fontSize="13"
-                                fill="#6b7280"
-                                fontWeight="500"
-                                transform="rotate(-90 20 160)"
-                            >
-                                kWH
-                            </text>
-                        </svg>
+                        {(() => {
+                            const absMax = Math.max(1, ...netFlow.map(v => Math.abs(v)));
+                            const pad = absMax * 0.1;
+                            const yMin = -absMax - pad;
+                            const yMax = absMax + pad;
+                            const yRange = yMax - yMin;
+                            const svgW = 520;
+                            const svgH = 300;
+                            const padL = 50;
+                            const padR = 10;
+                            const padT = 15;
+                            const padB = 30;
+                            const plotW = svgW - padL - padR;
+                            const plotH = svgH - padT - padB;
+                            const toX = (i) => padL + (hourlyLen > 1 ? (i / (hourlyLen - 1)) * plotW : plotW / 2);
+                            const toY = (v) => padT + plotH - ((v - yMin) / yRange) * plotH;
+                            const points = netFlow.map((v, i) => `${toX(i)},${toY(v)}`).join(' ');
+                            const yTicks = [Math.round(yMin), Math.round(yMin / 2), 0, Math.round(yMax / 2), Math.round(yMax)];
+                            const xTickInterval = Math.max(1, Math.floor(hourlyLen / 5));
+                            return (
+                                <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: '100%', height: 350 }}>
+                                    {/* Grid lines */}
+                                    {yTicks.map((tick) => (
+                                        <line key={`yg-${tick}`} x1={padL} y1={toY(tick)} x2={padL + plotW} y2={toY(tick)}
+                                            stroke="#e5e7eb" strokeWidth="1" />
+                                    ))}
+                                    {/* Zero line bold */}
+                                    <line x1={padL} y1={toY(0)} x2={padL + plotW} y2={toY(0)}
+                                        stroke="#9ca3af" strokeWidth="1.5" />
+                                    {/* Net line */}
+                                    <polyline points={points} fill="none" stroke="#2563eb" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+                                    {/* Dots */}
+                                    {netFlow.map((v, i) => (
+                                        <circle key={`dot-${i}`} cx={toX(i)} cy={toY(v)} r="3" fill="#2563eb" />
+                                    ))}
+                                    {/* Y-axis labels */}
+                                    {yTicks.map((tick) => (
+                                        <text key={`yl-${tick}`} x={padL - 5} y={toY(tick) + 4}
+                                            textAnchor="end" fontSize="10" fill="#6b7280">{tick}</text>
+                                    ))}
+                                    {/* X-axis labels */}
+                                    {gridLabels.map((label, i) => {
+                                        if (i % xTickInterval !== 0) return null;
+                                        return (
+                                            <text key={`xl-${i}`} x={toX(i)} y={svgH - 5}
+                                                textAnchor="middle" fontSize="10" fill="#6b7280">{label}</text>
+                                        );
+                                    })}
+                                    {/* Y-axis title */}
+                                    <text x={12} y={svgH / 2} textAnchor="middle" fontSize="11" fill="#6b7280"
+                                        transform={`rotate(-90, 12, ${svgH / 2})`}>kWh</text>
+                                </svg>
+                            );
+                        })()}
                     </div>
                 </div>
+                    );
+                })()}
 
                 {/* Battery Assets Report */}
                 <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
@@ -1954,6 +2065,90 @@ export default function Report() {
                     </div>
                 </div>
             </div>
+
+            {/* Export Modal */}
+            {showExportModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                    <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+                        <h2 className="text-xl font-bold text-gray-900 mb-6">Export Report</h2>
+
+                        {/* Building Selection */}
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Buildings</label>
+                            <div className="max-h-32 overflow-y-auto border rounded-lg p-2 space-y-1">
+                                {(() => {
+                                    const blds = Object.values(buildingStats);
+                                    return (
+                                        <>
+                                            <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded font-semibold">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={exportBuildings.length === 0}
+                                                    onChange={() => setExportBuildings([])}
+                                                />
+                                                <span className="text-sm">All Buildings</span>
+                                            </label>
+                                            <hr className="my-1" />
+                                            {blds.map(b => (
+                                                <label key={b.name} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={exportBuildings.length === 0 || exportBuildings.includes(b.name)}
+                                                        onChange={() => {
+                                                            if (exportBuildings.length === 0) {
+                                                                setExportBuildings(blds.filter(x => x.name !== b.name).map(x => x.name));
+                                                            } else if (exportBuildings.includes(b.name)) {
+                                                                const next = exportBuildings.filter(n => n !== b.name);
+                                                                setExportBuildings(next.length === blds.length ? [] : next);
+                                                            } else {
+                                                                const next = [...exportBuildings, b.name];
+                                                                setExportBuildings(next.length === blds.length ? [] : next);
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span className="text-sm">{b.name}</span>
+                                                </label>
+                                            ))}
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        </div>
+
+                        {/* Time Range */}
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Time Range</label>
+                            <div className="flex items-center gap-2">
+                                <DatePicker selected={exportStartDate} onChange={setExportStartDate} dateFormat="MMM d, yyyy" maxDate={exportEndDate} className="w-full rounded border px-3 py-2 text-sm" />
+                                <span className="text-gray-400">to</span>
+                                <DatePicker selected={exportEndDate} onChange={setExportEndDate} dateFormat="MMM d, yyyy" minDate={exportStartDate} maxDate={new Date()} className="w-full rounded border px-3 py-2 text-sm" />
+                            </div>
+                        </div>
+
+                        {/* Format */}
+                        <div className="mb-6">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Format</label>
+                            <div className="flex gap-3">
+                                <label className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border-2 cursor-pointer ${exportFormat === 'excel' ? 'border-green-500 bg-green-50' : 'border-gray-200'}`}>
+                                    <input type="radio" name="fmt" value="excel" checked={exportFormat === 'excel'} onChange={() => setExportFormat('excel')} className="sr-only" />
+                                    <span>📊</span><span className="text-sm font-semibold">Excel</span>
+                                </label>
+                                <label className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border-2 cursor-pointer ${exportFormat === 'pdf' ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}>
+                                    <input type="radio" name="fmt" value="pdf" checked={exportFormat === 'pdf'} onChange={() => setExportFormat('pdf')} className="sr-only" />
+                                    <span>📄</span><span className="text-sm font-semibold">PDF</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button onClick={() => setShowExportModal(false)} className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg font-semibold hover:bg-gray-50">Cancel</button>
+                            <button onClick={handleModalExport} disabled={exporting} className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50">
+                                {exporting ? 'Exporting...' : 'Export'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

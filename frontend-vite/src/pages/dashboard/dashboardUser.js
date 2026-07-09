@@ -81,6 +81,8 @@ export default function DashboardUser() {
   const [energyRates, setEnergyRates] = useState([]);
   const [tokenRates, setTokenRates] = useState([]);
   const [energyRange, setEnergyRange] = useState('1D');
+  const [customDateRange, setCustomDateRange] = useState([null, null]);
+  const [customStart, customEnd] = customDateRange;
   const [hourlyProduction, setHourlyProduction] = useState(Array(24).fill(0));
   const [hourlyConsumption, setHourlyConsumption] = useState(Array(24).fill(0));
   const [batteryFlow, setBatteryFlow] = useState(Array(24).fill(0));
@@ -119,9 +121,20 @@ export default function DashboardUser() {
         const currentYear = now.getFullYear();
         const currentMonth = now.getMonth() + 1;
         const today = formatDateLocal(now);
-        const rangeDays = energyRange === '30D' ? 29 : energyRange === '7D' ? 6 : 0;
-        const timeunit = energyRange === '1D' ? 'hour' : 'day';
-        const startDate = formatDateLocal(shiftDate(now, -rangeDays));
+
+        // Compute date range
+        let startDate, endDate, timeunit, rangeDays;
+        if (energyRange === 'custom' && customStart && customEnd) {
+          startDate = formatDateLocal(customStart);
+          endDate = formatDateLocal(customEnd);
+          timeunit = 'day';
+          rangeDays = Math.ceil((customEnd - customStart) / (1000 * 60 * 60 * 24));
+        } else {
+          rangeDays = energyRange === '30D' ? 29 : energyRange === '7D' ? 6 : 0;
+          timeunit = energyRange === '1D' ? 'hour' : 'day';
+          startDate = formatDateLocal(shiftDate(now, -rangeDays));
+          endDate = today;
+        }
 
         const [
           walletRes,
@@ -140,8 +153,9 @@ export default function DashboardUser() {
           getTokenRates().catch(() => []),
           searchBuildingEnergy({
             building: normalizeEnergyBuildingName(foundBuilding.name),
+            buildingId: foundBuilding.id,
             start: startDate,
-            end: today,
+            end: endDate,
             timeunit,
           }).catch(() => null),
         ]);
@@ -157,7 +171,7 @@ export default function DashboardUser() {
         } : null;
 
         const energyPayload = energyRes?.data || {};
-        const expectedLength = energyRange === '30D' ? 30 : energyRange === '7D' ? 7 : 24;
+        const expectedLength = energyRange === 'custom' ? Math.max(1, rangeDays) : energyRange === '30D' ? 30 : energyRange === '7D' ? 7 : 24;
         const productionValues = Array.isArray(energyPayload?.production?.value)
           ? energyPayload.production.value.map((item) => toSafeNumber(item))
           : Array(expectedLength).fill(0);
@@ -194,7 +208,7 @@ export default function DashboardUser() {
 
     loadDashboard();
     return () => { mounted = false; };
-  }, [bootstrapped, energyRange, member?.email]);
+  }, [bootstrapped, energyRange, customStart, customEnd, member?.email]);
 
   const { battery, producer, consumer } = useMemo(() => getMeterGroup(meters), [meters]);
   const tokenBalance = toSafeNumber(wallet?.tokenBalance);
@@ -331,18 +345,25 @@ export default function DashboardUser() {
   const energyChartMeta = useMemo(() => {
     const labels = Array.from({ length: energySeriesLength }).map((_, index) => {
       if (energyRange === '1D') return `${String(index).padStart(2, '0')}:00`;
+      if (energyRange === 'custom' && customStart) {
+        const d = new Date(customStart);
+        d.setDate(d.getDate() + index);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      }
       const base = shiftDate(new Date(), -((energySeriesLength - 1) - index));
       return base.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     });
 
     const tickIndexes = energyRange === '1D'
-      ? [0, 6, 12, 18, Math.max(hourlyProduction.length - 1, 0)]
+      ? [0, 6, 12, 18, Math.max(energySeriesLength - 1, 0)]
+      : energyRange === 'custom'
+      ? labels.map((_, i) => i).filter((i) => i % Math.max(1, Math.ceil(energySeriesLength / 8)) === 0 || i === energySeriesLength - 1)
       : [0, Math.max(Math.floor((energySeriesLength - 1) / 2), 0), Math.max(energySeriesLength - 1, 0)];
 
     const uniqueTickIndexes = [...new Set(tickIndexes)].filter((index) => index >= 0 && index < labels.length);
 
     return { labels, tickIndexes: uniqueTickIndexes };
-  }, [energyRange, energySeriesLength, hourlyProduction.length]);
+  }, [energyRange, energySeriesLength, customStart]);
 
   const exportEnergyChart = () => {
     const rows = energyChartMeta.labels.map((label, index) => ({
@@ -372,6 +393,16 @@ export default function DashboardUser() {
     ...Array.from({ length: energySeriesLength }).map((_, index) => toSafeNumber(hourlyConsumption[index])),
     1
   );
+
+  // Build Y-axis labels (like admin dashboard)
+  const yAxisLabels = useMemo(() => {
+    if (chartMax <= 0) return [0];
+    const step = chartMax > 100 ? Math.ceil(chartMax / 5 / 10) * 10 : chartMax > 10 ? Math.ceil(chartMax / 5) : Math.ceil(chartMax / 4 * 10) / 10;
+    const labels = [];
+    for (let v = 0; v <= chartMax + step; v += step) labels.push(v);
+    return labels.length > 1 ? labels : [0, chartMax];
+  }, [chartMax]);
+
   const cardClass = 'rounded-2xl border border-gray-200 bg-white p-4 shadow-sm';
 
   if (roleName === 'ADMIN') return null;
@@ -535,11 +566,13 @@ export default function DashboardUser() {
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Energy Production vs Consumption</h2>
-              <p className="text-xs text-gray-500">Comparative analysis of energy flow and smart contract deductions</p>
+              <p className="text-xs text-gray-500">
+                {energyRange === '1D' ? 'Hourly breakdown for today' : energyRange === '7D' ? 'Daily totals for the last 7 days' : energyRange === '30D' ? 'Daily totals for the last 30 days' : 'Custom date range'}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <div className="flex items-center rounded-xl border border-gray-200 bg-gray-50 p-1 text-xs">
-                {['1D', '7D', '30D'].map((range) => (
+                {['1D', '7D', '30D', 'custom'].map((range) => (
                   <button
                     key={range}
                     type="button"
@@ -548,10 +581,30 @@ export default function DashboardUser() {
                       energyRange === range ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
-                    {range}
+                    {range === 'custom' ? 'Custom' : range}
                   </button>
                 ))}
               </div>
+              {energyRange === 'custom' && (
+                <div className="flex items-center gap-1 text-xs">
+                  <input
+                    type="date"
+                    value={customStart ? formatDateLocal(customStart) : ''}
+                    max={customEnd ? formatDateLocal(customEnd) : formatDateLocal(new Date())}
+                    onChange={(e) => setCustomDateRange([e.target.value ? new Date(e.target.value) : null, customEnd])}
+                    className="px-2 py-1.5 border border-gray-300 rounded-lg w-36"
+                  />
+                  <span className="text-gray-400">→</span>
+                  <input
+                    type="date"
+                    value={customEnd ? formatDateLocal(customEnd) : ''}
+                    min={customStart ? formatDateLocal(customStart) : ''}
+                    max={formatDateLocal(new Date())}
+                    onChange={(e) => setCustomDateRange([customStart, e.target.value ? new Date(e.target.value) : null])}
+                    className="px-2 py-1.5 border border-gray-300 rounded-lg w-36"
+                  />
+                </div>
+              )}
               <button
                 type="button"
                 onClick={exportEnergyChart}
@@ -562,27 +615,58 @@ export default function DashboardUser() {
             </div>
           </div>
           {chartLoading ? <div className="mb-3 text-right text-xs text-gray-400">Updating chart...</div> : null}
-          <div className="rounded-2xl border border-gray-100 bg-white p-4">
-            <div className="flex h-[320px] items-end gap-2 overflow-hidden">
-              {Array.from({ length: energySeriesLength }).map((_, index) => {
-                const productionValue = toSafeNumber(hourlyProduction[index]);
-                const consumptionValue = toSafeNumber(hourlyConsumption[index]);
-                const productionHeight = (productionValue / chartMax) * 260;
-                const consumptionHeight = (consumptionValue / chartMax) * 260;
-                return (
-                  <div key={index} className="flex flex-1 items-end gap-1">
-                    <div className="w-1/2 rounded-t bg-amber-400" style={{ height: `${productionHeight}px` }} title={`Production ${formatEnergy(productionValue)} kWh`} />
-                    <div className="w-1/2 rounded-t bg-rose-500" style={{ height: `${consumptionHeight}px` }} title={`Consumption ${formatEnergy(consumptionValue)} kWh`} />
-                  </div>
-                );
-              })}
+
+          {/* Summary boxes */}
+          <div className="mb-4 flex flex-col gap-3 md:flex-row">
+            <div className="w-full min-w-0 rounded-lg border border-emerald-100 bg-emerald-50 p-3 md:basis-1/2 md:flex-1">
+              <div className="text-xs text-emerald-700">Total Production</div>
+              <div className="mt-1 text-2xl font-bold text-emerald-800">{formatEnergy(totalProduction)} kWh</div>
             </div>
-            <div className="mt-3 flex justify-between text-[11px] text-gray-400">
-              {energyChartMeta.tickIndexes.map((index) => <span key={energyChartMeta.labels[index]}>{energyChartMeta.labels[index]}</span>)}
+            <div className="w-full min-w-0 rounded-lg border border-rose-100 bg-rose-50 p-3 md:basis-1/2 md:flex-1">
+              <div className="text-xs text-rose-700">Total Consumption</div>
+              <div className="mt-1 text-2xl font-bold text-rose-800">{formatEnergy(totalConsumption)} kWh</div>
             </div>
-            <div className="mt-4 flex items-center justify-center gap-6 text-xs">
-              <span className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-amber-400" /> Solar Production (PV)</span>
-              <span className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-rose-500" /> Energy Consumption</span>
+          </div>
+
+          {/* Chart */}
+          <div className="rounded-lg border border-gray-100 bg-gradient-to-b from-gray-50 to-white p-3">
+            <div className="flex gap-3">
+              {/* Y-axis */}
+              <div className="flex h-[220px] w-14 flex-col justify-between pb-8 text-[10px] text-gray-500">
+                {yAxisLabels.map((tick, i) => (
+                  <span key={`y-${i}`} className="text-right">{formatEnergy(tick)}</span>
+                ))}
+              </div>
+              {/* Bars */}
+              <div className="min-w-0 flex-1">
+                <div className="h-[220px] flex items-end gap-1">
+                  {Array.from({ length: energySeriesLength }).map((_, index) => {
+                    const productionValue = toSafeNumber(hourlyProduction[index]);
+                    const consumptionValue = toSafeNumber(hourlyConsumption[index]);
+                    const productionPct = chartMax > 0 ? (productionValue / chartMax) * 100 : 0;
+                    const consumptionPct = chartMax > 0 ? (consumptionValue / chartMax) * 100 : 0;
+                    return (
+                      <div key={index} className="flex min-w-0 flex-1 flex-col justify-end gap-1">
+                        <div className="flex h-[180px] items-end gap-[2px]">
+                          <div className="w-1/2 rounded-t bg-emerald-400" style={{ height: `${productionPct}%` }} title={`${energyChartMeta.labels[index]} Production: ${formatEnergy(productionValue)} kWh`} />
+                          <div className="w-1/2 rounded-t bg-rose-300" style={{ height: `${consumptionPct}%` }} title={`${energyChartMeta.labels[index]} Consumption: ${formatEnergy(consumptionValue)} kWh`} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* X-axis */}
+                <div className="mt-3 flex items-center justify-between text-[10px] text-gray-500">
+                  {energyChartMeta.tickIndexes.map((index) => (
+                    <span key={energyChartMeta.labels[index]} className="min-w-0 flex-1 text-center">{energyChartMeta.labels[index]}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {/* Legend */}
+            <div className="mt-3 flex items-center gap-4 text-xs text-gray-500">
+              <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-400" /> Solar Production (PV)</span>
+              <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-rose-300" /> Energy Consumption</span>
             </div>
           </div>
         </div>

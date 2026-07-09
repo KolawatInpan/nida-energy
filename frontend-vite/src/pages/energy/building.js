@@ -182,7 +182,15 @@ export default function Building() {
     const [serviceUnitsList, setServiceUnitsList] = useState([]);
     const [productionToday, setProductionToday] = useState(0);
     const [consumptionToday, setConsumptionToday] = useState(0);
+    const [hasBattery, setHasBattery] = useState(false);
+    const [hasProducer, setHasProducer] = useState(false);
+    const [hasConsumer, setHasConsumer] = useState(false);
     const [selectedDate, setSelectedDate] = useState(new Date());
+    const [showExportModal, setShowExportModal] = useState(false);
+    const [exportStart, setExportStart] = useState(new Date());
+    const [exportEnd, setExportEnd] = useState(new Date());
+    const [exportFormat, setExportFormat] = useState('excel');
+    const [exporting, setExporting] = useState(false);
     const [walletBalance, setWalletBalance] = useState(0);
     const [notFound, setNotFound] = useState(false);
     const [tradeMode, setTradeMode] = useState('MANUAL');
@@ -339,6 +347,9 @@ export default function Building() {
                             const storageValue = toNumeric(batteryMeter?.value ?? batteryMeter?.kwh ?? 0);
                             const storageMaxRaw = toNumeric(batteryMeter?.capacity ?? 0);
                             const storageMax = storageMaxRaw > 0 ? storageMaxRaw : Math.max(1, storageValue || 1);
+                            setHasBattery(!!batteryMeter);
+                            setHasProducer((meters || []).some(m => isProduce(m)));
+                            setHasConsumer((meters || []).some(m => isConsume(m)));
 
                             setServiceUnitsList(units);
                             setBuilding({
@@ -380,7 +391,7 @@ export default function Building() {
                             setBatterySellThreshold(Number.isFinite(Number(found.batterySellThreshold)) ? Number(found.batterySellThreshold) : 80);
                         
                             // load today's energy aggregates for this building
-                            loadTodayEnergy(found.name || nameParam);
+                            loadTodayEnergy(found.name || nameParam, selectedDate, found.id);
                             // Load wallet token by email and fallback to walletId/building id.
                             const balance = await loadWalletBalanceSafe({
                                 email: found.email,
@@ -475,7 +486,7 @@ export default function Building() {
         loadWalletBalance();
     }, [location.key, building?.email, building?.dbId]);
 
-    async function loadTodayEnergy(buildingName, dateParam) {
+    async function loadTodayEnergy(buildingName, dateParam, dbId) {
         try {
             if (!buildingName) return;
             // normalize
@@ -489,6 +500,7 @@ export default function Building() {
 
             const res = await searchBuildingEnergy({
                 building: bname,
+                buildingId: dbId,
                 start,
                 end,
                 timeunit: 'hour'
@@ -550,6 +562,101 @@ export default function Building() {
         : Math.round(storagePercent).toString();
     const storageRatioLabel = `${Math.round(storageValueNum)} / ${Math.round(storageCapNum || 0)} kWh`;
 
+    // Dynamic card count and width
+    const visibleCards = (hasProducer ? 1 : 0) + (hasConsumer ? 1 : 0) + (hasBattery ? 1 : 0);
+    const cardWidthClass = visibleCards === 1 ? 'w-full' : visibleCards === 2 ? 'w-1/2' : 'w-1/3';
+
+    // Export report — query hourly logs + group by day
+    const handleExport = async () => {
+        setExporting(true);
+        try {
+            const startStr = formatDateLocal(exportStart);
+            const endStr = formatDateLocal(exportEnd);
+            const backendName = (building?.name || '').toString().trim();
+            const buildingId = building?.dbId;
+
+            // Use hourly data directly 
+            const res = await searchBuildingEnergy({ building: backendName, buildingId, start: startStr, end: endStr, timeunit: 'hour' });
+            
+            // searchBuildingEnergy returns Error on failure (not throw)
+            if (res instanceof Error || !res?.data) {
+                console.error('[Export] API failed:', res);
+                alert('Failed to fetch meter data. Check console for details.');
+                setExporting(false);
+                return;
+            }
+
+            const payload = res.data;
+
+            const hpv = Array.isArray(payload?.production?.value) ? payload.production.value : [];
+            const hcon = Array.isArray(payload?.consumption?.value) ? payload.consumption.value : [];
+            const hbv = Array.isArray(payload?.battery?.value) ? payload.battery.value : [];
+            // Use longest label array from any meter type
+            const pLabels = Array.isArray(payload?.production?.datetime) ? payload.production.datetime : [];
+            const cLabels = Array.isArray(payload?.consumption?.datetime) ? payload.consumption.datetime : [];
+            const bLabels = Array.isArray(payload?.battery?.datetime) ? payload.battery.datetime : [];
+            const hlabels = [pLabels, cLabels, bLabels].reduce((a, b) => a.length >= b.length ? a : b, []);
+
+            if (hlabels.length === 0) {
+                alert('No meter data found for this date range.');
+                setExporting(false);
+                return;
+            }
+
+            // Group hourly → daily
+            const dailyMap = {};
+            for (let i = 0; i < hlabels.length; i++) {
+                const day = (hlabels[i] || '').substring(0, 10);
+                if (!dailyMap[day]) dailyMap[day] = { p: 0, c: 0, b: 0 };
+                dailyMap[day].p += Number(hpv[i] || 0);
+                dailyMap[day].c += Number(hcon[i] || 0);
+                dailyMap[day].b += Number(hbv[i] || 0);
+            }
+            const sortedDays = Object.keys(dailyMap).sort();
+
+            const rows = sortedDays.map(day => ({
+                date: day,
+                production: dailyMap[day].p.toFixed(2),
+                consumption: dailyMap[day].c.toFixed(2),
+                battery: dailyMap[day].b.toFixed(2),
+            }));
+
+            setShowExportModal(false);
+
+            if (exportFormat === 'excel') {
+                const header = 'Date,Production (kWh),Consumption (kWh),Battery (kWh)';
+                const csv = [header, ...rows.map(r => `${r.date},${r.production},${r.consumption},${r.battery}`)].join('\n');
+                const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${building?.name || 'report'}_${startStr}_to_${endStr}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            } else {
+                // PDF: print-friendly window
+                const html = `
+                    <html><head><title>${building?.name || 'Building'} Report</title>
+                    <style>body{font-family:Arial;padding:20px} h1{color:#333} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:8px;text-align:right} th{background:#f5f5f5}</style>
+                    </head><body>
+                    <h1>${building?.name || 'Building'} — Energy Report</h1>
+                    <p>${startStr} to ${endStr}</p>
+                    <table><tr><th>Date</th><th>Production (kWh)</th><th>Consumption (kWh)</th><th>Battery (kWh)</th></tr>
+                    ${rows.map(r => `<tr><td>${r.date}</td><td>${r.production}</td><td>${r.consumption}</td><td>${r.battery}</td></tr>`).join('')}
+                    </table></body></html>`;
+                const w = window.open('', '_blank');
+                w.document.write(html);
+                w.document.close();
+                setTimeout(() => w.print(), 500);
+            }
+        } catch (err) {
+            console.error('Export error:', err);
+            alert('Export failed: ' + (err?.message || 'Unknown error'));
+        } finally {
+            setExporting(false);
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
             <div className="max-w-7xl mx-auto">
@@ -578,7 +685,7 @@ export default function Building() {
                             <span>📅</span>
                             <DatePicker
                                 selected={selectedDate}
-                                onChange={(date) => { setSelectedDate(date); loadTodayEnergy(building?.name || buildingId, date); }}
+                                onChange={(date) => { setSelectedDate(date); loadTodayEnergy(building?.name || buildingId, date, building?.dbId); }}
                                 dateFormat="MMM d, yyyy"
                                 maxDate={new Date()}
                             />
@@ -757,7 +864,8 @@ export default function Building() {
 
                             <div className="flex gap-4">
                                 {/* Production */}
-                                <div className="w-1/3 bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
+                                {hasProducer && (
+                                <div className={`${cardWidthClass} bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200`}>
                                     <div className="flex items-center gap-2 mb-3">
                                         <span className="text-2xl">🌤️</span>
                                         <div className="flex-1 min-w-0">
@@ -777,9 +885,11 @@ export default function Building() {
                                         <span>{productionRate}%</span>
                                     </div>
                                 </div>
+                                )}
 
                                 {/* Consumption */}
-                                <div className="w-1/3 bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-4 border border-red-200">
+                                {hasConsumer && (
+                                <div className={`${cardWidthClass} bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-4 border border-red-200`}>
                                     <div className="flex items-center gap-2 mb-3">
                                         <span className="text-2xl">⚡</span>
                                         <div className="flex-1 min-w-0">
@@ -799,9 +909,11 @@ export default function Building() {
                                         <span>{consumptionRate}%</span>
                                     </div>
                                 </div>
+                                )}
 
                                 {/* Storage */}
-                                <div className="w-1/3 bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-4 border border-orange-200">
+                                {hasBattery && (
+                                <div className={`${cardWidthClass} bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-4 border border-orange-200`}>
                                     <div className="flex items-center gap-2 mb-3">
                                         <span className="text-2xl">🔋</span>
                                         <div className="flex-1 min-w-0">
@@ -818,7 +930,7 @@ export default function Building() {
                                     </div>
                                     <div className="mt-1 flex items-baseline justify-between gap-2 text-xs">
                                         <div className="flex min-w-0 flex-1 items-baseline gap-2 text-orange-600 whitespace-nowrap">
-                                            <span>● Orange</span>
+                                            <span>● Rate</span>
                                             <span>{storagePercentLabel}%</span>
                                         </div>
                                         <div className="flex-1 text-right text-[11px] text-orange-700 whitespace-nowrap">
@@ -826,6 +938,7 @@ export default function Building() {
                                         </div>
                                     </div>
                                 </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -949,17 +1062,109 @@ export default function Building() {
                         <span>Back to Buildings</span>
                     </button>
                     <div className="flex items-center gap-3">
-                        <button className="px-6 py-3 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2">
+                        <button
+                            onClick={() => {
+                                setExportStart(new Date());
+                                setExportEnd(new Date());
+                                setShowExportModal(true);
+                            }}
+                            className="px-6 py-3 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+                        >
                             <span>📥</span>
                             <span>Export Report</span>
                         </button>
-                        <button className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
+                        <button
+                            onClick={() => {
+                                const buildingName = building?.name || buildingId || 'report';
+                                history.push(`/energy/report?building=${encodeURIComponent(buildingName)}`);
+                            }}
+                            className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                        >
                             <span>📊</span>
                             <span>View Analytics</span>
                         </button>
                     </div>
                 </div>
             </div>
+
+            {/* Export Modal */}
+            {showExportModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                    <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4">
+                        <h2 className="text-xl font-bold text-gray-900 mb-6">Export Report</h2>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Time Range</label>
+                                <div className="flex items-center gap-2">
+                                    <DatePicker
+                                        selected={exportStart}
+                                        onChange={setExportStart}
+                                        dateFormat="MMM d, yyyy"
+                                        maxDate={exportEnd}
+                                        className="w-full rounded border px-3 py-2 text-sm"
+                                    />
+                                    <span className="text-gray-400">to</span>
+                                    <DatePicker
+                                        selected={exportEnd}
+                                        onChange={setExportEnd}
+                                        dateFormat="MMM d, yyyy"
+                                        minDate={exportStart}
+                                        maxDate={new Date()}
+                                        className="w-full rounded border px-3 py-2 text-sm"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Format</label>
+                                <div className="flex gap-3">
+                                    <label className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${exportFormat === 'excel' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                                        <input
+                                            type="radio"
+                                            name="exportFormat"
+                                            value="excel"
+                                            checked={exportFormat === 'excel'}
+                                            onChange={() => setExportFormat('excel')}
+                                            className="sr-only"
+                                        />
+                                        <span className="text-lg">📊</span>
+                                        <span className="text-sm font-semibold">Excel</span>
+                                    </label>
+                                    <label className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${exportFormat === 'pdf' ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                                        <input
+                                            type="radio"
+                                            name="exportFormat"
+                                            value="pdf"
+                                            checked={exportFormat === 'pdf'}
+                                            onChange={() => setExportFormat('pdf')}
+                                            className="sr-only"
+                                        />
+                                        <span className="text-lg">📄</span>
+                                        <span className="text-sm font-semibold">PDF</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 mt-8">
+                            <button
+                                onClick={() => setShowExportModal(false)}
+                                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleExport}
+                                disabled={exporting}
+                                className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50"
+                            >
+                                {exporting ? 'Exporting...' : 'Export'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

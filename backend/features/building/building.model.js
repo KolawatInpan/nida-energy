@@ -73,9 +73,9 @@ async function updateBuilding(id, updates = {}) {
 
   if (updates.solarTradeMode !== undefined) {
     const normalized = String(updates.solarTradeMode || '').trim().toUpperCase();
-    const allowed = new Set(['SELF_CONSUME', 'MANUAL', 'AUTO']);
+    const allowed = new Set(['SELF_CONSUME', 'MANUAL', 'AUTO', 'AUTO_BATTERY_THRESHOLD']);
     if (!allowed.has(normalized)) {
-      throw new Error('Invalid solarTradeMode. Allowed values: SELF_CONSUME, MANUAL, AUTO');
+      throw new Error('Invalid solarTradeMode. Allowed values: SELF_CONSUME, MANUAL, AUTO, AUTO_BATTERY_THRESHOLD');
     }
     data.solarTradeMode = normalized;
   }

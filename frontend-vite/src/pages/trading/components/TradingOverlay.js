@@ -139,7 +139,7 @@ export default function TradingOverlay({
       >
         <div style={{ background: 'transparent', borderRadius: 10, padding: '6px 10px' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#334155', marginBottom: 8, textShadow: '0 1px 3px rgba(255,255,255,0.8)' }}>AVAILABLE BUILDINGS</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
             {availableBuildingNames.length ? availableBuildingNames.map((name) => (
               <button
                 key={name}
@@ -158,13 +158,14 @@ export default function TradingOverlay({
                       : '#f8fafc',
                   color: ownedBuildingNames.includes(name) ? '#166534' : '#0f172a',
                   borderRadius: 9999,
-                  padding: '6px 10px',
-                  fontSize: 12,
+                  padding: '4px 8px',
+                  fontSize: 11,
                   fontWeight: 600,
                   cursor: 'pointer',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                {name}{ownedBuildingNames.includes(name) ? ' ✓ My Building' : ''}
+                {name}{ownedBuildingNames.includes(name) ? ' ✓' : ''}
               </button>
             )) : (
               <span style={{ fontSize: 12, color: '#64748b' }}>No buildings available for trading</span>

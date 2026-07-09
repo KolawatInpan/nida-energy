@@ -38,12 +38,22 @@ try {
 
 // เริ่มการทำงานของระบบจำลองพลังงานอัตโนมัติ (ทุก 1 ชม.)
 try {
-	require('./features/energy/mock.cron').initMockEnergyCron();
+    const mockCron = require('./features/energy/mock.cron');
+    mockCron.initMockEnergyCron();
+    // Backfill data from 2026-01-01 if RunningMeter is empty (first deploy / reset)
+    mockCron.backfillOnStartup()
+        .then(() => console.log('[BACKFILL] Startup backfill complete'))
+        .catch(e => console.warn('[BACKFILL] Startup backfill error:', e?.message || e));
 } catch (e) { console.warn('Mock cron not loaded:', e.message); }
 
 // เริ่มการทำงานของระบบตรวจสอบ Meter Inactive (ทุก 1 ชม.)
 try {
 	require('./features/energy/meterMonitor.cron').startMeterMonitor();
 } catch (e) { console.warn('Meter monitor not loaded:', e.message); }
+
+// เริ่มการทำงานของระบบ sync logs จาก Energy Feed → RunningMeter (real DB)
+try {
+	require('./features/energy/energyFeed.cron').startEnergyFeed();
+} catch (e) { console.warn('Energy feed not loaded:', e.message); }
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

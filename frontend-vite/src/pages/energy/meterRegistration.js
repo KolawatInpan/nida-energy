@@ -11,6 +11,7 @@ import {
 } from '../../core/data_connecter/register';
 import { useTOR } from '../../global/TORContext';
 import TORRegister from '../../components/TOR/TORRegister';
+import { getStoredDataMode, DEMO_MODE, REAL_MODE } from '../../core/dataMode';
 
 const REGISTRATION_MODES = {
   USER_ONLY: 'user-only',
@@ -20,42 +21,17 @@ const REGISTRATION_MODES = {
 };
 
 const BUILDING_PRESETS = [
-  {
-    id: 'ratchaphruek',
-    label: 'Ratchaphruek',
-    name: 'Ratchaphruek',
-    address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi',
-    city: 'Bangkok',
-    postalCode: '10240',
-    mapUrl: 'https://maps.app.goo.gl/TGTXyK34yCovJinC7'
-  },
-  {
-    id: 'malai',
-    label: 'Malai',
-    name: 'Malai',
-    address: 'สถาบันบัณฑิตพัฒนบริหารศาสตร์ นิด้า 118, อาคารมาลัยหุวะนันท์ ชั้น 1',
-    city: 'Bangkok',
-    postalCode: '10240',
-    mapUrl: 'https://maps.app.goo.gl/Z18Qw8KoDC6rZNcV6'
-  },
-  {
-    id: 'auditorium',
-    label: 'Auditorium',
-    name: 'Auditorium',
-    address: '148 ถนนเสรีไทย แขวงคลองจั่น เขตบางกะปิ',
-    city: 'Bangkok',
-    postalCode: '10240',
-    mapUrl: 'https://maps.google.com/?q=13.771579509456485,100.65443996963269'
-  },
-  {
-    id: 'nidasumpan',
-    label: 'Nida Sumpan',
-    name: 'Nida Sumpan',
-    address: '148 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi',
-    city: 'Bangkok',
-    postalCode: '10240',
-    mapUrl: 'https://maps.app.goo.gl/Fhtz7rWTBYtvmqZN9'
-  }
+  { id: 'ratchaphruek', label: 'Ratchaphruek', name: 'Ratchaphruek', role: 'producer', roleLabel: '⚡ Producer + Battery + Consume', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/TGTXyK34yCovJinC7' },
+  { id: 'malai', label: 'Malai', name: 'Malai', role: 'producer', roleLabel: '☀️ Producer (Produce + Consume)', address: 'สถาบันฯ นิด้า 118, อาคารมาลัยหุวะนันท์ ชั้น 1', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Z18Qw8KoDC6rZNcV6' },
+  { id: 'auditorium', label: 'Auditorium', name: 'Auditorium', role: 'producer', roleLabel: '🌓 Producer (demo) / Consumer (real)', address: '148 ถนนเสรีไทย แขวงคลองจั่น เขตบางกะปิ', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=13.771579509456485,100.65443996963269' },
+  { id: 'nidasumpan', label: 'Nida Sumpan', name: 'Nidasumpan', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Fhtz7rWTBYtvmqZN9' },
+  { id: 'bunchana', label: 'Bunchana', name: 'Bunchana', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Seri Thai Rd, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/x2F8LynSaXAy31Jt7' },
+  { id: 'chup', label: 'Chup', name: 'Chup', role: 'consumer', roleLabel: '🔌 Consumer only', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/giR2p4fUSkdVC3vaA' },
+  { id: 'narathip', label: 'Narathip', name: 'Narathip', role: 'consumer', roleLabel: '🔌 Consumer only', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Sz4gkVap4b37AujM8' },
+  { id: 'navamin', label: 'Navamin', name: 'Navamin', role: 'consumer', roleLabel: '🔌 Consumer only', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/tV3JPGpz8qNTM4d18' },
+  { id: 'nidahouse', label: 'Nida House', name: 'Nida house', role: 'consumer', roleLabel: '🔌 Consumer only', address: 'อาคารนันทนาการ Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/1YVnyjcwWCA3zgvK8' },
+  { id: 'serithai', label: 'Serithai', name: 'Serithai', role: 'consumer', roleLabel: '🔌 Consumer only', address: 'Seri Thai Rd, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=Serithai+NIDA+Bangkok' },
+  { id: 'siam', label: 'Siam', name: 'Siam', role: 'consumer', roleLabel: '🔌 Consumer only', address: 'Siam, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=Siam+NIDA+Bangkok' },
 ];
 
 const INITIAL_FORM = {
@@ -118,6 +94,8 @@ export default function MeterRegistration() {
   const [usersList, setUsersList] = useState([]);
   const [buildingsList, setBuildingsList] = useState([]);
   const [adminQuickLoading, setAdminQuickLoading] = useState(null);
+  const [popupResult, setPopupResult] = useState(null); // { ok, preset, email, password, meters, mode, error }
+  const [databaseMode, setDatabaseMode] = useState(() => getStoredDataMode());
 
   const handleFormChange = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
   // Meter dynamic form handlers
@@ -163,15 +141,15 @@ export default function MeterRegistration() {
     setFormData((prev) => ({
       ...prev,
       meters: [
-        { serviceType: 'producer', meterSNID: `${prefix}-PRD-${rand}`, capacity: '3000', dateInstalled: today },
-        { serviceType: 'consumer', meterSNID: `${prefix}-CON-${rand}`, capacity: '5000', dateInstalled: today },
-        { serviceType: 'battery', meterSNID: `${prefix}-BAT-${rand}`, capacity: '10000', dateInstalled: today },
+        { serviceType: 'producer', meterSNID: `${prefix}-PRD-${rand}`, capacity: '5', dateInstalled: today },
+        { serviceType: 'consumer', meterSNID: `${prefix}-CON-${rand}`, capacity: '', dateInstalled: today },
+        { serviceType: 'battery', meterSNID: `${prefix}-BAT-${rand}`, capacity: '20', dateInstalled: today },
       ],
     }));
   };
 
   const handleAdminQuickCreate = async (preset, idx) => {
-    const emails = ['nida1@nida.com', 'nida2@nida.com', 'nida3@nida.com', 'nida4@nida.com'];
+    const emails = ['nida.ratcha@nida.com', 'nida.malai@nida.com', 'nida.audi@nida.com', 'nida.nidas@nida.com', 'nida.buncha@nida.com', 'nida.chup@nida.com', 'nida.nara@nida.com', 'nida.nava@nida.com', 'nida.nidah@nida.com', 'nida.seri@nida.com', 'nida.siam@nida.com'];
     const email = emails[idx] || `nida${idx + 1}@nida.com`;
     const password = 'nida123';
 
@@ -185,11 +163,14 @@ export default function MeterRegistration() {
         city: preset.city,
         postalCode: preset.postalCode,
         mapUrl: preset.mapUrl,
-      });
-      alert(`✅ Admin Quick Create success!\n\nBuilding: ${preset.name}\nEmail: ${email}\nPassword: ${password}\nMeters: 3 created\nWallet: 10,000 tokens`);
-      console.log('Admin quick create result:', res.data);
+        buildingRole: preset.role,
+      }, databaseMode);
+      const result = res?.data || res;
+      setPopupResult({ ok: true, preset, email, password, meters: result.meters || [], mode: databaseMode });
+      console.log('Admin quick create result:', result);
+      getBuildings().then(b => setBuildingsList(Array.isArray(b) ? b : [])).catch(() => {});
     } catch (err) {
-      alert(`❌ Failed: ${err?.response?.data?.error || err.message}`);
+      setPopupResult({ ok: false, error: err?.response?.data?.error || err.message, mode: databaseMode });
       console.error('Admin quick create error:', err);
     } finally {
       setAdminQuickLoading(null);
@@ -199,6 +180,11 @@ export default function MeterRegistration() {
   const needsBuildingSection = registrationMode === REGISTRATION_MODES.BUILDING_ONLY || registrationMode === REGISTRATION_MODES.FULL || registrationMode === REGISTRATION_MODES.METER_ONLY;
   const needsUserSection = registrationMode === REGISTRATION_MODES.USER_ONLY || registrationMode === REGISTRATION_MODES.FULL;
   const needsMeterSection = registrationMode === REGISTRATION_MODES.FULL || registrationMode === REGISTRATION_MODES.METER_ONLY;
+
+  // Always fetch buildings for quick-create "exists" summary
+  useEffect(() => {
+    getBuildings().then(b => setBuildingsList(Array.isArray(b) ? b : [])).catch(() => {});
+  }, [databaseMode]);
 
   useEffect(() => {
     if (registrationMode !== REGISTRATION_MODES.METER_ONLY && registrationMode !== REGISTRATION_MODES.BUILDING_ONLY) return;
@@ -251,8 +237,11 @@ export default function MeterRegistration() {
       return;
     }
 
+    // OTP only needed for FULL and USER_ONLY modes
+    const needsOtp = registrationMode === REGISTRATION_MODES.FULL || registrationMode === REGISTRATION_MODES.USER_ONLY;
+
     // First click: send OTP and show modal
-    if (!showOtpStep) {
+    if (needsOtp && !showOtpStep) {
       if (!formData.contactEmail) {
         alert('Please enter your email first');
         return;
@@ -269,8 +258,8 @@ export default function MeterRegistration() {
       return;
     }
 
-    // Second click: validate & submit
-    if (!otpCode) {
+    // Second click: validate & submit (OTP check only for modes that need it)
+    if (needsOtp && !otpCode) {
       alert('Please enter OTP code');
       return;
     }
@@ -322,7 +311,7 @@ export default function MeterRegistration() {
 
       if (registrationMode === REGISTRATION_MODES.USER_ONLY) {
         const password = formData.initialPassword || Math.random().toString(36).slice(-8);
-        await registerUser(formData.contactName, formData.contactEmail, password, formData.phoneNumber, otp);
+        await registerUser(formData.contactName, formData.contactEmail, password, formData.phoneNumber, otp, databaseMode);
       }
 
       if (registrationMode === REGISTRATION_MODES.BUILDING_ONLY) {
@@ -333,12 +322,13 @@ export default function MeterRegistration() {
           formData.city,
           formData.postalCode,
           formData.contactEmail,
+          databaseMode,
         );
       }
 
       if (registrationMode === REGISTRATION_MODES.FULL) {
         const password = formData.initialPassword || Math.random().toString(36).slice(-8);
-        await registerUser(formData.contactName, formData.contactEmail, password, formData.phoneNumber, otp);
+        await registerUser(formData.contactName, formData.contactEmail, password, formData.phoneNumber, otp, databaseMode);
 
         const building = await registerBuilding(
           formData.buildingName,
@@ -347,12 +337,13 @@ export default function MeterRegistration() {
           formData.city,
           formData.postalCode,
           formData.contactEmail,
+          databaseMode,
         );
 
         buildingIdToUse = building?.id || null;
 
         try {
-          await registerWallet(buildingIdToUse, formData.contactEmail);
+          await registerWallet(buildingIdToUse, formData.contactEmail, databaseMode);
         } catch (error) {
           console.warn('registerWallet failed; continuing', error);
         }
@@ -370,6 +361,7 @@ export default function MeterRegistration() {
             meter.meterSNID,
             meter.capacity,
             meter.dateInstalled,
+            databaseMode,
           );
         }
       }
@@ -446,34 +438,55 @@ export default function MeterRegistration() {
           </div>
         )}
 
-        <div className="mb-6 flex items-center justify-between">
-          {/* Admin Quick Create */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {BUILDING_PRESETS.map((preset, idx) => (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => handleAdminQuickCreate(preset, idx)}
-                disabled={adminQuickLoading === preset.id}
-                style={{
-                  padding: '4px 12px',
-                  borderRadius: 6,
-                  border: '1px solid #f59e0b',
-                  background: adminQuickLoading === preset.id ? '#fde68a' : '#fef3c7',
-                  color: '#92400e',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  opacity: adminQuickLoading ? 0.6 : 1,
-                }}
-              >
-                {adminQuickLoading === preset.id ? '⏳' : '⚡'} {preset.name}
-              </button>
-            ))}
+        <div className="mb-4">
+          {/* Admin Quick Create - wrapped grid */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+            {BUILDING_PRESETS.map((preset, idx) => {
+              const exists = buildingsList.some(b => String(b?.name || '').toLowerCase() === preset.name.toLowerCase());
+              return (
+              <div key={preset.id} style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 9, color: '#16a34a', fontWeight: 600, marginBottom: 2, minHeight: 13 }}>
+                  {exists ? 'exists' : '\u00A0'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleAdminQuickCreate(preset, idx)}
+                  disabled={adminQuickLoading === preset.id}
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: 6,
+                    border: '1px solid #f59e0b',
+                    background: adminQuickLoading === preset.id ? '#fde68a' : '#fef3c7',
+                    color: '#92400e',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    opacity: adminQuickLoading ? 0.6 : 1,
+                  }}
+                >
+                  {adminQuickLoading === preset.id ? '⏳' : '⚡'} {preset.name}
+                </button>
+              </div>
+            )})}
           </div>
-          <a href="/login" className="rounded-lg border border-gray-300 px-4 py-2 font-semibold text-gray-700 hover:bg-gray-50">
-            Back to Login
-          </a>
+
+          {/* Toolbar: DB selector + Back to Login */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 8, border: `1.5px solid ${databaseMode === DEMO_MODE ? '#f59e0b' : '#3b82f6'}`, background: databaseMode === DEMO_MODE ? '#fffbeb' : '#eff6ff' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>DB:</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
+                <input type="radio" name="dbMode" value={REAL_MODE} checked={databaseMode === REAL_MODE} onChange={() => setDatabaseMode(REAL_MODE)} style={{ accentColor: '#3b82f6', margin: 0 }} />
+                <span style={{ fontSize: 11, fontWeight: databaseMode === REAL_MODE ? 700 : 400, color: databaseMode === REAL_MODE ? '#1d4ed8' : '#94a3b8' }}>REAL</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
+                <input type="radio" name="dbMode" value={DEMO_MODE} checked={databaseMode === DEMO_MODE} onChange={() => setDatabaseMode(DEMO_MODE)} style={{ accentColor: '#f59e0b', margin: 0 }} />
+                <span style={{ fontSize: 11, fontWeight: databaseMode === DEMO_MODE ? 700 : 400, color: databaseMode === DEMO_MODE ? '#b45309' : '#94a3b8' }}>DEMO</span>
+              </label>
+            </div>
+            <a href="/login" className="rounded-lg border border-gray-300 px-4 py-2 font-semibold text-gray-700 hover:bg-gray-50 text-sm">
+              ← Back to Login
+            </a>
+          </div>
         </div>
 
 
@@ -892,6 +905,42 @@ export default function MeterRegistration() {
                 className="mt-3 w-full text-sm text-blue-600 hover:text-blue-800 font-medium"
               >
                 {sendingOtp ? 'Resending...' : 'Resend OTP'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Quick Create Result Popup */}
+        {popupResult && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPopupResult(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()} style={{ borderTop: popupResult.ok ? '4px solid #16a34a' : '4px solid #dc2626' }}>
+              <div className="text-center mb-5">
+                <div className="text-4xl mb-2">{popupResult.ok ? '✅' : '❌'}</div>
+                <h2 className="text-lg font-bold text-gray-900">
+                  {popupResult.ok ? 'Quick Create Success' : 'Quick Create Failed'}
+                </h2>
+                <p className="text-xs text-gray-500 mt-1">[{popupResult.mode?.toUpperCase() || '?'}]</p>
+              </div>
+              {popupResult.ok ? (
+                <div className="text-sm text-gray-700 space-y-1.5 bg-gray-50 rounded-xl p-4 mb-4">
+                  <div>🏢 <strong>{popupResult.preset?.name}</strong></div>
+                  <div>📋 <span style={{ color: '#6b7280' }}>{popupResult.preset?.roleLabel}</span></div>
+                  <div>📧 {popupResult.email}</div>
+                  <div>🔑 {popupResult.password}</div>
+                  <div>📟 {(popupResult.meters || []).join(', ') || 'none'}</div>
+                  <div>💰 10,000 tokens</div>
+                </div>
+              ) : (
+                <div className="text-sm text-red-700 bg-red-50 rounded-xl p-4 mb-4">
+                  {popupResult.error}
+                </div>
+              )}
+              <button
+                onClick={() => setPopupResult(null)}
+                className="w-full py-2.5 rounded-xl text-sm font-bold text-white"
+                style={{ background: popupResult.ok ? '#16a34a' : '#dc2626' }}
+              >
+                OK
               </button>
             </div>
           </div>

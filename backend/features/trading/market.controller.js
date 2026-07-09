@@ -1,6 +1,6 @@
 const { prisma } = require('../../utils/prisma');
 const Offer = require('./offer.repository');
-const { assertDayAheadMarketOpen, assertIntradayRate } = require('./market.utils');
+const { assertDayAheadMarketOpen, assertIntradayRate, assertDayAheadBidMin, assertDayAheadOfferMax } = require('./market.utils');
 const marketService = require('./market.service');
 
 async function createOrder(req, res) {
@@ -22,14 +22,22 @@ async function createOrder(req, res) {
     try { assertDayAheadMarketOpen(marketType, bypassLock); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
 
     // Enforce IntraDay minimum rate (pre-check before creating MarketOrder)
+    // Enforce Day-Ahead bid/offer thresholds
     if (price != null) {
       try { assertIntradayRate(marketType, price); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+      const sideUpper = String(side).toUpperCase();
+      if (sideUpper === 'BID') {
+        try { assertDayAheadBidMin(marketType, price); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+      } else if (sideUpper === 'OFFER') {
+        try { assertDayAheadOfferMax(marketType, price); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+      }
     }
 
     if (String(side).toUpperCase() === 'OFFER') {
       const mo = await prisma.marketOrder.create({ data: {
         side: 'OFFER', marketType: marketType || 'DAY_AHEAD', walletId: String(walletId), buildingName,
         quantity: Number(kwh), price: price != null ? Number(price) : null, status: 'OPEN',
+        sourceType: sourceType || 'produce',
         targetDate: targetDate ? new Date(targetDate) : null, metadata: { sourceType }
       }});
       // also create energyOffer to keep existing flows
@@ -56,7 +64,13 @@ async function createOrder(req, res) {
 
 async function listOrders(req, res) {
   try {
-    const orders = await prisma.marketOrder.findMany({ orderBy: { createdAt: 'desc' } });
+    const { side, status, buildingName } = req.query;
+    const where = {};
+    if (side) where.side = String(side).toUpperCase();
+    if (status) where.status = String(status).toUpperCase();
+    if (buildingName) where.buildingName = String(buildingName);
+
+    const orders = await prisma.marketOrder.findMany({ where, orderBy: { createdAt: 'desc' } });
 
     // Resolve buildingName for orders missing it (lookup by walletId → email → building)
     const enriched = await Promise.all(orders.map(async (o) => {
@@ -203,7 +217,7 @@ async function triggerClearing(req, res) {
 
 async function sellToBid(req, res) {
   try {
-    const { orderId, sellerWalletId, kwh, price } = req.body || {};
+    const { orderId, sellerWalletId, kwh, price, sourceType } = req.body || {};
     if (!orderId || !sellerWalletId || kwh == null) return res.status(400).json({ error: 'orderId, sellerWalletId and kwh required' });
 
     // resolve energyBidId from marketOrder metadata if present
@@ -213,7 +227,7 @@ async function sellToBid(req, res) {
     // if no marketOrder or metadata, assume orderId is an energyBid id
     if (!energyBidId) energyBidId = orderId;
 
-    const result = await Offer.sellToBid({ bidId: energyBidId, sellerWalletId: String(sellerWalletId), kwh: Number(kwh), price: typeof price !== 'undefined' ? Number(price) : null });
+    const result = await Offer.sellToBid({ bidId: energyBidId, sellerWalletId: String(sellerWalletId), kwh: Number(kwh), price: typeof price !== 'undefined' ? Number(price) : null, sourceType: sourceType || 'solar', marketOrderId: mo ? String(mo.id) : null });
     res.status(201).json(result);
   } catch (err) {
     console.error('sellToBid error', err);

@@ -5,13 +5,25 @@ const {
     getLatestEnergyRatePrice, TRADE_MODES,
 } = require('./market.utils');
 const { createOffer, createBid } = require('./offer.repository');
+const { insertRunningMeter } = require('../energy/energyAggregation');
+
+/**
+ * Log a battery charge/discharge event to RunningMeter so it appears in graphs.
+ */
+async function logBatteryChange(snid, kW, newKwh, source = 'SOLAR') {
+    try {
+        await insertRunningMeter({ snid, timestamp: new Date(), kW, kWH: newKwh, source });
+    } catch (e) {
+        console.warn('[trade.engine] Failed to log battery change to RunningMeter:', e.message);
+    }
+}
 
 /**
  * Auto-post surplus offer for a building (called by scheduler).
  * Handles both Solar surplus (split by solarSelfPercent) and Battery surplus (above threshold).
  */
 async function autoPostBatterySurplusOffer(buildingName) {
-    if (!buildingName) return { created: null, reason: 'missing-building' };
+    if (!buildingName) return { created: null, reason: 'missing-building', debug: {} };
 
     const building = await prisma.building.findUnique({
         where: { name: String(buildingName) },
@@ -22,7 +34,7 @@ async function autoPostBatterySurplusOffer(buildingName) {
             solarOfferPrice: true, batteryOfferPrice: true, batteryBidPrice: true,
         },
     });
-    if (!building) return { created: null, reason: 'building-not-found' };
+    if (!building) return { created: null, reason: 'building-not-found', debug: {} };
 
     const solarMode = normalizeTradeMode(building.solarTradeMode || building.tradeMode);
     const batteryMode = normalizeTradeMode(building.batteryTradeMode || building.tradeMode);
@@ -39,7 +51,7 @@ async function autoPostBatterySurplusOffer(buildingName) {
     const batteryCapacity = batteryMeter ? toNumber(batteryMeter.capacity) : 0;
 
     const wallet = await prisma.wallet.findFirst({ where: { email: String(building.email || '') }, select: { id: true } });
-    if (!wallet?.id) return { created: null, reason: 'seller-wallet-not-found' };
+    if (!wallet?.id) return { created: null, reason: 'seller-wallet-not-found', debug: { buildingName: building.name } };
 
     // ---- Track results from both solar and battery checks ----
     let createdOffer = null;
@@ -57,15 +69,17 @@ async function autoPostBatterySurplusOffer(buildingName) {
             const charge = Math.min(sellableKwh, free);
             if (charge > 0) {
                 await prisma.meterInfo.update({ where: { snid: batteryMeter.snid }, data: { value: batteryCurrent + charge, kWH: batteryCurrent + charge, timestamp: new Date() } });
+                await logBatteryChange(batteryMeter.snid, charge, batteryCurrent + charge);
                 sellableKwh = roundTo4(sellableKwh - charge);
             }
+            // If battery is full (free=0), sellableKwh stays → posted as offer below
         }
 
         if (sellableKwh >= 0.01) {
             const rate = toNumber(building.solarOfferPrice) > 0 ? toNumber(building.solarOfferPrice) : await getLatestEnergyRatePrice();
             createdOffer = await createOffer({ sellerWalletId: wallet.id, kwh: sellableKwh, ratePerKwh: rate, sourceType: 'produce', trigger: 'auto', marketType: 'INTRADAY' });
             try {
-                await prisma.marketOrder.create({ data: { side: 'OFFER', marketType: 'INTRADAY', walletId: String(wallet.id), buildingName: building.name, quantity: Number(sellableKwh), price: Number(rate), status: 'OPEN', metadata: { sourceType: 'produce', trigger: 'auto', energyOfferId: createdOffer?.id } } });
+                await prisma.marketOrder.create({ data: { side: 'OFFER', marketType: 'INTRADAY', walletId: String(wallet.id), buildingName: building.name, sourceType: 'produce', quantity: Number(sellableKwh), price: Number(rate), status: 'OPEN', metadata: { sourceType: 'produce', trigger: 'auto', energyOfferId: createdOffer?.id } } });
             } catch (moErr) { console.warn('autoPostBatterySurplusOffer: failed to create MarketOrder for solar', moErr.message || moErr); }
         }
     }
@@ -76,13 +90,33 @@ async function autoPostBatterySurplusOffer(buildingName) {
         const thresholdKwh = (batteryCapacity * thresholdPct) / 100;
         let sellableKwh = roundTo4(Math.max(0, batteryCurrent - thresholdKwh));
 
-        // Dedup: skip if there's already an active battery offer from this wallet
+        // Subtract already-offered energy (matches createOffer validation)
+        if (sellableKwh >= 0.01) {
+            const openOffers = await prisma.energyOffer.findMany({
+                where: { sellerWalletId: String(wallet.id), status: 'AVAILABLE' },
+                select: { kWH: true, kWHSold: true },
+            });
+            const alreadyOffered = openOffers.reduce((sum, o) => sum + Math.max(0, Number(o.kWH || 0) - Number(o.kWHSold || 0)), 0);
+            sellableKwh = roundTo4(Math.max(0, sellableKwh - alreadyOffered));
+        }
+
+        // Dedup: if existing offer already matches surplus, skip; otherwise cancel old & recreate
         if (sellableKwh >= 0.01) {
             const existingOffer = await prisma.marketOrder.findFirst({
-                where: { side: 'OFFER', walletId: String(wallet.id), status: 'OPEN', metadata: { path: ['sourceType'], equals: 'battery' } },
+                where: { side: 'OFFER', walletId: String(wallet.id), status: 'OPEN', sourceType: 'battery' },
             });
             if (existingOffer) {
-                return { created: null, reason: 'battery-offer-already-exists', debug: { existingOfferId: existingOffer.id } };
+                const existingKwh = Number(existingOffer.quantity || 0);
+                // If within 5% of current surplus, keep it
+                if (Math.abs(existingKwh - sellableKwh) < Math.max(1, sellableKwh * 0.05)) {
+                    return { created: null, reason: 'battery-offer-already-exists', debug: { existingOfferId: existingOffer.id, existingKwh, sellableKwh } };
+                }
+                // Surplus changed — cancel old, create new below
+                await prisma.marketOrder.update({ where: { id: existingOffer.id }, data: { status: 'CANCELLED' } });
+                try {
+                    const eoId = existingOffer.metadata?.energyOfferId;
+                    if (eoId) await prisma.energyOffer.update({ where: { id: parseInt(eoId, 10) }, data: { status: 'CANCELLED' } });
+                } catch {}
             }
         }
 
@@ -122,7 +156,7 @@ async function autoPostBatterySurplusOffer(buildingName) {
                 if (offerKwh < 0.01) break;
                 const created = await createOffer({ sellerWalletId: wallet.id, kwh: offerKwh, ratePerKwh: rate, sourceType: 'battery', trigger: 'auto', marketType: 'INTRADAY' });
                 try {
-                    await prisma.marketOrder.create({ data: { side: 'OFFER', marketType: 'INTRADAY', walletId: String(wallet.id), buildingName: building.name, quantity: Number(offerKwh), price: Number(rate), status: 'OPEN', metadata: { sourceType: 'battery', trigger: 'auto', energyOfferId: created?.id } } });
+                    await prisma.marketOrder.create({ data: { side: 'OFFER', marketType: 'INTRADAY', walletId: String(wallet.id), buildingName: building.name, sourceType: 'battery', quantity: Number(offerKwh), price: Number(rate), status: 'OPEN', metadata: { sourceType: 'battery', trigger: 'auto', energyOfferId: created?.id } } });
                 } catch (moErr) { console.warn('autoPostBatterySurplusOffer: MarketOrder failed', moErr.message || moErr); }
                 remaining = roundTo4(remaining - offerKwh);
                 batteryOffersCreated++;
@@ -144,20 +178,11 @@ async function autoPostBatterySurplusOffer(buildingName) {
         const debugSellableKwh = roundTo4(Math.max(0, batteryCurrent - debugThresholdKwh));
         return {
             created: null, reason: 'battery-threshold-not-met',
-            debug: {
-                batteryCurrent,
-                batteryCapacity,
-                batterySellThreshold: building.batterySellThreshold,
-                thresholdPct: debugThresholdPct,
-                thresholdKwh: debugThresholdKwh,
-                sellableKwh: debugSellableKwh,
-                batteryMode,
-                batchSize,
-            },
+            debug: { batteryCurrent, batteryCapacity, thresholdPct: debugThresholdPct, thresholdKwh: debugThresholdKwh, sellableKwh: debugSellableKwh, batteryMode },
         };
     }
-    if (solarAutoApplicable) return { created: null, reason: 'solar-no-surplus' };
-    return { created: null, reason: 'no-auto-mode-active' };
+    if (solarAutoApplicable) return { created: null, reason: 'solar-no-surplus', debug: { produced, batteryCurrent, batteryCapacity } };
+    return { created: null, reason: 'no-auto-mode-active', debug: { batteryMode, solarMode, batteryCurrent, batteryCapacity } };
 }
 
 /**
@@ -201,11 +226,21 @@ async function autoExecuteTradingForBuilding(buildingName) {
                 const charge = Math.min(remainingSolar, free);
                 if (charge > 0) {
                     await prisma.meterInfo.update({ where: { snid: batteryMeter.snid }, data: { value: batteryCurrent + charge, kWH: batteryCurrent + charge, timestamp: new Date() } });
+                    await logBatteryChange(batteryMeter.snid, charge, batteryCurrent + charge);
                     actions.push({ type: 'battery_charge_from_solar', kwh: charge });
                     remainingSolar = roundTo4(remainingSolar - charge);
                 }
+                // Battery full → auto-sell remaining solar to marketplace
+                if (remainingSolar >= 0.01 && free <= 0) {
+                    const rate = toNumber(building.solarOfferPrice) > 0 ? toNumber(building.solarOfferPrice) : await getLatestEnergyRatePrice();
+                    try {
+                        const created = await createOffer({ sellerWalletId: wallet.id, kwh: remainingSolar, ratePerKwh: rate, sourceType: 'produce', trigger: 'auto', marketType: 'INTRADAY' });
+                        actions.push({ type: 'auto_sell_solar_battery_full', kwh: remainingSolar, offerId: created?.id });
+                    } catch (e) { console.warn('autoExecuteTradingForBuilding: auto-sell (battery full) failed', e.message || e); }
+                    remainingSolar = 0;
+                }
             }
-        } else {
+        } else if (solarMode === 'AUTO_BATTERY_THRESHOLD') {
             const selfConsumeKwh = roundTo4(produced * (solarSelfPercent / 100));
             let sellableKwh = roundTo4(produced - selfConsumeKwh);
 
@@ -214,6 +249,7 @@ async function autoExecuteTradingForBuilding(buildingName) {
                 const charge = Math.min(sellableKwh, free);
                 if (charge > 0) {
                     await prisma.meterInfo.update({ where: { snid: batteryMeter.snid }, data: { value: batteryCurrent + charge, kWH: batteryCurrent + charge, timestamp: new Date() } });
+                    await logBatteryChange(batteryMeter.snid, charge, batteryCurrent + charge);
                     actions.push({ type: 'battery_charge_from_solar_excess', kwh: charge });
                     sellableKwh = roundTo4(sellableKwh - charge);
                 }

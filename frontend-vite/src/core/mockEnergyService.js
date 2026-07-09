@@ -9,12 +9,45 @@ function notify(payload) {
   });
 }
 
-function createGenerator(profileName) {
+function createGenerator(profileName, meterConfig = {}) {
+  // meterConfig: { type, capacity, buildingName } — enables type-aware profiles
+  const meterType = (meterConfig.type || '').toLowerCase();
+  const isProducer = meterType === 'producer' || meterType === 'produce';
+  const isBattery = meterType === 'battery';
+  const capacity = Number(meterConfig.capacity || 0);
+
   if (profileName === 'fixed') return () => ({ kW: 1.0, kWH: 1.0 });
+
   if (profileName === 'sinusoidal') {
     return (ts) => {
       const hour = ts.getHours();
-      const min = 0.1, max = 5.0, phase = 15;
+      let min, max, phase;
+      if (isBattery && capacity > 0) {
+        // Battery: charge 6am-6pm, discharge 6pm-6am
+        const inDaylight = hour >= 6 && hour < 18;
+        if (inDaylight) {
+          const noonAngle = ((hour - 6) / 12) * Math.PI;
+          const base = capacity * 0.15 * Math.sin(noonAngle);
+          const noise = (Math.random() - 0.5) * Math.max(0.02, base * 0.15);
+          const kW = Math.max(0, +(base + noise).toFixed(4));
+          return { kW, kWH: +kW.toFixed(4) };
+        } else {
+          const dischargeBase = capacity * 0.08;
+          const noise = (Math.random() - 0.5) * dischargeBase * 0.2;
+          const kW = -Math.max(0, +(dischargeBase + noise).toFixed(4));
+          return { kW, kWH: +kW.toFixed(4) };
+        }
+      } else if (isProducer && capacity > 0) {
+        // Solar should use peak, not sinusoidal — fallback
+        min = 0; max = capacity * 0.5; phase = 6;
+      } else {
+        // Consumer: large buildings ~100-200 kWh/day, small ~50-70
+        const largeBuildings = ['Ratchaphruek', 'Malai', 'Auditorium'];
+        const isLarge = largeBuildings.includes(meterConfig.buildingName || '');
+        min = isLarge ? 1 : 0.5;
+        max = isLarge ? 12 : 5;
+        phase = 9; // peak at 3pm
+      }
       const amplitude = (max - min) / 2;
       const mid = (max + min) / 2;
       const angle = ((hour - phase) / 24) * 2 * Math.PI;
@@ -24,9 +57,38 @@ function createGenerator(profileName) {
       return { kW, kWH: +kW.toFixed(4) };
     };
   }
+
   if (profileName === 'peak') {
     return (ts) => {
       const hour = ts.getHours();
+      if (isBattery && capacity > 0) {
+        // Battery: charge 6am-6pm, discharge 6pm-6am
+        const inDaylight = hour >= 6 && hour < 18;
+        if (inDaylight) {
+          const noonAngle = ((hour - 6) / 12) * Math.PI;
+          const base = capacity * 0.15 * Math.sin(noonAngle);
+          const noise = (Math.random() - 0.5) * Math.max(0.02, base * 0.15);
+          const kW = Math.max(0, +(base + noise).toFixed(4));
+          return { kW, kWH: +kW.toFixed(4) };
+        } else {
+          const dischargeBase = capacity * 0.08;
+          const noise = (Math.random() - 0.5) * dischargeBase * 0.2;
+          const kW = -Math.max(0, +(dischargeBase + noise).toFixed(4));
+          return { kW, kWH: +kW.toFixed(4) };
+        }
+      }
+      // Producer (solar): daylight-only 6am-6pm, half-sine ramp
+      if (isProducer && capacity > 0) {
+        const inDaylight = hour >= 6 && hour < 18;
+        if (!inDaylight) return { kW: 0, kWH: 0 };
+        const noonAngle = ((hour - 6) / 12) * Math.PI;
+        const solarFactor = Math.sin(noonAngle);
+        const base = capacity * 0.5 * solarFactor;
+        const noise = (Math.random() - 0.5) * Math.max(0.05, base * 0.15);
+        const kW = +(Math.max(0, base + noise)).toFixed(4);
+        return { kW, kWH: +kW.toFixed(4) };
+      }
+      // Generic peak (non-solar)
       const off = 0.2, peak = 4.0, startPeak = 7, endPeak = 19;
       const inPeak = hour >= startPeak && hour < endPeak;
       const base = inPeak ? peak : off;
@@ -35,6 +97,7 @@ function createGenerator(profileName) {
       return { kW, kWH: +kW.toFixed(4) };
     };
   }
+
   return () => {
     const kW = +(Math.random() * 4.9 + 0.1).toFixed(4);
     return { kW, kWH: kW };
@@ -63,12 +126,11 @@ export function stopGeneration() {
   }
 }
 
-export async function startGeneration({ meters = [], start, end, intervalHours = 1, profile = 'sinusoidal', startingKwh = 1000, batchSize = 200 } = {}) {
+export async function startGeneration({ meters = [], start, end, intervalHours = 1, profile = 'sinusoidal', startingKwh = 0, batchSize = 200, meterTypes = {} } = {}) {
   if (!Array.isArray(meters) || meters.length === 0) throw new Error('meters required');
   // stop previous
   stopGeneration();
 
-  const generator = createGenerator(profile);
   const msPerHour = 60 * 60 * 1000;
   const s = new Date(start);
   const e = new Date(end);
@@ -85,10 +147,13 @@ export async function startGeneration({ meters = [], start, end, intervalHours =
       let completed = 0;
       notify({ type: 'progress', total, completed });
 
-      for (const snid of meters) {
+      for (const meterId of meters) {
         if (_worker.stopped) break;
+        const snid = typeof meterId === 'string' ? meterId : meterId.snid;
+        const meterConfig = meterTypes[snid] || (typeof meterId === 'object' ? meterId : {});
+        const generator = createGenerator(profile, meterConfig);
         let cursor = new Date(s);
-        let runningTotal = roundTo4(startingKwh);
+        let runningTotal = roundTo4(meterConfig.startingKwh ?? startingKwh);
         const logs = [];
 
         while (cursor < e) {

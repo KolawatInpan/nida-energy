@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useHistory, useParams } from 'react-router-dom';
 import { formatEnergy, formatEntityId, formatToken } from '../../utils/formatters';
 import { buildReceiptView } from '../../utils/invoiceReceiptMappers';
+import { getApiBase } from '../../core/data_connecter/apiBase';
 
 function formatDate(value) {
   if (!value) return '-';
@@ -43,7 +44,7 @@ export default function ReceiptDetail() {
         setLoading(true);
         setError('');
 
-        const apiBase = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+        const apiBase = getApiBase();
         const res = await axios.get(`${apiBase}/receipts/${id}`);
 
         if (!mounted) return;
@@ -252,8 +253,8 @@ export default function ReceiptDetail() {
 
   function downloadPdfServer(closeAfter = false) {
     try {
-      const apiBase = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
-      const url = `${apiBase.replace(/\/$/, '')}/receipts/${encodeURIComponent(id)}/pdf`;
+      const apiBase = getApiBase();
+      const url = `${apiBase}/receipts/${encodeURIComponent(id)}/pdf`;
       // open in new tab to trigger browser download
       const w = window.open(url, '_blank', 'noopener');
       if (closeAfter) {
@@ -433,13 +434,14 @@ export default function ReceiptDetail() {
                     <tbody className="divide-y divide-gray-100 text-sm text-slate-700">
                       <tr>
                         <td className="px-6 py-5 align-top">
-                          <div className="font-semibold text-slate-900">Grid Energy Import</div>
-                          <div className="mt-1 text-slate-500">Source: National Grid (PEA/MEA)</div>
+                          <div className="font-semibold text-slate-900">{view.energySourceLabel}</div>
+                          <div className="mt-1 text-slate-500">{view.energySourceDesc}</div>
                         </td>
                         <td className="px-4 py-5 text-right font-semibold">{formatEnergy(view.consumedKwh)} kWh</td>
                         <td className="px-4 py-5 text-right font-semibold">{formatToken(view.rate)}</td>
                         <td className="px-6 py-5 text-right font-semibold">{formatToken(view.gridEnergyCost)} THB</td>
                       </tr>
+                      {!view.isMarketplace && (
                       <tr>
                         <td className="px-6 py-5 align-top">
                           <div className="flex items-center gap-2">
@@ -452,6 +454,7 @@ export default function ReceiptDetail() {
                         <td className="px-4 py-5 text-right font-semibold">{formatToken(view.rate)}</td>
                         <td className="px-6 py-5 text-right font-semibold text-emerald-700">- {formatToken(view.discountTokenAmount)} THB</td>
                       </tr>
+                      )}
                       <tr>
                         <td className="px-6 py-5 align-top">
                           <div className="font-semibold text-slate-900">P2P Market Service Fee</div>

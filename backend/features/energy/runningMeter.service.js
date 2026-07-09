@@ -68,11 +68,95 @@ async function resetEnergyLogs(req, res) {
 	}
 }
 
+async function getBatteryChargeSources(req, res) {
+	try {
+		const { snid } = req.params;
+		const { days = 7 } = req.query;
+		if (!snid) return res.status(400).json({ error: 'snid is required' });
+
+		const { prisma } = require('../../utils/prisma');
+		const since = new Date(Date.now() - Number(days) * 24 * 60 * 60 * 1000);
+
+		// Get meter's building info
+		const meter = await prisma.meterInfo.findUnique({
+			where: { snid: String(snid) },
+			select: { buildingName: true, building: { select: { email: true } } },
+		});
+		const buildingName = meter?.buildingName || 'Unknown';
+
+		// Charge: kW > 0
+		const chargeRows = await prisma.runningMeter.findMany({
+			where: { snid: String(snid), timestamp: { gte: since }, kW: { gt: 0 } },
+			select: { kW: true, source: true },
+			orderBy: { timestamp: 'desc' },
+		});
+
+		const chargeMap = {};
+		for (const r of chargeRows) {
+			const src = r.source || 'UNKNOWN';
+			chargeMap[src] = (chargeMap[src] || 0) + Number(r.kW || 0);
+		}
+
+		const chargeSources = Object.entries(chargeMap)
+			.map(([source, kwh]) => ({ source, kwh: Math.round(kwh * 100) / 100 }))
+			.sort((a, b) => b.kwh - a.kwh);
+
+		const totalChargeKwh = chargeSources.reduce((s, x) => s + x.kwh, 0);
+
+		// Discharge: kW < 0 (absolute value = energy discharged)
+		const dischargeRows = await prisma.runningMeter.findMany({
+			where: { snid: String(snid), timestamp: { gte: since }, kW: { lt: 0 } },
+			select: { kW: true, source: true },
+		});
+
+		const dischargeMap = {};
+		for (const r of dischargeRows) {
+			// SOLD = market sale; null/empty = self-consumption
+			const src = (r.source === 'SOLD') ? 'MARKET' : 'SELF';
+			dischargeMap[src] = (dischargeMap[src] || 0) + Math.abs(Number(r.kW || 0));
+		}
+
+		const dischargeSources = Object.entries(dischargeMap)
+			.map(([source, kwh]) => ({ source, kwh: Math.round(kwh * 100) / 100 }))
+			.sort((a, b) => b.kwh - a.kwh);
+
+		const totalDischargeKwh = dischargeSources.reduce((s, x) => s + x.kwh, 0);
+
+		// How much energy is currently offered in marketplace from this building
+		let offeredKwh = 0;
+		try {
+			const wallet = await prisma.wallet.findFirst({ where: { email: meter?.building?.email || '' }, select: { id: true } });
+			if (wallet?.id) {
+				const offers = await prisma.energyOffer.findMany({
+					where: { sellerWalletId: String(wallet.id), status: 'AVAILABLE' },
+					select: { kWH: true, kWHSold: true },
+				});
+				offeredKwh = Math.round(offers.reduce((sum, o) => sum + Math.max(0, Number(o.kWH || 0) - Number(o.kWHSold || 0)), 0) * 100) / 100;
+			}
+		} catch (e) { /* ignore */ }
+
+		res.json({
+			snid,
+			buildingName,
+			days: Number(days),
+			chargeTotalKwh: Math.round(totalChargeKwh * 100) / 100,
+			chargeSources,
+			dischargeTotalKwh: totalDischargeKwh,
+			dischargeSources,
+			offeredKwh,
+		});
+	} catch (err) {
+		console.error('getBatteryChargeSources error', err);
+		res.status(500).json({ error: err.message });
+	}
+}
+
 module.exports = {
 	createRunningEntry,
 	generateHourlyEntries,
 	insertRunningLog,
 	insertRunningLogsBulk,
+	getBatteryChargeSources,
 	resetEnergyLogs,
 	getStatus: async (req, res) => {
  		try {

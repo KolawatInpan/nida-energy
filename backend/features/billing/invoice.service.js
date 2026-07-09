@@ -12,7 +12,7 @@ const {
   buildUniquePeriodsFromLogs,
   getPreviousMonthPeriodIfDue,
 } = require('./invoice.helpers');
-const { matchesSourceType } = require('../trading/market.utils');
+const { matchesSourceType, isBatteryMeter } = require('../trading/market.utils');
 
 async function syncInvoicesForPeriods(periods = [], options = {}) {
   const uniquePeriods = [...new Map(
@@ -163,10 +163,25 @@ async function purchaseMarketplaceEnergy({ offerId, buyerWalletId, targetBuildin
     throw err;
   }
 
+  // Look up seller building name from wallet
+  const sellerBuilding = await prisma.building.findFirst({ where: { email: sellerWallet.email }, select: { name: true } }).catch(() => null);
+  // Get actual sourceType from marketOrder metadata (EnergyOffer doesn't have this field)
+  let offerSourceType = 'produce';
+  try {
+    const mo = await prisma.marketOrder.findFirst({
+      where: { side: 'OFFER', walletId: String(offer.sellerWalletId), status: { in: ['OPEN', 'PARTIAL'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { metadata: true, sourceType: true },
+    });
+    offerSourceType = mo?.sourceType || mo?.metadata?.sourceType || 'produce';
+  } catch (e) { /* keep default */ }
+
+  const sellerBuildingName = sellerBuilding?.name || offer.buildingName || sellerWallet.email || String(sellerWallet.id).slice(0, 8);
+
   const building = await prisma.building.findUnique({
     where: { id: parseInt(targetBuildingId, 10) },
   });
-  const buildingName = building ? building.name : `Building-${targetBuildingId}`;
+  const buyerBuildingName = building?.name || `Building-${targetBuildingId}`;
 
   const destinationBatteryMeter = building?.name
     ? await prisma.meterInfo.findFirst({
@@ -180,11 +195,25 @@ async function purchaseMarketplaceEnergy({ offerId, buyerWalletId, targetBuildin
       })
     : null;
 
-  if (!destinationBatteryMeter) {
-    const err = new Error('Target building must have a battery meter to receive purchased energy');
+  // Fallback: if no battery, energy goes to consumer meter (increases consumption)
+  const destinationMeter = destinationBatteryMeter || (building?.name ? await prisma.meterInfo.findFirst({
+    where: {
+      buildingName: building.name,
+      type: {
+        contains: 'consume',
+        mode: 'insensitive',
+      },
+    },
+  }) : null);
+
+  if (!destinationMeter) {
+    const err = new Error('Target building must have a battery or consumer meter to receive purchased energy');
     err.status = 400;
     throw err;
   }
+  const isBatteryTarget = !!destinationBatteryMeter;
+
+  let sellerSourceMeterSnid = null;
 
   const result = await prisma.$transaction(async (tx) => {
     await tx.wallet.update({
@@ -197,11 +226,11 @@ async function purchaseMarketplaceEnergy({ offerId, buyerWalletId, targetBuildin
       data: { tokenBalance: { increment: totalPrice } },
     });
 
-    const nextValue = toNumber(destinationBatteryMeter.value) + purchaseAmount;
-    const nextKwh = toNumber(destinationBatteryMeter.kwh || destinationBatteryMeter.kWH) + purchaseAmount;
+    const nextValue = toNumber(destinationMeter.value) + purchaseAmount;
+    const nextKwh = toNumber(destinationMeter.kwh || destinationMeter.kWH) + purchaseAmount;
 
-    const updatedBattery = await tx.meterInfo.update({
-      where: { snid: destinationBatteryMeter.snid },
+    const updatedMeter = await tx.meterInfo.update({
+      where: { snid: destinationMeter.snid },
       data: {
         value: nextValue,
         kWH: nextKwh,
@@ -209,11 +238,12 @@ async function purchaseMarketplaceEnergy({ offerId, buyerWalletId, targetBuildin
       },
     });
 
-    const batteryStorage = {
-      snid: updatedBattery.snid,
-      value: toNumber(updatedBattery.value),
-      kWH: toNumber(updatedBattery.kWH),
-      capacity: toNumber(updatedBattery.capacity),
+    const meterResult = {
+      snid: updatedMeter.snid,
+      value: toNumber(updatedMeter.value),
+      kWH: toNumber(updatedMeter.kWH),
+      capacity: toNumber(updatedMeter.capacity),
+      type: isBatteryTarget ? 'battery' : 'consumer',
     };
 
     const buyerWalletTxId = randomUUID();
@@ -239,7 +269,7 @@ async function purchaseMarketplaceEnergy({ offerId, buyerWalletId, targetBuildin
       data: {
         txid: randomUUID(),
         timestamp: new Date(),
-        buildingName: building?.name || null,
+        buildingName: buyerBuildingName,
         walletId: String(buyerWalletId),
         type: 'MARKETPLACE_PURCHASE',
         tokenAmount: totalPrice,
@@ -251,7 +281,7 @@ async function purchaseMarketplaceEnergy({ offerId, buyerWalletId, targetBuildin
       data: {
         txid: randomUUID(),
         timestamp: new Date(),
-        buildingName: offer.buildingName || null,
+        buildingName: sellerBuildingName,
         walletId: String(offer.sellerWalletId),
         type: 'MARKETPLACE_SALE',
         tokenAmount: totalPrice,
@@ -263,7 +293,7 @@ async function purchaseMarketplaceEnergy({ offerId, buyerWalletId, targetBuildin
     const invoice = await tx.invoice.create({
       data: {
         id: randomUUID(),
-        buildingName: String(buildingName),
+        buildingName: String(buyerBuildingName),
         fromWId: String(offer.sellerWalletId),
         toWId: String(buyerWalletId),
         timestamp: now,
@@ -287,18 +317,24 @@ async function purchaseMarketplaceEnergy({ offerId, buyerWalletId, targetBuildin
       },
     });
 
-    // Decrease seller's source meter when purchased (auto-offers skip meter decrease at creation)
+    // Decrease seller's source meter when purchased
     try {
       const sellerBuilding = await prisma.building.findFirst({ where: { email: sellerWallet.email }, select: { name: true } });
       if (sellerBuilding?.name) {
         const sellerMeters = await prisma.meterInfo.findMany({ where: { buildingName: sellerBuilding.name }, select: { snid: true, type: true, value: true, kWH: true } });
-        const sourceMeter = sellerMeters.find((m) => matchesSourceType(m.type, offer.sourceType || 'produce'));
+        // Try matching sourceType first, then fallback to battery, then any meter with value
+        let sourceMeter = sellerMeters.find((m) => matchesSourceType(m.type, offerSourceType));
+        if (!sourceMeter) sourceMeter = sellerMeters.find((m) => isBatteryMeter(m.type));
+        if (!sourceMeter) sourceMeter = sellerMeters.find((m) => Number(m.value || m.kWH || 0) >= purchaseAmount);
         if (sourceMeter) {
+          sellerSourceMeterSnid = sourceMeter.snid;
           const sv = Number(sourceMeter.value || 0);
           const sk = Number(sourceMeter.kWH || 0);
+          const newValue = Math.max(0, sv - purchaseAmount);
+          const newKwh = Math.max(0, sk - purchaseAmount);
           await tx.meterInfo.update({
             where: { snid: sourceMeter.snid },
-            data: { value: Math.max(0, sv - purchaseAmount), kWH: Math.max(0, sk - purchaseAmount), timestamp: new Date() },
+            data: { value: newValue, kWH: newKwh, timestamp: new Date() },
           });
         }
       }
@@ -345,11 +381,27 @@ async function purchaseMarketplaceEnergy({ offerId, buyerWalletId, targetBuildin
       }
     }
 
-    return { invoice, receipt, batteryStorage, buyerTransaction, sellerTransaction };
+    return { invoice, receipt, destinationMeter: meterResult, buyerTransaction, sellerTransaction };
   });
 
-  const buyerVerification = await transactionVerificationService.verifyTransaction(result.buyerTransaction);
-  const sellerVerification = await transactionVerificationService.verifyTransaction(result.sellerTransaction);
+  if (sellerSourceMeterSnid) {
+    try {
+      const { insertRunningMeter } = require('../energy/energyAggregation');
+      const sellerMeter = await prisma.meterInfo.findUnique({ where: { snid: sellerSourceMeterSnid }, select: { kWH: true } });
+      const newKwh = Math.max(0, Number(sellerMeter?.kWH || 0));
+      await insertRunningMeter({ snid: sellerSourceMeterSnid, timestamp: new Date(), kW: -purchaseAmount, kWH: newKwh, source: 'SOLD' });
+    } catch (e) { console.warn('[purchaseMarketplaceEnergy] Seller RunningMeter log failed:', e.message); }
+  }
+
+  // Log energy receipt to destination (buyer) meter
+  try {
+    const { insertRunningMeter } = require('../energy/energyAggregation');
+    const destKwh = Number(result.destinationMeter?.kWH || destinationMeter?.kWH || 0);
+    await insertRunningMeter({ snid: result.destinationMeter?.snid || destinationMeter?.snid, timestamp: new Date(), kW: purchaseAmount, kWH: destKwh, source: 'MARKET' });
+  } catch (e) { console.warn('[purchaseMarketplaceEnergy] Destination RunningMeter log failed:', e.message); }
+
+  const buyerVerification = await transactionVerificationService.verifyTransaction({ ...result.buyerTransaction, kwh: purchaseAmount, fromBuilding: sellerBuildingName, toBuilding: buyerBuildingName, buildingName: buyerBuildingName });
+  const sellerVerification = await transactionVerificationService.verifyTransaction({ ...result.sellerTransaction, kwh: purchaseAmount, fromBuilding: sellerBuildingName, toBuilding: buyerBuildingName, buildingName: sellerBuildingName });
 
   return {
     message: 'Purchase successful',

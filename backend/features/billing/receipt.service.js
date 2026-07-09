@@ -26,12 +26,18 @@ async function getReceiptDetails(id) {
 
 	const building = receipt.invoice?.buildingName
 		? await (async () => {
-			let bname = String(receipt.invoice.buildingName);
-			// Normalize known name variants
+			const bname = String(receipt.invoice.buildingName).trim();
+			// Normalize: remove spaces and lowercase for fuzzy matching
 			const normalized = bname.toLowerCase().replace(/\s+/g, '');
-			if (normalized === 'nidasumpan') bname = 'nidasumpun';
-			if (normalized === 'narathip') bname = 'naradhip';
-			return prisma.building.findUnique({ where: { name: bname } });
+			// Try exact match first
+			let b = await prisma.building.findUnique({ where: { name: bname } });
+			if (b) return b;
+			// Try normalized match: find all buildings and compare normalized names
+			const allBuildings = await prisma.building.findMany();
+			b = allBuildings.find(
+				(bld) => bld.name.toLowerCase().replace(/\s+/g, '') === normalized,
+			);
+			return b || null;
 		})()
 		: null;
 

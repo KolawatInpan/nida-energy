@@ -1,0 +1,17 @@
+docker build -t diaboliccz/nida-database:latest -f database/Dockerfile database/
+docker build -t diaboliccz/nida-blockchain:latest -f blockchain/Dockerfile blockchain/
+
+docker build -t diaboliccz/nida-backend:latest -f backend/Dockerfile .
+docker build -t diaboliccz/nida-frontend:latest -f frontend-vite/Dockerfile frontend-vite/
+
+
+docker push diaboliccz/nida-database:latest
+docker push diaboliccz/nida-blockchain:latest
+docker push diaboliccz/nida-backend:latest
+docker push diaboliccz/nida-frontend:latest
+
+docker build -t diaboliccz/nida-backend:latest -f backend/Dockerfile .
+docker build -t diaboliccz/nida-frontend:latest -f frontend-vite/Dockerfile frontend-vite/
+docker push diaboliccz/nida-backend:latest
+docker push diaboliccz/nida-frontend:latest
+

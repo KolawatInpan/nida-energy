@@ -1,6 +1,10 @@
 /**
  * Value profile generators for RunningMeter mock data.
  * Used by generateHourlyEntries() in runningMeter.model.js.
+ *
+ * Profile params (override via profileParams in options):
+ *   min, max     — kW range (default: 0.1 to 2.0 for sinusoidal)
+ *   phaseShiftHours — hour of peak (default: 12 = noon)
  */
 
 function createProfileGenerator(profileName, params = {}) {
@@ -11,8 +15,8 @@ function createProfileGenerator(profileName, params = {}) {
 
     if (profileName === 'sinusoidal') {
         const min = typeof params.min !== 'undefined' ? params.min : 0.1;
-        const max = typeof params.max !== 'undefined' ? params.max : 5.0;
-        const phase = typeof params.phaseShiftHours !== 'undefined' ? params.phaseShiftHours : 15;
+        const max = typeof params.max !== 'undefined' ? params.max : 2.0;
+        const phase = typeof params.phaseShiftHours !== 'undefined' ? params.phaseShiftHours : 12;
         const amplitude = (max - min) / 2;
         const mid = (max + min) / 2;
         return (i, ts) => {

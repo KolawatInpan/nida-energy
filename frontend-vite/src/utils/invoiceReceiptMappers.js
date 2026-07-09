@@ -49,6 +49,8 @@ export function buildReceiptView(receipt, id) {
   const totalPaidWithFee = tokenAmount + adminFeeAmount;
   const storedReceiptTime = receipt?.timestamp || invoice?.timestamp;
 
+  const isMarketplace = String(invoice?.fromWId || '').toUpperCase() !== 'SYSTEM';
+
   return {
     receiptId: receipt?.id || id,
     receiptNumber: formatEntityId('REC', receipt?.id || id),
@@ -82,5 +84,9 @@ export function buildReceiptView(receipt, id) {
     transactionReference: receipt?.walletTxId || walletTx?.id || '-',
     verifyCode: receipt?.walletTxId || walletTx?.id || receipt?.id || '-',
     createdAt: storedReceiptTime ? new Date(storedReceiptTime).toLocaleString('en-GB') : '-',
+    isMarketplace,
+    // For marketplace purchases: show P2P purchase description
+    energySourceLabel: isMarketplace ? 'P2P Energy Purchase' : 'Grid Energy Import',
+    energySourceDesc: isMarketplace ? 'Source: Peer-to-Peer Marketplace' : 'Source: National Grid (PEA/MEA)',
   };
 }

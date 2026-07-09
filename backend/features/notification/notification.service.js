@@ -6,13 +6,14 @@ const { prisma } = require('../../utils/prisma');
  * @param {Object} param0
  * @param {string} param0.type - ประเภท event เช่น 'building_added', 'meter_added', 'user_registered', 'sell_electricity', 'invoice', 'topup', 'topup_success', 'payment_success'
  * @param {string} param0.message - ข้อความแจ้งเตือน
- * @param {number} [param0.userId] - user id (null = admin)
+ * @param {string} [param0.email] - email ของผู้รับโดยตรง (ใช้ค่านี้ก่อน ถ้ามี)
+ * @param {string} [param0.userId] - user credId (ใช้หา email ถ้าไม่ระบุ email โดยตรง)
  * @param {number} [param0.buildingId]
  * @param {number} [param0.meterId]
  */
-async function createNotification({ type, message, userId = null, buildingId = null, meterId = null }) {
-  let email = 'admin';
-  if (userId) {
+async function createNotification({ type, message, email: directEmail = null, userId = null, buildingId = null, meterId = null }) {
+  let email = directEmail || 'admin';
+  if (!directEmail && userId) {
     const user = await prisma.user.findUnique({ where: { credId: String(userId) } });
     if (user && user.email) {
       email = user.email;
@@ -58,7 +59,18 @@ async function getNotifications(userId = null, limit = 20) {
   });
 }
 
+/**
+ * Mark a notification as read
+ */
+async function markAsRead(notificationId) {
+  return prisma.notification.update({
+    where: { id: Number(notificationId) },
+    data: { read: true },
+  });
+}
+
 module.exports = {
   createNotification,
   getNotifications,
+  markAsRead,
 };

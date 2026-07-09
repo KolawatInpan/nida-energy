@@ -1,4 +1,5 @@
 import axios from "../../core/data_connecter/axios";
+import globalAxios from "axios";
 import { authAction } from "./auth.reducer";
 import { notification } from "antd";
 import Api from "../../core/data_connecter/api";
@@ -13,6 +14,7 @@ function storeSession(response) {
     if (token) {
         localStorage.setItem(Key.TOKEN, token);
         axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+        globalAxios.defaults.headers.common.Authorization = `Bearer ${token}`;
     }
     if (userRef) {
         localStorage.setItem(Key.UserId, userRef);
@@ -31,6 +33,7 @@ function clearSession() {
     localStorage.removeItem(Key.UserEmail);
     localStorage.removeItem(Key.UserRole);
     delete axios.defaults.headers.common.Authorization;
+    delete globalAxios.defaults.headers.common.Authorization;
 }
 
 // LOGIN
@@ -117,6 +120,7 @@ export const validateAuth = () => {
         dispatch(validateAuthLoading());
         if (token) {
             axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+            globalAxios.defaults.headers.common.Authorization = `Bearer ${token}`;
             dispatch(validateAuthSuccess());
         } else {
             dispatch(validateAuthFailed());

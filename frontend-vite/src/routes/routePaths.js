@@ -36,6 +36,9 @@ export const ROUTE_PATHS = {
   adminMeters: '/admin/meters',
   adminResetDatabase: '/admin/reset-database',
   simulation: '/simulation',
+  testing: '/admin/testing',
+  patchNotes: '/patch-notes',
+  apiStatus: '/api-status',
 };
 
 export const routeToBuilding = (slug = ':buildingId') => `/building/${slug}`;

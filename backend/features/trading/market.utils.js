@@ -10,7 +10,10 @@ const TRADE_MODES = {
 // Market timing and pricing constants
 const DAY_AHEAD_LOCK_HOUR = 18;          // 18:00 — Day-Ahead submissions locked
 const DAY_AHEAD_BASELINE = 3.5;          // baseline price for Day-Ahead
-const INTRADAY_MIN_RATE = Number(process.env.MARKET_PENALTY_PRICE || 3.5);
+const DAY_AHEAD_BID_MIN = 3.50;          // minimum bid for Day-Ahead (≥ baseline)
+const DAY_AHEAD_OFFER_MAX = 4.0;         // maximum offer for Day-Ahead (< grid price)
+const INTRADAY_MIN_RATE = 3.85;          // IntraDay minimum (premium tier, below grid)
+const INTRADAY_MAX_RATE = 4.0;           // IntraDay maximum (cannot exceed grid price)
 
 // ---- Math helpers ----
 
@@ -28,9 +31,9 @@ function roundTo4(value) {
 // ---- Trade mode helpers ----
 
 function normalizeTradeMode(value) {
-    const normalized = String(value || TRADE_MODES.MANUAL).trim().toUpperCase();
+    const normalized = String(value || TRADE_MODES.AUTO_BATTERY_THRESHOLD).trim().toUpperCase();
     if (Object.values(TRADE_MODES).includes(normalized)) return normalized;
-    return TRADE_MODES.MANUAL;
+    return TRADE_MODES.AUTO_BATTERY_THRESHOLD;
 }
 
 // ---- Meter type detection ----
@@ -83,7 +86,39 @@ function assertIntradayRate(marketType, ratePerKwh) {
 
     const rate = Number(ratePerKwh);
     if (!Number.isFinite(rate) || rate < INTRADAY_MIN_RATE) {
-        const e = new Error(`IntraDay rate must be at least ฿${INTRADAY_MIN_RATE}/kWh (minimum market rate). Day-Ahead baseline is ฿${DAY_AHEAD_BASELINE}/kWh.`);
+        const e = new Error(`IntraDay rate must be at least ฿${INTRADAY_MIN_RATE}/kWh. Day-Ahead is ฿${DAY_AHEAD_BASELINE}–฿${(DAY_AHEAD_OFFER_MAX - 0.01).toFixed(2)}/kWh.`);
+        e.status = 400;
+        throw e;
+    }
+    if (rate > INTRADAY_MAX_RATE) {
+        const e = new Error(`IntraDay rate cannot exceed grid price (฿${INTRADAY_MAX_RATE}/kWh). Received: ${ratePerKwh}`);
+        e.status = 400;
+        throw e;
+    }
+}
+
+function assertDayAheadBidMin(marketType, ratePerKwh) {
+    const normalized = String(marketType || '').toUpperCase();
+    if (normalized !== 'DAY_AHEAD') return;
+    // null rate = market order (accept any), skip check
+    if (ratePerKwh == null) return;
+
+    const rate = Number(ratePerKwh);
+    if (!Number.isFinite(rate) || rate < DAY_AHEAD_BID_MIN) {
+        const e = new Error(`Day-Ahead bid must be at least ฿${DAY_AHEAD_BID_MIN}/kWh. Received: ${ratePerKwh}`);
+        e.status = 400;
+        throw e;
+    }
+}
+
+function assertDayAheadOfferMax(marketType, ratePerKwh) {
+    const normalized = String(marketType || '').toUpperCase();
+    if (normalized !== 'DAY_AHEAD') return;
+    if (ratePerKwh == null) return;
+
+    const rate = Number(ratePerKwh);
+    if (!Number.isFinite(rate) || rate >= DAY_AHEAD_OFFER_MAX) {
+        const e = new Error(`Day-Ahead offer must be below ฿${DAY_AHEAD_OFFER_MAX}/kWh. Use IntraDay for higher rates (min ฿${INTRADAY_MIN_RATE}/kWh). Received: ${ratePerKwh}`);
         e.status = 400;
         throw e;
     }
@@ -123,7 +158,10 @@ module.exports = {
     TRADE_MODES,
     DAY_AHEAD_LOCK_HOUR,
     DAY_AHEAD_BASELINE,
+    DAY_AHEAD_BID_MIN,
+    DAY_AHEAD_OFFER_MAX,
     INTRADAY_MIN_RATE,
+    INTRADAY_MAX_RATE,
     toNumber,
     roundTo4,
     normalizeTradeMode,
@@ -133,5 +171,7 @@ module.exports = {
     matchesSourceType,
     assertDayAheadMarketOpen,
     assertIntradayRate,
+    assertDayAheadBidMin,
+    assertDayAheadOfferMax,
     getLatestEnergyRatePrice,
 };

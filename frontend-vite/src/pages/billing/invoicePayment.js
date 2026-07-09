@@ -210,12 +210,12 @@ export default function InvoicePayment() {
             </button>
             <div>
               <h1 className="text-xl lg:text-2xl font-bold text-gray-900">
-                {step === 'success' ? 'Payment Successful' : `Payment for Invoice ${view.invoiceId}`}
+                {step === 'success' ? 'Payment Successful' : `Invoice ${(view.invoiceId || '').slice(0, 8)}`}
               </h1>
               <p className="text-gray-500 mt-1">
                 {step === 'success'
                   ? 'Your invoice has been paid successfully'
-                  : `Complete payment for ${view.billingPeriod}`}
+                  : view.billingPeriod}
               </p>
             </div>
           </div>
@@ -257,7 +257,7 @@ export default function InvoicePayment() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <div className="text-sm text-gray-400">Invoice ID</div>
-                      <div className="text-2xl font-bold text-gray-900 mt-1">{view.invoiceId}</div>
+                      <div className="text-2xl font-bold text-gray-900 mt-1 font-mono">{(view.invoiceId || '').slice(0, 8)}</div>
                     </div>
                     <div>
                       <div className="text-sm text-gray-400">Billing Period</div>
@@ -421,7 +421,7 @@ export default function InvoicePayment() {
             <p className="text-gray-500 mt-2">Please confirm you want to pay this invoice from the building wallet.</p>
 
             <div className="mt-8 rounded-2xl bg-gray-50 border border-gray-200 p-6 text-left space-y-3">
-              <div className="flex items-center justify-between text-base"><span className="text-gray-500">Invoice</span><span className="font-semibold">{view.invoiceId}</span></div>
+              <div className="flex items-center justify-between text-base"><span className="text-gray-500">Invoice</span><span className="font-semibold font-mono">{(view.invoiceId || '').slice(0, 8)}</span></div>
               <div className="flex items-center justify-between text-base"><span className="text-gray-500">Building</span><span className="font-semibold">{view.buildingName}</span></div>
               <div className="flex items-center justify-between text-base"><span className="text-gray-500">Billing Period</span><span className="font-semibold">{view.billingPeriod}</span></div>
               <div className="flex items-center justify-between text-base"><span className="text-gray-500">Wallet Balance</span><span className="font-semibold">{formatToken(walletBalance)} Token</span></div>

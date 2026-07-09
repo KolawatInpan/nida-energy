@@ -1,4 +1,5 @@
 const { prisma } = require('../../utils/prisma');
+const { randomUUID } = require('crypto');
 const Building = require('../building/building.model');
 const Transaction = require('../transactions/transaction.model');
 const Wallet = require('./wallet.model');
@@ -74,8 +75,6 @@ async function topupWalletByEmail(email, amount, snid) {
     throw err;
   }
 
-  const updatedWallet = await Wallet.addBalance(email, numericAmount, 1);
-  
   // Find building name: first by email, then by wallet's user relation
   const buildings = await Building.getBuildingByEmail(email);
   let buildingName = (Array.isArray(buildings) && buildings.length && buildings[0]?.name) || null;
@@ -91,19 +90,78 @@ async function topupWalletByEmail(email, amount, snid) {
     } catch (e) { /* ignore */ }
   }
 
-  const tx = await Transaction.createTransaction({
-    walletId: wallet.id,
-    buildingName,
-    snid,
-    type: 'CREDIT',
-    tokenAmount: numericAmount,
-    status: 'CONFIRMED',
+  // Use a transaction to create WalletTx + Invoice + Receipt atomically
+  const result = await prisma.$transaction(async (tx) => {
+    // 1. Update wallet balance
+    const updatedWallet = await tx.wallet.update({
+      where: { id: wallet.id },
+      data: { tokenBalance: { increment: numericAmount } },
+    });
+
+    // 2. Create WalletTx record
+    const walletTxId = randomUUID();
+    await tx.walletTx.create({
+      data: {
+        id: walletTxId,
+        walletId: String(wallet.id),
+        timestamp: new Date(),
+        tokenInOut: numericAmount,
+      },
+    });
+
+    // 3. Create Invoice (top-up type)
+    const now = new Date();
+    const invoice = await tx.invoice.create({
+      data: {
+        id: randomUUID(),
+        buildingName: buildingName || email,
+        fromWId: 'SYSTEM',
+        toWId: String(wallet.id),
+        timestamp: now,
+        kWH: 0,
+        tokenAmount: numericAmount,
+        status: 'paid',
+        month: now.getMonth() + 1,
+        year: now.getFullYear(),
+        dailyAvg: 0,
+        peakDate: now,
+        peakkWH: 0,
+      },
+    });
+
+    // 4. Create Receipt (linked to Invoice + WalletTx)
+    const receipt = await tx.receipt.create({
+      data: {
+        id: randomUUID(),
+        invoiceId: String(invoice.id),
+        timestamp: new Date(),
+        walletTxId: String(walletTxId),
+      },
+    });
+
+    // 5. Create Transaction record
+    const txRecord = await tx.transaction.create({
+      data: {
+        walletId: wallet.id,
+        buildingName,
+        snid,
+        type: 'CREDIT',
+        tokenAmount: numericAmount,
+        status: 'CONFIRMED',
+      },
+    });
+
+    return { updatedWallet, invoice, receipt, transaction: txRecord };
   });
 
-  const { verification, transaction: persistedTransaction } = await transactionVerificationService.verifyTransaction(tx);
+  // Pass kWh=0 for top-up transactions (no energy exchanged)
+  const txForVerify = { ...result.transaction, kwh: 0 };
+  const { verification, transaction: persistedTransaction } = await transactionVerificationService.verifyTransaction(txForVerify);
 
   return {
-    wallet: updatedWallet,
+    wallet: result.updatedWallet,
+    invoice: result.invoice,
+    receipt: result.receipt,
     transaction: persistedTransaction,
     verification,
     rate: 1,

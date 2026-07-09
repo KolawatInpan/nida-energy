@@ -114,6 +114,12 @@ router.post('/backfill', RunningMeterController.backfill);
  */
 router.get('/backfill-status', RunningMeterController.backfillStatus);
 
+/**
+ * GET /api/runningMeters/battery-charge-sources/:snid?days=7
+ * Returns battery charge source breakdown (aggregated kWh by source for kW > 0)
+ */
+router.get('/battery-charge-sources/:snid', RunningMeterController.getBatteryChargeSources);
+
 module.exports = router;
 
 

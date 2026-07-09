@@ -96,6 +96,7 @@ export default function Transaction() {
   const [building, setBuilding] = useState('all');
   const [status, setStatus] = useState('all');
   const [range, setRange] = useState('today');
+  const [showFilters, setShowFilters] = useState(false);
   
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -233,6 +234,34 @@ export default function Transaction() {
     };
   }, [rows]);
 
+  const handleExportCSV = () => {
+    const headers = ['Transaction ID', 'Timestamp', 'Building', 'Type', 'Token Amount', 'Status', 'Verification', 'Tx Hash'];
+    const csvRows = [headers.join(',')];
+    filtered.forEach(r => {
+      csvRows.push([
+        r.id,
+        `"${r.ts}"`,
+        `"${r.building}"`,
+        r.type,
+        r.amount,
+        r.status,
+        r.verification.label,
+        r.hash || '-',
+      ].join(','));
+    });
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `transactions_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   if (loading) {
     return (
       <div className="bg-gray-50 min-h-screen p-6">
@@ -273,8 +302,8 @@ export default function Transaction() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button className="px-4 py-2 bg-gray-100 text-gray-800 rounded-lg border border-gray-200 hover:bg-gray-200 font-medium">Export CSV</button>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">Advanced Filters</button>
+            <button onClick={handleExportCSV} className="px-4 py-2 bg-gray-100 text-gray-800 rounded-lg border border-gray-200 hover:bg-gray-200 font-medium">Export CSV</button>
+            <button onClick={() => setShowFilters(!showFilters)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">Advanced Filters</button>
           </div>
         </header>
 
@@ -327,6 +356,7 @@ export default function Transaction() {
         />
       </section>
 
+      {showFilters && (
       <section className="mt-4 bg-white rounded-lg shadow-md border border-gray-200 p-4">
         <div className="flex gap-3 items-center flex-wrap">
           <input 
@@ -361,6 +391,7 @@ export default function Transaction() {
           </select>
         </div>
       </section>
+      )}
 
       <section className="mt-4 bg-white rounded-lg shadow-md border border-gray-200 p-4">
         <div className="flex justify-between items-center mb-4">

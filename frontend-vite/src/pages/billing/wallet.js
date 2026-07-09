@@ -318,6 +318,9 @@ export default function Wallet() {
                 <div>
                   <div className="text-blue-100 text-sm font-semibold mb-2">Current Token Balance</div>
                   <div className="text-5xl font-bold">{formatToken(tokenBalance)} <span className="text-3xl font-normal">Token</span></div>
+                  {wallet?.id && (
+                    <div className="text-blue-200 text-xs mt-2 font-mono opacity-80">Wallet ID: {String(wallet.id).slice(0, 8)}</div>
+                  )}
                 </div>
                 <div className="w-20 h-20 bg-blue-500 rounded-full flex items-center justify-center text-4xl shadow-lg">
                   💰
@@ -346,7 +349,7 @@ export default function Wallet() {
                 <button onClick={handleConfirmExchange} disabled={loading} className="flex-1 bg-white text-blue-600 font-bold py-3 px-6 rounded-xl hover:bg-gray-100 transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50">
                   <span className="text-xl">+</span> Top Up Now
                 </button>
-                <button onClick={handleRecalculateBalance} disabled={loading || !wallet?.id} className="px-6 py-3 bg-blue-500 hover:bg-blue-400 text-white font-bold rounded-xl transition-all shadow-lg flex items-center gap-2 disabled:opacity-50">
+                <button onClick={() => history.push('/transaction')} disabled={loading} className="px-6 py-3 bg-blue-500 hover:bg-blue-400 text-white font-bold rounded-xl transition-all shadow-lg flex items-center gap-2 disabled:opacity-50">
                   <span className="text-xl">⏱</span> History
                 </button>
               </div>
@@ -634,64 +637,39 @@ export default function Wallet() {
           </div>
         </div>
 
-        {/* Bottom Cards Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Saved Payment Methods */}
-          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <span className="text-2xl">💳</span>
-              Saved Payment Methods
-            </h3>
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between p-3 rounded-lg bg-amber-50 border-2 border-amber-200 hover:shadow-md transition-all">
-                <span className="font-medium text-gray-900">Bank Transfer •••• 4532</span>
-                <button className="text-sm font-bold text-amber-600 hover:text-amber-700">Edit</button>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200 hover:shadow-md transition-all">
-                <span className="font-medium text-gray-900">Bank Transfer •••• 1234</span>
-                <button className="text-sm font-bold text-blue-600 hover:text-blue-700">Edit</button>
-              </div>
-            </div>
-          </div>
-
-          {/* Auto Top-up Settings */}
-          {/* <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <span className="text-2xl">⚙️</span>
-              Auto Top-up Settings
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">Trigger Balance</label>
-                <select className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                  <option>Below 5,000 Token</option>
-                  <option>Below 3,000 Token</option>
-                  <option>Below 1,000 Token</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">Top-up Amount</label>
-                <select className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                  <option>5,000 (฿5,000)</option>
-                  <option>3,000 (฿3,000)</option>
-                  <option>10,000 (฿10,000)</option>
-                </select>
-              </div>
-            </div>
-          </div> */}
-
-          {/* Blockchain Verification */}
+        {/* Blockchain Verification — Full Width */}
+        <div className="mb-6">
           <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl shadow-lg border border-blue-200 p-6">
             <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
               <span className="text-2xl">🔐</span>
               Blockchain Security
             </h3>
-            <div className="space-y-3">
-              <p className="text-sm text-gray-700">All top-up transactions are securely recorded on the blockchain for transparency and security.</p>
-              <div className="pt-3 border-t border-blue-200">
-                <p className="text-xs font-semibold text-blue-600">
-                  {latestTransaction?.txHash ? 'Latest transaction verified on blockchain' : 'Verification appears after a transaction is published on-chain'}
-                </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <span className="text-gray-500 text-xs">Wallet Address</span>
+                <div className="font-mono font-bold text-gray-900 truncate" title={latestTransaction?.publisherAddress}>
+                  {latestTransaction?.publisherAddress
+                    ? `${latestTransaction.publisherAddress.slice(0, 10)}...${latestTransaction.publisherAddress.slice(-6)}`
+                    : 'Pending...'}
+                </div>
+              </div>
+              <div>
+                <span className="text-gray-500 text-xs">Latest Block</span>
+                <div className="font-mono font-bold text-gray-900">#{latestTransaction?.blockNumber || '—'}</div>
+              </div>
+              <div>
+                <span className="text-gray-500 text-xs">Verified TXs</span>
+                <div className="font-bold text-gray-900">{transactions.filter(t => t.txHash).length} on-chain</div>
+              </div>
+              <div>
+                <span className="text-gray-500 text-xs">Verification Method</span>
+                <div className="font-bold text-gray-900">{latestTransaction?.verificationMethod || 'Self Transaction'}</div>
+              </div>
+              <div className="col-span-2 md:col-span-4">
+                <span className="text-gray-500 text-xs">Latest Tx Hash</span>
+                <div className="font-mono font-bold text-blue-600 truncate">
+                  {latestTransaction?.txHash || '—'}
+                </div>
               </div>
             </div>
           </div>

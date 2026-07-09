@@ -1,4 +1,5 @@
 import React from 'react';
+import Plot from 'react-plotly.js';
 
 export default function UserInsightCards({
   cardClass,
@@ -27,34 +28,25 @@ export default function UserInsightCards({
               </div>
             </div>
             <div className="min-w-0 flex-1">
-              <svg viewBox="0 0 360 180" className="h-full w-full">
-                <polyline
-                  fill="rgba(59,130,246,0.12)"
-                  stroke="none"
-                  points={hourlyConsumption.map((value, index) => {
-                    const x = 14 + index * 14;
-                    const y = 160 - ((value / chartMax) * 130);
-                    return `${x},${y}`;
-                  }).join(' ') + ' 336,160 14,160'}
-                />
-                <polyline
-                  fill="none"
-                  stroke="#2f7ed8"
-                  strokeWidth="3"
-                  points={hourlyConsumption.map((value, index) => {
-                    const x = 14 + index * 14;
-                    const y = 160 - ((value / chartMax) * 130);
-                    return `${x},${y}`;
-                  }).join(' ')}
-                />
-              </svg>
-              <div className="mt-2 flex items-center justify-between text-[10px] text-gray-500">
-                {[0, 6, 12, 18, 23].map((hour) => (
-                  <span key={`peak-x-${hour}`} className="min-w-0 flex-1 text-center">
-                    {`${String(hour).padStart(2, '0')}:00`}
-                  </span>
-                ))}
-              </div>
+              <Plot
+                data={[{
+                  x: Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`),
+                  y: hourlyConsumption,
+                  type: 'scatter', mode: 'lines',
+                  line: { color: '#2f7ed8', width: 2 },
+                  fill: 'tozeroy', fillcolor: 'rgba(59,130,246,0.12)',
+                  hovertemplate: '%{x}<br>%{y:,.1f} kWh<extra></extra>',
+                }]}
+                layout={{
+                  autosize: true, height: 200,
+                  margin: { l: 0, r: 0, t: 5, b: 25 },
+                  xaxis: { tickfont: { size: 9, color: '#6b7280' }, automargin: true, nticks: 5 },
+                  yaxis: { tickfont: { size: 9, color: '#6b7280' }, gridcolor: '#e5e7eb', rangemode: 'tozero' },
+                  paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', showlegend: false,
+                }}
+                config={{ displayModeBar: false }}
+                useResizeHandler style={{ width: '100%', height: '100%' }}
+              />
             </div>
           </div>
         </div>

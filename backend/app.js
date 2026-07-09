@@ -62,6 +62,7 @@ function createApp() {
   app.use('/api/market', marketRoutes);
   app.use('/api/runningMeters', runningMeterRoutes);
   app.use('/api/energy', energyRoutes);
+  app.use('/api/energy-feed', require('./features/energy/energyFeed.routes'));
   app.use('/api/invoices', invoiceRoutes);
   app.use('/api/receipts', receiptRoutes);
   // Manual trigger: check & auto-post battery surplus for a building
@@ -99,7 +100,13 @@ function createApp() {
     const { prisma } = require('./utils/prisma');
     const limit = Math.max(1, Math.min(Number(req.query.limit) || 50, 200));
     const rows = await prisma.$queryRawUnsafe(`
-      SELECT t.* FROM "Transaction" t
+      SELECT t."id" AS "txid", t."timestamp", t."buildingName", t."snid", t."walletId",
+        t."type", t."amount" AS "tokenAmount", t."status",
+        t."verificationStatus", t."verificationMethod", t."chainId",
+        t."verificationPayload", t."payloadHash", t."txHash", t."explorerUrl",
+        t."publisherAddress", t."contractAddress", t."blockNumber",
+        t."gasUsed", t."effectiveGasPrice", t."verifiedAt"
+      FROM "Transaction" t
       WHERE t."txHash" IS NOT NULL
       ORDER BY COALESCE(t."verifiedAt", t."timestamp") DESC, t."timestamp" DESC
       LIMIT ${limit}

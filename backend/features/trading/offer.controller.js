@@ -32,7 +32,7 @@ async function getBuildingByWalletId(req, res) {
     try {
         const building = await Offer.getBuildingByWalletId(req.params.walletId);
         if (!building) {
-            return res.status(404).json({ error: 'Building not found for this wallet' });
+            return res.json(null);  // 200 with null — caller handles gracefully
         }
         res.json(building);
     } catch (err) {
@@ -74,11 +74,11 @@ async function createOffer(req, res) {
 
 async function createBid(req, res) {
     try {
-        const { buyerWalletId, kwh, ratePerKwh, marketType, targetDate } = req.body;
+        const { buyerWalletId, kwh, ratePerKwh, marketType, targetDate, bypassLock } = req.body;
         if (!buyerWalletId || kwh == null) {
             return res.status(400).json({ error: 'buyerWalletId and kwh are required' });
         }
-                const created = await Offer.createBid({ buyerWalletId, kwh, ratePerKwh, marketType, targetDate });
+                const created = await Offer.createBid({ buyerWalletId, kwh, ratePerKwh, marketType, targetDate, bypassLock });
                 res.status(201).json(created);
 
                 // Notify via Telegram (fire-and-forget)

@@ -18,7 +18,7 @@ router.put('/orders/:id/cancel', MarketController.cancelOrder);
 // GET /api/market/matches
 router.get('/matches', MarketController.listMatches);
 
-// POST /api/market/trigger-clearing (public — for testing)
+// POST /api/market/trigger-clearing — ⚡ Force Day-Ahead Clearing (matching + force distribution)
 router.post('/trigger-clearing', MarketController.triggerClearing);
 
 module.exports = router;

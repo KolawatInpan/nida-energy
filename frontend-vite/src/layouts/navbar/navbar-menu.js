@@ -3,6 +3,7 @@ import React, { Component } from 'react';
 import LeftMenu from './LeftMenu';
 import { Drawer, Button, Switch } from 'antd';
 import NotificationBell from '../../components/NotificationBell';
+import { getStoredDataMode, setStoredDataMode, DEMO_MODE, REAL_MODE } from '../../core/dataMode';
 // ดึง userId จาก localStorage (หรือจะใช้ redux ก็ได้)
 const getUserId = () => {
     try {
@@ -99,17 +100,17 @@ class Navbar extends Component {
 
 // DataModeToggle must be outside class and outside render
 function DataModeToggle() {
-    const [mode, setMode] = React.useState(() => localStorage.getItem('dataMode') || 'real');
+    const [mode, setMode] = React.useState(() => getStoredDataMode());
     const handleChange = checked => {
-        const newMode = checked ? 'demo' : 'real';
+        const newMode = checked ? DEMO_MODE : REAL_MODE;
         setMode(newMode);
-        localStorage.setItem('dataMode', newMode);
+        setStoredDataMode(newMode);
         window.location.reload(); // reload to apply mode everywhere
     };
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 13, color: '#334155', fontWeight: 500 }}>{mode === 'demo' ? 'Demo' : 'Real'}</span>
-            <Switch checked={mode === 'demo'} onChange={handleChange} size="small" />
+            <span style={{ fontSize: 13, color: '#334155', fontWeight: 500 }}>{mode === DEMO_MODE ? 'Demo' : 'Real'}</span>
+            <Switch checked={mode === DEMO_MODE} onChange={handleChange} size="small" />
         </div>
     );
 }

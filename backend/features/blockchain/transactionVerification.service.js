@@ -44,6 +44,10 @@ async function persistVerificationResult(transaction, verification) {
 async function verifyTransaction(transaction, options = {}) {
   const force = Boolean(options.force);
   const currentTransaction = await getTransactionById(transaction.txid) || transaction;
+  // Preserve extra fields from caller (not stored in DB column)
+  if (transaction.kwh != null && currentTransaction.kwh == null) currentTransaction.kwh = transaction.kwh;
+  if (transaction.fromBuilding != null && !currentTransaction.fromBuilding) currentTransaction.fromBuilding = transaction.fromBuilding;
+  if (transaction.toBuilding != null && !currentTransaction.toBuilding) currentTransaction.toBuilding = transaction.toBuilding;
 
   if (!force && currentTransaction?.txHash && String(currentTransaction?.verificationStatus || '').toUpperCase() === 'VERIFIED') {
     return {

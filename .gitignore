@@ -8,3 +8,18 @@
 /blockchain/node_modules
 .env
 /legacy
+
+# Sensitive credentials & secrets
+.env.dev
+password
+telegram
+vpn
+useremail.txt
+_tmp_dump.sql
+_screenshot/
+screenshot/
+img/
+pgadmin/pgpassfile
+pgadmin/servers.json
+.DS_Store
+*.log

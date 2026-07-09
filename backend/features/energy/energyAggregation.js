@@ -79,14 +79,23 @@ async function syncMeterSnapshotAndBuildingEnergy({ snid, timestamp, kW, kWH }, 
 
   if (!meter) return null;
 
-  const nextValue = roundTo4(kWH);
+  const nextKwh = roundTo4(kWH);
+  const isBattery = String(meter.type || '').toLowerCase().includes('battery');
   const meterData = {
     timestamp,
   };
 
-  if (nextValue !== null) {
-    meterData.value = nextValue;
-    meterData.kWH = nextValue;
+  if (nextKwh !== null) {
+    // Battery: value = accumulated kWh (SoC), clamped to capacity
+    if (isBattery) {
+      const cap = Number(meter.capacity || 0);
+      const clamped = cap > 0 ? Math.min(nextKwh, cap) : nextKwh;
+      meterData.value = clamped;
+      meterData.kWH = clamped;
+    } else {
+      meterData.value = roundTo4(kW ?? kWH);
+      meterData.kWH = nextKwh;
+    }
   }
 
   await prismaClient.meterInfo.update({
@@ -290,8 +299,11 @@ async function insertRunningMeter(data){
 
   const normalizedKw = data?.kW === undefined || data?.kW === null ? null : roundTo4(data.kW)
   const normalizedKwh = data?.kWH === undefined || data?.kWH === null ? null : roundTo4(data.kWH)
+  const source = data?.source || null
   
-  const log = await prisma.runningMeter.upsert({
+  let log;
+  try {
+    log = await prisma.runningMeter.upsert({
 
     where:{
       snid_timestamp:{
@@ -300,17 +312,35 @@ async function insertRunningMeter(data){
       }
     },
 
-    update:{},
+    update: source ? { source } : {},
 
     create:{
       snid:data.snid,
       timestamp,
       txid:data?.txid ?? null,
       kW:Number.isFinite(normalizedKw) ? normalizedKw : null,
-      kWH:Number.isFinite(normalizedKwh) ? normalizedKwh : null
+      kWH:Number.isFinite(normalizedKwh) ? normalizedKwh : null,
+      source,
     }
 
-  })
+    });
+  } catch (err) {
+    // Fallback: source column may not exist yet
+    if ((err?.message || '').includes('source')) {
+      log = await prisma.runningMeter.upsert({
+        where: { snid_timestamp: { snid: data.snid, timestamp } },
+        update: {},
+        create: {
+          snid: data.snid, timestamp,
+          txid: data?.txid ?? null,
+          kW: Number.isFinite(normalizedKw) ? normalizedKw : null,
+          kWH: Number.isFinite(normalizedKwh) ? normalizedKwh : null,
+        },
+      });
+    } else {
+      throw err;
+    }
+  }
 
   await syncMeterSnapshotAndBuildingEnergy({
     snid: data.snid,
@@ -370,6 +400,7 @@ async function insertRunningMetersBulk(logs = []) {
         txid: item?.txid ?? null,
         kW: Number.isFinite(normalizedKw) ? normalizedKw : null,
         kWH: Number.isFinite(normalizedKwh) ? normalizedKwh : null,
+        source: item?.source || null,
       };
     })
     .filter(Boolean)
@@ -435,23 +466,40 @@ async function insertRunningMetersBulk(logs = []) {
     });
   });
 
-  const createResult = await prisma.runningMeter.createMany({
-    data: normalizedLogs.map((item) => ({
-      snid: item.snid,
-      timestamp: item.timestamp,
-      txid: item.txid ?? null,
-      kW: item.kW ?? null,
-      kWH: item.kWH ?? null,
-    })),
-    skipDuplicates: true,
-  }).catch(err => {
-    // If foreign key error (meter not registered), give clear message
-    if (err?.code === 'P2003') {
+  let createResult;
+  try {
+    createResult = await prisma.runningMeter.createMany({
+      data: normalizedLogs.map((item) => ({
+        snid: item.snid,
+        timestamp: item.timestamp,
+        txid: item.txid ?? null,
+        kW: item.kW ?? null,
+        kWH: item.kWH ?? null,
+        source: item.source ?? null,
+      })),
+      skipDuplicates: true,
+    });
+  } catch (err) {
+    // Fallback: source column may not exist yet (before migration)
+    if (err?.code === 'P2022' || (err?.message || '').includes('source')) {
+      console.warn('[insertRunningMetersBulk] source column unavailable, retrying without source');
+      createResult = await prisma.runningMeter.createMany({
+        data: normalizedLogs.map((item) => ({
+          snid: item.snid,
+          timestamp: item.timestamp,
+          txid: item.txid ?? null,
+          kW: item.kW ?? null,
+          kWH: item.kWH ?? null,
+        })),
+        skipDuplicates: true,
+      });
+    } else if (err?.code === 'P2003') {
       const invalidSnids = [...new Set(normalizedLogs.map(l => l.snid))];
       throw new Error(`Some meter SNIDs not registered in MeterInfo: ${invalidSnids.slice(0, 5).join(', ')}${invalidSnids.length > 5 ? '...' : ''}. Please register meters first.`);
+    } else {
+      throw err;
     }
-    throw err;
-  });
+  }
 
   const hourlyBuckets = new Map();
   const dailyBuckets = new Map();

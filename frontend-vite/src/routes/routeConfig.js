@@ -1,12 +1,15 @@
 import { LoginPage } from "../pages/auth";
 import { Users, Buildings, Meters, Quota, ApprovedRequest, RegisterRequestDetail, AdminResetDatabase, TokenManagement, RateManagement } from "../pages/admin";
+import TestingPage from "../pages/admin/testingPage";
 import { Building, Meter, MeterRegistration, Report } from "../pages/energy";
 import { Transaction, TradingHistory, TransactionDetail } from "../pages/transactions";
 import { Wallet, Receipts, ReceiptDetail, Invoice, InvoicePayment } from "../pages/billing";
 import { EnergySelling, Market, MockEnergy } from "../pages/trading";
 import { SimulationPage } from "../pages/simulation";
+import ApiStatus from "../pages/system/ApiStatus";
 import { BlockExplorer, BlockExplorerTransactionDetail, BlockchainValidators, TransactionBlockchainCompare } from "../pages/blockchain";
 import UserGuide from "../pages/userGuide/UserGuide";
+import PatchNotes from "../pages/patchNotes/PatchNotes";
 import { NoBuildingAssignedPage } from "../components/shared";
 import { ROUTE_PATHS } from "./routePaths";
 
@@ -49,5 +52,8 @@ export const authenticatedRoutes = [
   { path: ROUTE_PATHS.invoice, exact: true, component: Invoice },
   { path: ROUTE_PATHS.invoicePayment, exact: true, component: InvoicePayment },
   { path: ROUTE_PATHS.rateManagement, exact: true, component: RateManagement },
+  { path: ROUTE_PATHS.testing, exact: true, component: TestingPage, adminOnly: true },
+  { path: ROUTE_PATHS.apiStatus, exact: true, component: ApiStatus },
   { path: ROUTE_PATHS.userGuide, exact: true, component: UserGuide },
+  { path: ROUTE_PATHS.patchNotes, exact: true, component: PatchNotes },
 ];

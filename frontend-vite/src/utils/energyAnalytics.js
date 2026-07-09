@@ -38,8 +38,10 @@ export const buildThreeHourSeries = (payload = {}) => {
 
     const accumulate = (values = [], labels = [], key) => {
         labels.forEach((label, index) => {
-            const timePart = String(label || '').split(' ')[1] || '';
-            const hour = Number(timePart.split(':')[0]);
+            const str = String(label || '');
+            // Support both "2026-05-25 14:00" and "2026-05-25T14:00:00" formats
+            const timePart = str.includes('T') ? str.split('T')[1] : (str.split(' ')[1] || '');
+            const hour = Number((timePart || '').split(':')[0]);
             if (!Number.isFinite(hour)) return;
             const bucketIndex = Math.min(seed.length - 1, Math.max(0, Math.floor(hour / 3)));
             seed[bucketIndex][key] += toNumeric(values[index]);

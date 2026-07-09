@@ -1,13 +1,20 @@
 export const buildComparisonXAxisLabels = (labels = [], range = '7d') => {
     if (!Array.isArray(labels) || labels.length === 0) return new Set();
     if (range === '1d') {
-        const visible = labels.filter((_, index) => index % 3 === 0 || index === labels.length - 1);
+        // 1D = 24 hourly labels — show only 3 ticks to avoid overlap across multiple charts
+        const len = labels.length;
+        const visible = labels.filter((_, index) => index === 0 || index === Math.floor(len / 2) || index === len - 1);
         return new Set(visible);
     }
-    if (range === '7d') return new Set(labels);
+    if (range === '7d') {
+        // 7D = daily labels — show 4 ticks
+        const len = labels.length;
+        return new Set(labels.filter((_, index) => index % 2 === 0 || index === len - 1));
+    }
 
-    const step = range === '30d' ? 5 : 3;
-    const visible = labels.filter((_, index) => index % step === 0 || index === labels.length - 1);
+    const len = labels.length;
+    const step = Math.max(1, Math.ceil(len / 4));
+    const visible = labels.filter((_, index) => index % step === 0 || index === len - 1);
     return new Set(visible);
 };
 

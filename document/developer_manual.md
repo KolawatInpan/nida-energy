@@ -1,170 +1,109 @@
-# NIDA Smart Grid — คู่มือนักพัฒนา (Developer Guide)
+# NIDA Smart Grid — คู่มือนักพัฒนา
 
-> เอกสารนี้จะพาเดินดูทุก folder และไฟล์สำคัญในโปรเจคทีละส่วน  
-> เวลาต้องการแก้ไขอะไร → เปิดสารบัญ → กระโดดไป section นั้น → อ่านว่าไฟล์ไหนทำอะไร
+> สำหรับ developer ที่ต้องการแก้ไขหรือเพิ่ม feature ในโปรเจคนี้  
+> อ่านเล่มนี้ก่อนเริ่มเขียนโค้ด — จะรู้ว่าไฟล์ไหนทำอะไร ต้องแก้ตรงไหน
 
 ---
 
 ## สารบัญ
 
-- [โครงสร้างระดับบน](#โครงสร้างระดับบน)
-- [Frontend (`frontend-vite/`)](#frontend-frontend-vite)
-  - [Pages — หน้าทั้งหมดของแอป](#pages--หน้าทั้งหมดของแอป)
-  - [Components — ชิ้นส่วน UI ที่ใช้ซ้ำ](#components--ชิ้นส่วน-ui-ที่ใช้ซ้ำ)
-  - [Data Connectors — ตัวเชื่อม API](#data-connectors--ตัวเชื่อม-api)
-  - [Store (Redux) — จัดการ state ทั้งแอป](#store-redux--จัดการ-state-ทั้งแอป)
-  - [Utils & Global](#utils--global)
-- [Backend (`backend/`)](#backend-backend)
-  - [Entry Points](#entry-points)
-  - [Features — แต่ละ feature แยก folder](#features--แต่ละ-feature-แยก-folder)
-  - [Middleware](#middleware)
-  - [Prisma Proxy (สำคัญที่สุด!)](#prisma-proxy-สำคัญที่สุด)
-- [Database Schema](#database-schema)
-- [กฎเหล็กที่ต้องจำ](#กฎเหล็กที่ต้องจำ)
-- [Test Accounts](#test-accounts)
+1. [โครงสร้างโปรเจค](#1-โครงสร้างโปรเจค)
+2. [Frontend — แต่ละไฟล์ทำอะไร](#2-frontend--แต่ละไฟล์ทำอะไร)
+3. [Backend — แต่ละไฟล์ทำอะไร](#3-backend--แต่ละไฟล์ทำอะไร)
+4. [Database Schema](#4-database-schema)
+5. [กฎที่ต้องรู้ก่อนเขียนโค้ด](#5-กฎที่ต้องรู้ก่อนเขียนโค้ด)
+6. [Test Accounts](#6-test-accounts)
+7. [Quick Reference — อยากแก้ X ต้องไปไฟล์ไหน](#7-quick-reference--อยากแก้-x-ต้องไปไฟล์ไหน)
 
 ---
 
-## โครงสร้างระดับบน
+## 1. โครงสร้างโปรเจค
 
 ```
 nida-dashboard-ui/
-├── frontend-vite/          ← เว็บแอป React (หน้าตาที่ผู้ใช้เห็น)
-├── backend/                ← API Server (Express.js + Prisma)
-├── blockchain/             ← Smart Contract + Hardhat Node
-├── database/               ← Prisma schema (source of truth)
-├── document/               ← เอกสาร (installation_manual, developer_manual)
-├── docker-compose.yml      ← Production deploy
-├── .env                    ← Environment variables (API keys, DB URL, etc.)
-└── DEEPSEEK.md             ← Context หลักของโปรเจค (อ่านก่อนเสมอ)
+│
+├── frontend-vite/          เว็บแอป React (สิ่งที่ผู้ใช้เห็น)
+├── backend/                API Server (Express.js + Prisma)
+├── blockchain/             Smart Contract + Hardhat Node
+├── database/               Prisma schema (โครงสร้างฐานข้อมูล)
+├── document/               เอกสารโปรเจค
+├── docker-compose.yml      ใช้ deploy ขึ้น production
+├── .env                    ค่าคอนฟิก (API keys, database URL)
+└── DEEPSEEK.md             ไฟล์ context หลัก — อ่านก่อนทุกครั้ง
 ```
 
 ---
 
-## Frontend (`frontend-vite/`)
+## 2. Frontend — แต่ละไฟล์ทำอะไร
 
-### ภาพรวม folder
+### 2.1 ไฟล์ระดับบนสุด
 
-```
-frontend-vite/
-├── src/
-│   ├── pages/              ← 📄 ทุกหน้าของเว็บ — 1 ไฟล์ = 1 หน้า
-│   ├── components/         ← 🧩 UI ชิ้นส่วนที่ใช้ซ้ำหลายหน้า
-│   ├── core/data_connecter/← 🔌 ตัวเรียก API — ห้ามใช้ axios โดยตรง!
-│   ├── store/              ← 🏪 Redux state (auth, member)
-│   ├── global/             ← 🌐 ค่าคงที่ (localStorage keys)
-│   └── utils/              ← 🛠 ฟังก์ชันช่วย (format date, convert number)
-├── nginx.conf              ← nginx config สำหรับ production
-├── index.html              ← Entry HTML
-├── vite.config.js          ← Vite config
-├── tailwind.config.js      ← Tailwind theme
-└── package.json            ← Dependencies
-```
+| ไฟล์ | ทำหน้าที่ | แก้เมื่อไหร่ |
+|------|----------|-------------|
+| `index.html` | จุดเริ่มต้น — ไฟล์ HTML เปล่าๆ ที่ Vite ใช้ inject React | แทบไม่ต้องแก้ |
+| `vite.config.js` | ตั้งค่า Vite (port, proxy, plugins) | เปลี่ยน port dev server, เพิ่ม proxy |
+| `tailwind.config.js` | ตั้งค่า Tailwind CSS | เพิ่มสี/ font/ breakpoint ใหม่ |
+| `nginx.conf` | nginx config สำหรับ production | เปลี่ยน routing บน production |
+| `package.json` | รายการ dependencies + scripts | เพิ่ม/ลบ package |
 
----
+### 2.2 pages/ — หน้าทั้งหมดของเว็บ
 
-### Pages — หน้าทั้งหมดของแอป
+ทุกไฟล์ = 1 หน้าเว็บ 1 หน้า
 
-📁 **`src/pages/`** — ทุกไฟล์ในนี้คือ 1 หน้าในเว็บ
+| ไฟล์ | ทำหน้าที่ | จุดสำคัญ |
+|------|----------|---------|
+| `pages/dashboard/dashboardHome.js` | หน้าแรก Admin — แสดงภาพรวมพลังงาน, ธุรกรรม, อาคาร | - |
+| `pages/energy/report.js` | หน้ารายงานพลังงาน — กราฟ SVG แสดงผลิต/ใช้/SoC | ห้ามแก้ EnergyChart โดยตรง — ถ้าจะเพิ่ม chart ใหม่ให้สร้าง component ใหม่ |
+| `pages/energy/meter.js` | ดูรายละเอียดมิเตอร์ตัวเดียว — kWh, สถานะ, ประวัติ | - |
+| `pages/energy/meterRegistration.js` | ลงทะเบียนมิเตอร์ใหม่ — กรอก snid, ประเภท, อาคาร | - |
+| `pages/trading/market.js` | Marketplace — รายการ offers และ bids ทั้งหมด | - |
+| `pages/trading/energySelling.js` | ตั้งค่า trade mode + manual sell | ใช้ `energySellingPanel` component; `handleSaveTradePolicy()` บันทึกลง DB |
+| `pages/trading/mockEnergy.js` | สร้างข้อมูลปลอมสำหรับทดสอบ | - |
+| `pages/billing/wallet.js` | กระเป๋าตังค์ — ยอด token, top-up, ประวัติ | - |
+| `pages/billing/receipts.js` | รายการใบเสร็จ — auto-refresh ทุก 15 วิ | - |
+| `pages/billing/invoices.js` | จัดการใบแจ้งหนี้ — สถานะ paid/late/cancelled | - |
 
-```
-pages/
-├── dashboard/
-│   └── dashboardHome.js    ← 🏠 หน้าหลัก Admin Dashboard
-│                              แสดงภาพรวม: พลังงาน, ธุรกรรม, อาคาร
-│                              │
-├── energy/
-│   ├── report.js           ← 📊 หน้ารายงานพลังงาน
-│   │                          มี EnergyChart (custom SVG) — แสดงกราฟผลิต/ใช้/SoC
-│   │                          ⚠️ ถ้าจะเพิ่ม chart แบบใหม่ → สร้าง component ใหม่
-│   │                          อย่าแก้ EnergyChart โดยตรง
-│   │                          │
-│   ├── meter.js            ← 🔌 หน้ารายละเอียดมิเตอร์ตัวเดียว
-│   │                          ดูข้อมูล kWh, สถานะ, ประวัติ
-│   │                          │
-│   └── meterRegistration.js← 📝 หน้าลงทะเบียนมิเตอร์ใหม่
-│                              กรอก snid, ประเภท, อาคาร
-│                              │
-├── trading/
-│   ├── market.js           ← 🏪 Marketplace — หน้ารวม offers และ bids
-│   │                          แสดงรายการซื้อ-ขายพลังงานทั้งหมด
-│   │                          │
-│   ├── energySelling.js    ← ⚡ หน้าตั้งค่า trade mode + manual sell
-│   │                          🔑 ใช้ EnergySellingPanel component
-│   │                          handleSaveTradePolicy() → บันทึก tradeMode ลง DB
-│   │                          │
-│   └── mockEnergy.js       ← 🧪 สร้างข้อมูลปลอมสำหรับทดสอบ
-│                              กดปุ่ม generate → สร้าง meter readings จำลอง
-│                              │
-└── billing/
-    ├── wallet.js           ← 💰 หน้ากระเป๋าตังค์
-    │                          ดูยอด token, top-up, ประวัติธุรกรรม
-    │                          │
-    ├── receipts.js         ← 🧾 รายการใบเสร็จ (auto-refresh ทุก 15s)
-    │                          │
-    └── invoices.js         ← 📋 จัดการใบแจ้งหนี้
-                               ดูสถานะ paid/late/cancelled
-```
+### 2.3 components/ — UI ที่ใช้ซ้ำหลายหน้า
 
-### Components — ชิ้นส่วน UI ที่ใช้ซ้ำ
+| ไฟล์ | ทำหน้าที่ | จุดสำคัญ |
+|------|----------|---------|
+| `components/shared/energySellingPanel.js` | แผงซื้อ-ขายพลังงาน (Solar Array + Storage System) | `storageMode` เป็น local state — ไม่ sync กับ backend |
+| `components/shared/MarketTimeline.js` | นับถอยหลัง Day-Ahead market (เปิด/ปิด/clearing) | - |
 
-📁 **`src/components/`** — ชิ้นส่วนที่ถูกเรียกใช้จากหลายหน้า
+### 2.4 core/data_connecter/ — ตัวเรียก API
 
-```
-components/
-└── shared/
-    ├── energySellingPanel.js  ← 🔑 แผงซื้อ-ขายพลังงาน (ใช้ใน energySelling.js)
-    │                              มี 2 tabs:
-    │                              ☀️ Solar Array  — ตั้งค่า solar trade mode
-    │                              🔋 Storage System — ตั้งค่า battery trade mode
-    │                              ⚠️ storageMode เป็น local state — ไม่ sync กับ backend
-    │                              │
-    └── MarketTimeline.js       ← ⏰ นับถอยหลัง Day-Ahead market
-                                   แสดงเวลาเปิด/ปิด/clearing
-```
+**กฎ:** ห้ามใช้ `axios` โดยตรงจากหน้าเพจ — ต้องเรียกผ่านไฟล์ในนี้เท่านั้น
 
-### Data Connectors — ตัวเชื่อม API
-
-📁 **`src/core/data_connecter/`** — ห้ามใช้ axios โดยตรงจากหน้าเพจ ต้องเรียกผ่านไฟล์ที่นี่เท่านั้น
-
-```
-core/data_connecter/
-├── market.js       ← 🏪 API ตลาด: ดึง offers, bids
-├── purchase.js     ← 💸 API ซื้อพลังงาน: สร้าง transaction
-├── register.js     ← 📝 API ลงทะเบียน: user, building, meter
-├── wallet.js       ← 💰 API wallet: top-up, เช็คยอด
-├── building.js     ← 🏢 API อาคาร: CRUD, ตั้งค่า trade mode
-└── rate.js         ← 📊 API เรท: ดึงราคาตลาด
-```
+| ไฟล์ | ใช้เรียก API อะไร |
+|------|-----------------|
+| `market.js` | ดึง offers, bids จากตลาด |
+| `purchase.js` | ซื้อพลังงาน — สร้าง transaction |
+| `register.js` | ลงทะเบียน user, building, meter |
+| `wallet.js` | wallet: top-up, เช็คยอด |
+| `building.js` | อาคาร: CRUD, ตั้งค่า trade mode |
+| `rate.js` | ดึงราคาตลาด |
 
 **วิธีใช้:**
 ```js
 // ✅ ถูกต้อง
 import { purchaseEnergy } from '../../core/data_connecter/purchase';
-const response = await purchaseEnergy({ offerId, buyerWalletId });
+const res = await purchaseEnergy({ offerId, buyerWalletId });
 
 // ❌ ผิด — อย่าทำ
-const response = await axios.post('/api/energy/purchase', { ... });
+const res = await axios.post('/api/energy/purchase', { ... });
 ```
 
-### Store (Redux) — จัดการ state ทั้งแอป
+### 2.5 store/ — Redux State Management
 
-📁 **`src/store/`** — ใช้ Redux Toolkit + redux-persist (เก็บ state ลง localStorage)
+ใช้ Redux Toolkit + redux-persist (state ถูกบันทึกใน localStorage)
 
-```
-store/
-├── index.js               ← ตั้งค่า store + redux-persist
-│
-├── auth/                  ← 🔐 จัดการ user login/logout
-│   ├── auth.action.js     ← ฟังก์ชัน login(), logout(), storeSession()
-│   ├── auth.reducer.js    ← state: { user, token, loading }
-│   └── auth.types.js      ← ชื่อ action types
-│
-└── member/                ← 👤 จัดการข้อมูลสมาชิก
-    ├── member.action.js
-    ├── member.reducer.js
-    └── member.types.js
-```
+| ไฟล์/โฟลเดอร์ | ทำหน้าที่ |
+|--------------|----------|
+| `store/index.js` | ตั้งค่า store + redux-persist |
+| `store/auth/auth.action.js` | ฟังก์ชัน `login()`, `logout()`, `storeSession()` |
+| `store/auth/auth.reducer.js` | จัดการ state: `{ user, token, loading }` |
+| `store/auth/auth.types.js` | ชื่อ action types |
+| `store/member/` | จัดการข้อมูลสมาชิก (action, reducer, types) |
 
 **วิธีใช้ในหน้าเพจ:**
 ```js
@@ -172,296 +111,229 @@ const { user, token } = useSelector(state => state.auth);
 dispatch(login({ email, password }));
 ```
 
-### Utils & Global
+### 2.6 utils/ — ฟังก์ชันช่วย
 
-📁 **`src/utils/`**
-```
-utils/
-├── energyAnalytics.js     ← 🛠 ฟังก์ชันช่วยด้านพลังงาน
-│   ├── toNumeric(value)           ← แปลงค่าเป็นตัวเลข (null → 0)
-│   ├── formatDateLocal(date)      ← Date → "YYYY-MM-DD"
-│   ├── getLatestMeterDate(data)   ← หา timestamp ล่าสุดจาก meter data
-│   └── buildThreeHourSeries(data) ← รวมข้อมูลรายชั่วโมงเป็นช่วง 3 ชม.
-└── formatters.js          ← 🛠 format ตัวเลข, วันที่, สกุลเงิน
-```
+| ไฟล์ | ฟังก์ชันสำคัญ | ใช้ทำอะไร |
+|------|-------------|----------|
+| `utils/energyAnalytics.js` | `toNumeric(value)` | แปลงค่าเป็นตัวเลข (null → 0) |
+| | `formatDateLocal(date)` | Date → "YYYY-MM-DD" |
+| | `getLatestMeterDate(data)` | หา timestamp ล่าสุดจาก meter data |
+| | `buildThreeHourSeries(data)` | รวมข้อมูลรายชั่วโมงเป็นช่วง 3 ชม. |
+| `utils/formatters.js` | - | format ตัวเลข, วันที่, สกุลเงิน |
 
-📁 **`src/global/`**
-```
-global/
-└── key.js                 ← 🔑 localStorage key names:
-                              Token, UserId, UserEmail, UserRole
-```
+### 2.7 global/ — ค่าคงที่
+
+| ไฟล์ | เนื้อหา |
+|------|--------|
+| `global/key.js` | localStorage key names: `Token`, `UserId`, `UserEmail`, `UserRole` |
 
 ---
 
-## Backend (`backend/`)
+## 3. Backend — แต่ละไฟล์ทำอะไร
 
-### ภาพรวม folder
+### 3.1 ไฟล์ระดับบนสุด
 
-```
-backend/
-├── app.js                 ← 🔑 จุดรวม route ทั้งหมด + direct endpoints
-├── server.js              ← 🚀 ตัว start server
-├── utils/
-│   └── prisma.js          ← 🔑 Prisma Proxy (AsyncLocalStorage)
-│                              ห้าม import PrismaClient โดยตรง!
-├── features/              ← 📦 แต่ละ feature แยก folder
-├── middleware/             ← 🔗 กั้นกลาง request
-├── prisma/
-│   └── schema.prisma      ← 🗄️ Database schema (source of truth)
-└── package.json
-```
-
-### Entry Points
-
-| ไฟล์ | หน้าที่ | เมื่อไหร่ที่ต้องแก้ |
-|------|--------|-------------------|
+| ไฟล์ | ทำหน้าที่ | แก้เมื่อไหร่ |
+|------|----------|-------------|
 | `server.js` | จุดเริ่มต้น — `node server.js` | แทบไม่ต้องแก้ |
-| `app.js` | 🔑 Express app — ลงทะเบียน routes + direct endpoints | **เพิ่ม route ใหม่**, **เพิ่ม direct endpoint** |
+| `app.js` | Express app — ลงทะเบียน routes ทั้งหมด + direct endpoints | เพิ่ม route ใหม่, เพิ่ม direct endpoint |
+| `package.json` | Dependencies + scripts | เพิ่ม/ลบ package |
 
-**ตัวอย่าง Direct Endpoints ใน `app.js`:**
-```js
-GET  /api/transactions                        ← ดึง transactions ทั้งหมด
-GET  /api/transactions/blockchain/recent      ← blockchain transactions ล่าสุด
-GET  /api/transactions/blockchain/tx/:txHash  ← เช็ค single transaction
-GET  /api/transactions/:id                    ← transaction detail
-GET  /api/transactions/:id/verification-preview← preview ก่อน verify
-```
+### 3.2 features/ — แยกตาม feature
 
-### Features — แต่ละ feature แยก folder
+| โฟลเดอร์ | ไฟล์สำคัญ | ทำหน้าที่ |
+|---------|----------|----------|
+| `features/users/` | `users.routes.js` | `/api/users/*` — routes |
+| | `users.controller.js` | รับ request → เรียก service |
+| | `users.service.js` | business logic: register, login, OTP |
+| | | |
+| `features/billing/` | `invoice.service.js` | สร้าง invoice + receipt ตอนซื้อพลังงาน |
+| | `invoice.model.js` | CRUD invoice |
+| | | |
+| `features/trading/` | `trade.engine.js` | Auto-trade engine — ทำงานทุก 15:00 น. |
+| | `market.service.js` | Day-Ahead market clearing — จับคู่ bid/offer |
+| | `market.utils.js` | ค่าคงที่ `TRADE_MODES` + `normalizeTradeMode()` |
+| | `offer.repository.js` | CRUD offers/bids (query ผ่าน Prisma) |
+| | | |
+| `features/energy/` | `energyAggregation.js` | Aggregate RunningMeter → Hourly/Daily/Weekly/Monthly |
+| | | |
+| `features/transactions/` | `transactionVerification.service.js` | ตรวจสอบ transaction บน blockchain |
+| | | |
+| `features/wallets/` | `wallet.service.js` | top-up, transfer, check balance |
+| | | |
+| `features/building/` | `building.model.js` | CRUD building + validate trade mode |
 
-📁 **`backend/features/`** — แต่ละ folder มีหน้าที่เฉพาะ แยกขาดจากกัน
+### 3.3 middleware/ — ตัวกรองก่อนถึง route
 
-#### 🔐 `features/users/` — จัดการผู้ใช้
-```
-users/
-├── users.routes.js        ← /api/users/*
-├── users.controller.js    ← รับ request → เรียก service
-└── users.service.js       ← business logic: register, login, OTP
-```
-**ใช้สำหรับ:** ลงทะเบียน, login, ส่ง OTP ทาง email
+| ไฟล์ | ทำหน้าที่ |
+|------|----------|
+| `middleware/auth.js` | ตรวจสอบ JWT token — ใส่ใน route ที่ต้องการ login |
+| `middleware/dataModeMiddleware.js` | เลือกฐานข้อมูล real/demo ตาม header `x-data-mode` |
 
-#### 💰 `features/billing/` — ใบแจ้งหนี้ & ใบเสร็จ
-```
-billing/
-├── invoice.service.js     ← 🔑 สร้าง invoice + receipt ตอนซื้อพลังงาน
-└── invoice.model.js       ← CRUD invoice
-```
-**ใช้สำหรับ:** ออก invoice/receipt อัตโนมัติหลังซื้อขาย, ดูประวัติการชำระ
-
-#### ⚡ `features/trading/` — ตลาดพลังงาน
-```
-trading/
-├── trade.engine.js        ← 🔑 Auto-trade engine (cron: 15:00 น. ทุกวัน)
-│                             ตรวจสอบทุกอาคาร → สร้าง offer/bid อัตโนมัติ
-│                             │
-├── market.service.js      ← 🔑 Day-Ahead market clearing (~00:00 น.)
-│                             executeMarketClearing() — จับคู่ bid/offer
-│                             │
-├── market.utils.js        ← 🏷️ ค่าคงที่: TRADE_MODES, normalizeTradeMode()
-│                             │
-└── offer.repository.js    ← 🗄️ CRUD offers/bids (query ผ่าน Prisma)
-```
-**ใช้สำหรับ:** สร้าง/ยกเลิก offer, จับคู่ซื้อ-ขาย, auto-trade
-
-#### 🔌 `features/energy/` — ข้อมูลมิเตอร์
-```
-energy/
-└── energyAggregation.js   ← 🔑 Aggregate RunningMeter → Hourly/Daily/Weekly/Monthly
-                             (cron: ทุกชั่วโมง)
-```
-**ใช้สำหรับ:** rollup ข้อมูลมิเตอร์, mock data generator
-
-#### ⛓️ `features/transactions/` — Blockchain
-```
-transactions/
-└── transactionVerification.service.js  ← ตรวจสอบ transaction บน blockchain
-                                          ⚠️ ใช้ lazy require เพื่อเลี่ยง circular dep
-```
-**ใช้สำหรับ:** verify transaction on-chain, ดู txHash
-
-#### 🏢 `features/wallets/` — กระเป๋าตังค์
-```
-wallets/
-└── wallet.service.js      ← top-up, transfer, check balance
-```
-
-#### 🏗️ `features/building/` — อาคาร
-```
-building/
-└── building.model.js      ← CRUD building + validate trade mode
-```
-**ใช้สำหรับ:** สร้าง/แก้ไขอาคาร, ตั้งค่า trade mode, threshold
-
-### Middleware
-
-📁 **`backend/middleware/`** — ทำงานก่อนทุก request
-
-```
-middleware/
-├── auth.js                ← 🔐 ตรวจสอบ JWT token
-│                             ใส่ใน route ที่ต้องการ login
-│                             │
-└── dataModeMiddleware.js  ← 🔀 เลือกฐานข้อมูล real หรือ demo
-                              อ่าน header x-data-mode หรือ DEFAULT_DATA_MODE
-                              → ตั้งค่า AsyncLocalStorage → prisma proxy สลับ DB ให้
-```
-
-**ลำดับ middleware (ทุก request):**
+**ลำดับการทำงานของ middleware (ทุก request):**
 ```
 cors → express.json → dataModeMiddleware → authMiddleware → router
 ```
 
-### Prisma Proxy (สำคัญที่สุด!)
+### 3.4 utils/prisma.js — Prisma Proxy
 
-📄 **`utils/prisma.js`** — นี่คือไฟล์ที่สำคัญที่สุดใน backend
+**ไฟล์สำคัญที่สุดใน backend** — ใช้ `AsyncLocalStorage` สลับฐานข้อมูล real/demo ต่อ request
 
-```
-ใช้ AsyncLocalStorage เพื่อสลับฐานข้อมูล real/demo ต่อ request
-```
-
-**กฎตายตัว:**
 ```js
 // ✅ ถูกต้อง — ใช้แบบนี้ทุกที่
 const { prisma } = require('../../utils/prisma');
 
-// ❌ ผิด — อย่าทำเด็ดขาด
+// ❌ ผิด — ห้ามทำเด็ดขาด
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 ```
 
 ---
 
-## Database Schema
+## 4. Database Schema
 
-📄 **`database/schema.prisma`** — แหล่งความจริงของโครงสร้าง Database
+### 4.1 ตารางหลัก
 
-### ตารางหลัก
 | Table | หน้าที่ | Key Fields |
 |-------|--------|-----------|
-| `User` | ผู้ใช้ | `credId` (UUID), `email`, `role` |
+| `User` | ผู้ใช้ | `credId` (UUID), `email` (PK), `role` |
 | `Building` | อาคาร | `id` (int), `name`, `tradeMode`, `solarTradeMode`, `batteryTradeMode` |
 | `MeterInfo` | มิเตอร์ | `snid` (PK), `buildingName`, `type`, `kWH` |
 | `Wallet` | กระเป๋าตังค์ | `id` (string PK), `email`, `tokenBalance` |
-| `EnergyOffer` | คำเสนอขาย | `id` (UUID), `kWH`, `ratePerkWH`, `status` |
-| `EnergyBid` | คำเสนอซื้อ | `id` (int), `kWH`, `ratePerkWH`, `status` |
-| `Transaction` | ธุรกรรม | `txid` (UUID), `tokenAmount`, `txHash` |
-| `Invoice` | ใบแจ้งหนี้ | `id` (UUID), `buildingName`, `kWH`, `status` |
-| `Receipt` | ใบเสร็จ | `id` (UUID), `invoiceId` (FK) |
-| `BlockTransaction` | บันทึก blockchain | `txHash` (unique), `receiptId` |
-| `Battery` | แบตเตอรี่ | `snid`, `capacitykWH`, `currentkWH` |
-| `MarketOrder` | คำสั่งตลาด | `side` (BID/OFFER), `price`, `quantity` |
-| `MarketMatch` | การจับคู่ | `buyerOrderId`, `sellerOrderId`, `price` |
-| `MarketRun` | รอบตลาด | `marketType`, `runTime`, `status` |
+| `EnergyOffer` | คำเสนอขาย | `id` (UUID), `sellerWalletId`, `kWH`, `ratePerkWH`, `status` |
+| `EnergyBid` | คำเสนอซื้อ | `id` (int), `buyerWalletId`, `kWH`, `ratePerkWH`, `status` |
+| `Transaction` | ธุรกรรม | `txid` (UUID), `walletId`, `tokenAmount`, `txHash`, `status` |
+| `Invoice` | ใบแจ้งหนี้ | `id` (UUID), `buildingName`, `fromWId`, `toWId`, `kWH`, `status` |
+| `Receipt` | ใบเสร็จ | `id` (UUID), `invoiceId` (FK → Invoice) |
+| `BlockTransaction` | บันทึก blockchain | `id` (UUID), `txHash` (unique), `receiptId` |
+| `Battery` | แบตเตอรี่ | `snid` (unique), `capacitykWH`, `currentkWH`, `buildingId` |
+| `MarketOrder` | คำสั่งตลาด | `id` (UUID), `side` (BID/OFFER), `marketType`, `price`, `quantity` |
+| `MarketMatch` | การจับคู่ | `id` (UUID), `buyerOrderId`, `sellerOrderId`, `quantity`, `price` |
+| `MarketRun` | รอบตลาด | `id` (UUID), `marketType`, `runTime`, `status` |
 
-### ตารางพลังงาน (Energy Aggregation)
-| Table | Primary Key | Fields |
-|-------|------------|--------|
-| `RunningMeter` | `snid` + `timestamp` | `kW`, `kWH` |
-| `HourlyEnergy` | `meterSnid` + `date` | `h0`-`h23`, `kwh` |
-| `DailyEnergy` | `meterSnid` + `year` + `month` | `d1`-`d31`, `kwh` |
-| `WeeklyEnergy` | `meterSnid` + `year` + `week` | `sun`-`sat`, `kwh` |
-| `MonthlyEnergy` | `meterSnid` + `year` | `M1`-`M12`, `kwh` |
+### 4.2 ตารางพลังงาน
 
-> ⚠️ **ระวัง field name!**  
-> `RunningMeter`, `MeterInfo` → ใช้ `kWH` (ตัวพิมพ์ใหญ่)  
-> `HourlyEnergy`, `DailyEnergy`, `WeeklyEnergy`, `MonthlyEnergy` → ใช้ `kwh` (ตัวพิมพ์เล็ก)  
-> Energy table ใช้ `meterSnid` (ไม่ใช่ `meterId`)
+| Table | Primary Key | Fields | Energy Field |
+|-------|------------|--------|-------------|
+| `RunningMeter` | `snid` + `timestamp` | `kW`, `kWH` | `kWH` (ตัวใหญ่) |
+| `HourlyEnergy` | `meterSnid` + `date` | `h0`-`h23`, `kwh` | `kwh` (ตัวเล็ก) |
+| `DailyEnergy` | `meterSnid` + `year` + `month` | `d1`-`d31`, `kwh` | `kwh` (ตัวเล็ก) |
+| `WeeklyEnergy` | `meterSnid` + `year` + `week` | `sun`-`sat`, `kwh` | `kwh` (ตัวเล็ก) |
+| `MonthlyEnergy` | `meterSnid` + `year` | `M1`-`M12`, `kwh` | `kwh` (ตัวเล็ก) |
+
+### 4.3 Field Name Rules — ระวัง!
+
+| กฎ | ตัวอย่างผิด | ตัวอย่างถูก |
+|----|----------|----------|
+| Energy table ใช้ `meterSnid` (ไม่ใช่ `meterId`) | `prisma.dailyEnergy.findFirst({ where: { meterId: x } })` | `prisma.dailyEnergy.findFirst({ where: { meterSnid: x } })` |
+| RunningMeter/MeterInfo ใช้ `kWH` (ตัวใหญ่) | `prisma.runningMeter.findFirst({ where: { kwh: x } })` | `prisma.runningMeter.findFirst({ where: { kWH: x } })` |
+| Daily/Hourly/Weekly/MonthlyEnergy ใช้ `kwh` (ตัวเล็ก) | `prisma.dailyEnergy.findFirst({ where: { kWH: x } })` | `prisma.dailyEnergy.findFirst({ where: { kwh: x } })` |
 
 ---
 
-## กฎเหล็กที่ต้องจำ
+## 5. กฎที่ต้องรู้ก่อนเขียนโค้ด
 
-### 🔴 ห้ามทำเด็ดขาด
+### 5.1 ห้ามทำเด็ดขาด
 
-| ❌ อย่าทำ | ✅ ให้ทำแทน |
-|----------|-----------|
-| `import PrismaClient` โดยตรง | `const { prisma } = require('../../utils/prisma')` |
+| ❌ ผิด | ✅ ถูก |
+|-------|------|
+| `import { PrismaClient }` โดยตรง | `const { prisma } = require('../../utils/prisma')` |
 | ใช้ `axios` โดยตรงในหน้าเพจ | ใช้ `core/data_connecter/` |
-| Top-level `require` ที่ทำให้ circular dep | ใช้ lazy require ใน function body |
-| แก้ `EnergyChart` ใน `report.js` เพิ่ม chart ใหม่ | สร้าง component ใหม่แยก |
-| ใช้ `meterId` บน DailyEnergy/HourlyEnergy | ใช้ `meterSnid` |
-| ใช้ `kWH` (uppercase) บน DailyEnergy/HourlyEnergy | ใช้ `kwh` (lowercase) |
+| Top-level `require` ที่ทำให้ circular dependency | ใช้ lazy require ใน function body |
+| แก้ `EnergyChart` ใน `report.js` เพื่อเพิ่ม chart ใหม่ | สร้าง component ใหม่แยก |
+| ใช้ `meterId` บนตาราง Daily/Hourly/Weekly/MonthlyEnergy | ใช้ `meterSnid` |
 
-### 🟡 Field Name Map (ดูบ่อย)
-
-| Table | ID Field | Energy Field |
-|-------|----------|-------------|
-| RunningMeter | `snid` | `kWH` ↑ |
-| MeterInfo | `snid` | `kWH` ↑ |
-| HourlyEnergy | `meterSnid` | `kwh` ↓ |
-| DailyEnergy | `meterSnid` | `kwh` ↓ |
-| WeeklyEnergy | `meterSnid` | `kwh` ↓ |
-| MonthlyEnergy | `meterSnid` | `kwh` ↓ |
-
-### 🟢 Pattern ที่ต้องใช้
+### 5.2 Lazy Require — เลี่ยง Circular Dependency
 
 ```js
-// ✅ API call — ผ่าน data_connecter
-import { someApi } from '../../core/data_connecter/someModule';
-
-// ✅ Prisma — ผ่าน proxy
-const { prisma } = require('../../utils/prisma');
-
-// ✅ Lazy require — สำหรับเลี่ยง circular dependency
-async function doSomething() {
+// ✅ ถูก — require ใน function body
+async function sellToBid() {
     const { verifyTransaction } = require('../transactions/transactionVerification.service');
 }
 
-// ✅ Error handling — ใช้ antd notification
-notification.error({
-    message: 'เกิดข้อผิดพลาด',
-    description: err.response?.data?.error || err.message
-});
+// ❌ ผิด — top-level require
+const { verifyTransaction } = require('../transactions/transactionVerification.service');
+```
 
-// ✅ Response format จาก backend
-{ "success": true, "data": { ... } }
-{ "error": "ข้อความ error" }
+### 5.3 Error Handling
+
+```js
+import { notification } from 'antd';
+
+try {
+    const res = await someApiCall();
+    notification.success({ message: 'สำเร็จ' });
+} catch (err) {
+    notification.error({
+        message: 'เกิดข้อผิดพลาด',
+        description: err.response?.data?.error || err.message
+    });
+}
+```
+
+### 5.4 Response Format
+
+```js
+// Backend response
+{ "success": true, "data": { ... } }        // สำเร็จ — object
+{ "success": true, "data": [ ... ] }        // สำเร็จ — array
+{ "error": "ข้อความ error" }                 // ผิดพลาด
+```
+
+### 5.5 Building Name Normalization
+
+```js
+// บางอาคารมีชื่อไม่ตรงกันระหว่างระบบเก่า-ใหม่
+// "nidasumpan" → "nidasumpun"
+// "narathip"   → "naradhip"
+// ใช้ buildingId แทนชื่อเพื่อเลี่ยงปัญหานี้
 ```
 
 ---
 
-## Test Accounts
+## 6. Test Accounts
 
-| Role | Email | Password | สิทธิ์ |
-|------|-------|----------|--------|
-| Admin | `admin@nida.com` | `admin123` | ทุกอย่าง |
-| User | ลงทะเบียนเอง | ตั้งเอง | ตาม building |
+### บัญชีทดสอบ
+
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | `admin@nida.com` | `admin123` |
+| User | ลงทะเบียนเอง | ตั้งเอง |
 
 ### อาคารในระบบ
-| ชื่อ | ID | Solar | Battery |
-|------|----|-------|---------|
-| นิด้า สรรพคุณ | 1 | ✅ | ✅ |
-| นรา ทิพย์ | 2 | ✅ | ✅ |
-| นิด้า บางซื่อ | 3 | ✅ | ✅ |
-| สรรพคุณ 2 | 4 | ✅ | ✅ |
-| ทราย ฟ้า | 5 | ✅ | ✅ |
 
-> ⚠️ **Building Name Issue**: `nidasumpan` → `nidasumpun`, `narathip` → `naradhip`  
-> ใช้ `buildingId` แทนชื่อเพื่อเลี่ยงปัญหา
+| ID | ชื่อ | Solar | Battery |
+|----|------|-------|---------|
+| 1 | นิด้า สรรพคุณ | ✅ | ✅ |
+| 2 | นรา ทิพย์ | ✅ | ✅ |
+| 3 | นิด้า บางซื่อ | ✅ | ✅ |
+| 4 | สรรพคุณ 2 | ✅ | ✅ |
+| 5 | ทราย ฟ้า | ✅ | ✅ |
 
 ---
 
-## Quick Reference — แก้ไขอะไร ไปไฟล์ไหน
+## 7. Quick Reference — อยากแก้ X ต้องไปไฟล์ไหน
 
 | อยากแก้... | ไปที่ไฟล์ |
 |-----------|---------|
 | เพิ่มหน้าใหม่ | `frontend-vite/src/pages/{category}/{page}.js` |
-| เพิ่ม route ใหม่ | `frontend-vite/src/App.jsx` |
-| เพิ่ม API endpoint ใหม่ | `backend/app.js` (ลงทะเบียน route) |
+| เพิ่ม route | `frontend-vite/src/App.jsx` |
+| เพิ่ม API endpoint | `backend/app.js` |
 | เพิ่ม feature ใหม่ (backend) | สร้าง folder ใน `backend/features/{ชื่อ}/` |
 | เปลี่ยน logic ตลาด | `backend/features/trading/market.service.js` |
 | เปลี่ยน auto-trade | `backend/features/trading/trade.engine.js` |
-| เพิ่ม chart ใหม่ | สร้าง component ใหม่ — อย่าแก้ `report.js` |
 | เปลี่ยน trade mode UI | `frontend-vite/src/components/shared/energySellingPanel.js` |
-| เปลี่ยน Database schema | `database/schema.prisma` → `npx prisma migrate dev` |
-| เพิ่ม env var | `.env` + `docker-compose.yml` (ทั้งสองที่!) |
+| เพิ่ม chart ใหม่ | สร้าง component ใหม่ (อย่าแก้ `report.js` โดยตรง) |
+| เปลี่ยน database schema | `database/schema.prisma` → `npx prisma migrate dev` |
+| เพิ่ม environment variable | `.env` **และ** `docker-compose.yml` |
 | Deploy ขึ้น production | `docker compose build` → `docker push` → VM: `docker compose up -d` |
 
 ---
 
 ## แหล่งอ้างอิง
 
-- **DEEPSEEK.md** — ไฟล์ context หลัก อ่านก่อนเสมอ
-- **document/installation_manual.md** — คู่มือติดตั้งด้วย Docker
-- **database/schema.prisma** — Database schema
+| ไฟล์ | ใช้สำหรับ |
+|------|----------|
+| `DEEPSEEK.md` | Context หลักของโปรเจค — อ่านก่อนเริ่มงาน |
+| `document/installation_manual.md` | คู่มือติดตั้งด้วย Docker |
+| `database/schema.prisma` | โครงสร้างฐานข้อมูล (source of truth) |

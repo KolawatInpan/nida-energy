@@ -1,13 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { useDispatch } from 'react-redux';
+import { validateAuth } from '../../store/auth/auth.action';
 import { formatEntityId, formatTokenShort } from '../../utils/formatters';
+import { getApiBase } from '../../core/data_connecter/apiBase';
+import Key from '../../global/key';
 
 const POLL_INTERVAL = 15000; // refresh every 15s
 
+function authHeaders() {
+  try {
+    const token = localStorage.getItem(Key.TOKEN);
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch (e) {
+    return {};
+  }
+}
+
 export default function Receipts() {
+    const dispatch = useDispatch();
     const [receipts, setReceipts] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        dispatch(validateAuth());
+    }, [dispatch]);
 
     useEffect(() => {
         let mounted = true;
@@ -15,8 +33,8 @@ export default function Receipts() {
             if (showLoading) setLoading(true);
             setError('');
             try {
-                const apiBase = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
-                const res = await axios.get(apiBase + '/receipts');
+                const apiBase = getApiBase();
+                const res = await axios.get(apiBase + '/receipts', { headers: authHeaders() });
                 if (!mounted) return;
                 setReceipts(Array.isArray(res.data) ? res.data : []);
             } catch (err) {
@@ -42,7 +60,11 @@ export default function Receipts() {
 
     const getKwhValue = (receipt) => {
         const inv = receipt.invoice || {};
-        const candidates = [inv.kWH, inv.kwh, inv.kWh, inv.energy, inv.quantity, receipt.kwh, receipt.energy];
+        const candidates = [
+            inv.consumedKwh, inv.billableKwh, inv.totalKwh,
+            inv.kWH, inv.kwh, inv.kWh, inv.energy, inv.quantity,
+            receipt.kwh, receipt.energy,
+        ];
         const found = candidates.find(v => v !== undefined && v !== null && v !== '');
         if (found === undefined || found === null || found === '') return null;
         return Number(found);
@@ -57,8 +79,8 @@ export default function Receipts() {
                     <button
                         onClick={() => {
                             setLoading(true);
-                            const apiBase = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
-                            axios.get(apiBase + '/receipts').then(res => {
+                            const apiBase = getApiBase();
+                            axios.get(apiBase + '/receipts', { headers: authHeaders() }).then(res => {
                                 setReceipts(Array.isArray(res.data) ? res.data : []);
                             }).catch(err => {
                                 setError(err.response?.data?.error || err.message || 'Failed to load receipts');

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory } from 'react-router-dom';
+import Plot from 'react-plotly.js';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import TORMeter from '../../components/TOR/TORMeter';
@@ -10,6 +11,7 @@ import { getPendingMeters } from '../../core/data_connecter/meter';
 import { getBuildings, getDailyEnergyByMeter, getHourlyEnergyByMeter, getMeters, getMetersByBuilding } from '../../core/data_connecter/register';
 import { getEnergyRates, getTokenRates } from '../../core/data_connecter/rate';
 import { formatEnergy, formatEntityId, formatToken } from '../../utils/formatters';
+import { getApiBase } from '../../core/data_connecter/apiBase';
 import { buildComparisonXAxisLabels, buildNiceScale, swapComparisonSelection } from '../../utils/dashboardCharts';
 import { AdminKpiSection } from './components';
 
@@ -1244,34 +1246,22 @@ export default function DashboardHome() {
             ) : (
               <div className="flex h-[260px] items-center gap-6">
                 <div className="flex w-1/2 justify-center">
-                  <div className="relative h-48 w-48">
-                    <svg viewBox="0 0 42 42" className="h-48 w-48 -rotate-90">
-                      <circle cx="21" cy="21" r="15.9155" fill="transparent" stroke="#e5e7eb" strokeWidth="5" />
-                      {sourceBreakdownChart.segments.map((segment) => {
-                        const strokeColor = segment.key === 'solar' ? '#fbbf24' : segment.key === 'battery' ? '#22c55e' : '#0ea5e9';
-                        return (
-                          <circle
-                            key={segment.key}
-                            cx="21"
-                            cy="21"
-                            r="15.9155"
-                            fill="transparent"
-                            stroke={strokeColor}
-                            strokeWidth="5"
-                            strokeDasharray={segment.dashArray}
-                            strokeDashoffset={segment.dashOffset}
-                          />
-                        );
-                      })}
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                      <div className="text-[11px] uppercase tracking-wide text-gray-500">Total</div>
-                      <div className="text-xl font-bold text-gray-900">
-                        {formatEnergy(sourceBreakdownChart.total)}
-                      </div>
-                      <div className="text-xs text-gray-500">kWh</div>
-                    </div>
-                  </div>
+                  <Plot
+                    data={[{
+                      values: sourceBreakdownChart.segments.map(s => s.value || 0),
+                      labels: sourceBreakdownChart.segments.map(s => s.label || ''),
+                      marker: { colors: sourceBreakdownChart.segments.map(s => s.key === 'solar' ? '#fbbf24' : s.key === 'battery' ? '#22c55e' : '#0ea5e9') },
+                      type: 'pie', hole: 0.7,
+                      textinfo: 'none',
+                      hovertemplate: '%{label}<br>%{value:,.0f} kWh (%{percent})<extra></extra>',
+                    }]}
+                    layout={{
+                      autosize: true, height: 200, width: 200,
+                      margin: { l: 0, r: 0, t: 0, b: 0 },
+                      paper_bgcolor: 'transparent', showlegend: false,
+                    }}
+                    config={{ displayModeBar: false }}
+                  />
                 </div>
                 <div className="w-1/2 space-y-4 pt-2">
                   {sourceBreakdownItems.map((item) => (
@@ -1461,41 +1451,114 @@ export default function DashboardHome() {
                           <div className="mb-3 text-sm font-semibold text-gray-800">
                             {chart?.buildingName || 'Building'}: {chart?.hasBattery ? 'Grid & Battery Flow' : 'Net Grid Flow'}
                           </div>
-                          <div className="mb-3 flex items-center gap-4 text-[11px] text-gray-500">
-                            <span className="inline-flex items-center gap-2"><span className="h-0.5 w-4 bg-amber-400" />PV Produce</span>
-                            <span className="inline-flex items-center gap-2"><span className="h-0.5 w-4 bg-rose-400" />Grid Import</span>
-                            {chart?.hasBattery && <span className="inline-flex items-center gap-2"><span className="h-0.5 w-4 bg-emerald-500" />Battery</span>}
-                          </div>
-                          <div className="rounded-lg border border-gray-100 bg-white p-3">
-                            <div className="flex gap-3">
-                              <div className="w-10">
-                                <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">kWh</div>
-                                <div className="flex h-44 flex-col justify-between text-[10px] text-gray-500">
-                                  {lineYTicks.map((tick, tickIndex) => (
-                                    <span key={`${chart?.buildingName || index}-line-y-${tickIndex}`} className="text-right">
-                                      {Math.round(tick)}
-                                    </span>
-                                  ))}
+                          {chart?.hasBattery ? (
+                            <>
+                            <div className="mb-3 flex items-center gap-4 text-[11px] text-gray-500">
+                              <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-blue-500" />Grid Import</span>
+                              <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-orange-500" />Battery Discharge</span>
+                            </div>
+                            <div className="rounded-lg border border-gray-100 bg-white p-3">
+                              <div className="flex gap-3">
+                                <div className="w-10">
+                                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">kWh</div>
+                                  <div className="flex h-44 flex-col justify-between text-[10px] text-gray-500">
+                                    {yTicks.map((tick, tickIndex) => (
+                                      <span key={`${chart?.buildingName || index}-bar2-y-${tickIndex}`} className="text-right">
+                                        {Math.round(tick)}
+                                      </span>
+                                    ))}
+                                  </div>
                                 </div>
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <svg viewBox={`0 0 ${width} 180`} className="h-44 w-full">
-                                  <polyline fill="none" stroke="#fbbf24" strokeWidth="20" points={polyline((chart?.points || []).map((point) => point.solar))} />
-                                  <polyline fill="none" stroke="#fb7185" strokeWidth="20" points={polyline((chart?.points || []).map((point) => point.consumption))} />
-                                  {chart?.hasBattery && (
-                                    <polyline fill="none" stroke="#22c55e" strokeWidth="20" points={polyline((chart?.points || []).map((point) => point.battery))} />
-                                  )}
-                                </svg>
-                                <div className="mt-2 flex items-center justify-between text-[10px] text-gray-500">
-                                  {chart?.points?.map((point) => (
-                                    <span key={`${chart.buildingName}-${point.label}-line-x`} className="min-w-0 flex-1 text-center">
-                                      {point.displayLabel}
-                                    </span>
-                                  ))}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex h-40 items-end gap-1">
+                                    {chart?.points?.map((point) => {
+                                      const gi = Math.max(0, toNumber(point.consumption) - toNumber(point.solar) - toNumber(point.battery));
+                                      const bat = toNumber(point.battery);
+                                      const maxVal = chart?.maxValue || 1;
+                                      const giH = Math.max(0, (gi / maxVal) * 160);
+                                      const batH = Math.max(0, (bat / maxVal) * 160);
+                                      return (
+                                        <div key={`${chart.buildingName}-${point.label}`}
+                                          className="flex min-w-0 flex-1 flex-col items-center justify-end gap-0">
+                                          <div className="flex w-full flex-col items-center" style={{ height: 160 }}>
+                                            <div style={{ height: giH, width: '100%' }} className="bg-blue-500 rounded-t" />
+                                            <div style={{ height: batH, width: '100%' }} className="bg-orange-500 rounded-t" />
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="mt-3 flex items-center justify-between text-[10px] text-gray-500">
+                                    {chart?.points?.map((point) => (
+                                      <span key={`${chart.buildingName}-${point.label}-bar2-x`}
+                                        className="min-w-0 flex-1 text-center">{point.displayLabel}</span>
+                                    ))}
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
+                            </>
+                          ) : (
+                            (() => {
+                              const netVals = (chart?.points || []).map(p => toNumber(p.consumption) - toNumber(p.solar));
+                              const netAbsMax = Math.max(1, ...netVals.map(v => Math.abs(v)));
+                              const netPad = netAbsMax * 0.1;
+                              const netMin = -netAbsMax - netPad;
+                              const netMax = netAbsMax + netPad;
+                              const netRange = netMax - netMin;
+                              const svgW = Math.max(240, netVals.length - 1) * 24;
+                              const svgH = 180;
+                              const pL = 40; const pR = 5; const pT = 12; const pB = 22;
+                              const plotW = svgW - pL - pR;
+                              const plotH = svgH - pT - pB;
+                              const toX = (i) => pL + (netVals.length > 1 ? (i / (netVals.length - 1)) * plotW : plotW / 2);
+                              const toY = (v) => pT + plotH - ((v - netMin) / netRange) * plotH;
+                              const pts = netVals.map((v, i) => `${toX(i)},${toY(v)}`).join(' ');
+                              const nyTicks = [Math.round(netMin), Math.round(netMin / 2), 0, Math.round(netMax / 2), Math.round(netMax)];
+                              const xTickInterval = Math.max(1, Math.floor(netVals.length / 5));
+                              return (
+                                <>
+                                <div className="mb-3 flex items-center gap-4 text-[11px] text-gray-500">
+                                  <span className="inline-flex items-center gap-2"><span className="h-0.5 w-4 bg-blue-600 rounded" />Net (Consumption − Solar)</span>
+                                </div>
+                                <div className="rounded-lg border border-gray-100 bg-white p-3">
+                                  <svg viewBox={`0 0 ${svgW} ${svgH}`} className="h-44 w-full">
+                                    {/* Grid lines */}
+                                    {nyTicks.map((tick) => (
+                                      <line key={`yg-${tick}`} x1={pL} y1={toY(tick)} x2={pL + plotW} y2={toY(tick)}
+                                        stroke="#e5e7eb" strokeWidth="1" />
+                                    ))}
+                                    {/* Zero line */}
+                                    <line x1={pL} y1={toY(0)} x2={pL + plotW} y2={toY(0)}
+                                      stroke="#9ca3af" strokeWidth="1.5" />
+                                    {/* Net line */}
+                                    <polyline points={pts} fill="none" stroke="#2563eb" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+                                    {/* Dots */}
+                                    {netVals.map((v, i) => (
+                                      <circle key={`nd-${i}`} cx={toX(i)} cy={toY(v)} r="3" fill="#2563eb" />
+                                    ))}
+                                    {/* Y-axis labels */}
+                                    {nyTicks.map((tick) => (
+                                      <text key={`yl-${tick}`} x={pL - 5} y={toY(tick) + 4}
+                                        textAnchor="end" fontSize="10" fill="#6b7280">{tick}</text>
+                                    ))}
+                                    {/* X-axis labels */}
+                                    {(chart?.points || []).map((point, i) => {
+                                      if (!point.displayLabel || i % xTickInterval !== 0) return null;
+                                      return (
+                                        <text key={`xl-${i}`} x={toX(i)} y={svgH - 4}
+                                          textAnchor="middle" fontSize="10" fill="#6b7280">{point.displayLabel}</text>
+                                      );
+                                    })}
+                                    {/* Y-axis title */}
+                                    <text x={10} y={svgH / 2} textAnchor="middle" fontSize="10" fill="#6b7280"
+                                      transform={`rotate(-90, 10, ${svgH / 2})`}>kWh</text>
+                                  </svg>
+                                </div>
+                                </>
+                              );
+                            })()
+                          )}
                           <div className="mt-3 grid grid-cols-2 gap-3">
                             <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
                               <span className="text-xs text-gray-500">Current Battery SoC</span>
@@ -1614,7 +1677,7 @@ export default function DashboardHome() {
                     const bld = prompt('Enter building name (e.g. Ratchaphruek):');
                     if (!bld) return;
                     try {
-                      const apiBase = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+                      const apiBase = getApiBase();
                       const res = await fetch(`${apiBase}/demo/mock-auto-trade`, {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ buildingName: bld }),
@@ -1635,7 +1698,7 @@ export default function DashboardHome() {
                 <button
                   onClick={async () => {
                     try {
-                      const apiBase = (process.env.BACKEND_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+                      const apiBase = getApiBase();
                       const res = await fetch(`${apiBase}/demo/test-meter-notify`, { method: 'POST' });
                       const data = await res.json();
                       if (data.success) {

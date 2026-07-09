@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Card, Button, Select, InputNumber, Progress, message, Space, Modal, Switch } from 'antd';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { Card, Button, Select, InputNumber, Progress, message, Space, Modal } from 'antd';
 import dayjs from 'dayjs';
 import {
   PlayCircleOutlined, StopOutlined, DeleteOutlined, ExperimentOutlined, SyncOutlined
@@ -18,7 +18,7 @@ export default function MockEnergy() {
   const [endDate, setEndDate] = useState(() => getRoundedNow().format('DD MMM YYYY HH:mm'));
   const [intervalHours, setIntervalHours] = useState(1);
   const [profile, setProfile] = useState('sinusoidal');
-  const [startingKwh, setStartingKwh] = useState(1000);
+  const [startingKwh, setStartingKwh] = useState(0);
   const [status, setStatus] = useState('');
   const [progress, setProgress] = useState(0);
   const [totalInserts, setTotalInserts] = useState(0);
@@ -27,9 +27,6 @@ export default function MockEnergy() {
   const [submitting, setSubmitting] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [loadingMeters, setLoadingMeters] = useState(true);
-  const [autoMeterIds, setAutoMeterIds] = useState([]);
-
-  const autoIntervalRef = useRef(null);
 
   // Load meters
   useEffect(() => {
@@ -46,35 +43,6 @@ export default function MockEnergy() {
       }
     })();
   }, []);
-
-  // Auto-generate every hour for each auto-enabled meter
-  useEffect(() => {
-    if (autoIntervalRef.current) clearInterval(autoIntervalRef.current);
-    if (autoMeterIds.length === 0) return;
-
-    const runAuto = () => {
-      const now = dayjs().startOf('hour');
-      const start = now.subtract(1, 'hour');
-      autoMeterIds.forEach(snid => {
-        try {
-          mockService.startGeneration({
-            meters: [snid],
-            start: start.toISOString(),
-            end: now.toISOString(),
-            intervalHours: 1,
-            profile,
-            startingKwh: Number(startingKwh),
-          });
-        } catch (err) {
-          console.error('Auto generation failed for', snid, err);
-        }
-      });
-    };
-
-    runAuto();
-    autoIntervalRef.current = setInterval(runAuto, 60 * 60 * 1000);
-    return () => { if (autoIntervalRef.current) clearInterval(autoIntervalRef.current); };
-  }, [autoMeterIds]);
 
   // Auto-update end date every minute
   useEffect(() => {
@@ -115,6 +83,7 @@ export default function MockEnergy() {
         intervalHours: Number(intervalHours),
         profile,
         startingKwh: Number(startingKwh),
+        meterTypes: meterMetaMap,
       });
       message.info('Background generation started');
     } catch (err) {
@@ -131,19 +100,6 @@ export default function MockEnergy() {
     setProgress(0);
     setTotalInserts(0);
     setCompletedInserts(0);
-  };
-
-  const handleQuickSend = (snid) => {
-    const now = dayjs().startOf('hour');
-    mockService.startGeneration({
-      meters: [snid],
-      start: now.subtract(1, 'hour').toISOString(),
-      end: now.toISOString(),
-      intervalHours: 1,
-      profile,
-      startingKwh: Number(startingKwh),
-    });
-    message.info(`⚡ Sent 1 record for ${snid}`);
   };
 
   const handleReset = async () => {
@@ -173,13 +129,23 @@ export default function MockEnergy() {
     return 'other';
   };
 
+  // Build meter metadata map for type-aware profiles (memoized)
+  const meterMetaMap = useMemo(() => {
+    const map = {};
+    meters.forEach(m => {
+      map[m.snid] = {
+        type: m.type,
+        capacity: Number(m.capacity || 0),
+        buildingName: m.buildingName || '',
+        startingKwh: Number(m.kWH || m.value || 0),
+      };
+    });
+    return map;
+  }, [meters]);
+
   const produceMeters = meters.filter(m => classifyType(m.type) === 'produce');
   const consumeMeters = meters.filter(m => classifyType(m.type) === 'consume');
   const batteryMeters = meters.filter(m => classifyType(m.type) === 'battery');
-
-  const toggleAutoMeter = (snid) => {
-    setAutoMeterIds(prev => prev.includes(snid) ? prev.filter(id => id !== snid) : [...prev, snid]);
-  };
 
   return (
     <div className="p-5 md:p-8 min-h-screen" style={{ background: 'linear-gradient(180deg, #f0f9ff 0%, #f8fafc 100%)' }}>
@@ -251,14 +217,6 @@ export default function MockEnergy() {
             </div>
           </div>
 
-          {autoMeterIds.length > 0 && !backgroundRunning && (
-            <div className="mt-4 p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg border border-blue-200">
-              <div className="flex items-center gap-2">
-                <SyncOutlined spin className="text-blue-500" />
-                <span className="text-sm font-semibold text-blue-700">Auto Mode Active — {autoMeterIds.length} meter(s), every hour</span>
-              </div>
-            </div>
-          )}
           {status && !backgroundRunning && (
             <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
               <p className="text-sm text-slate-600">{status}</p>
@@ -323,9 +281,6 @@ export default function MockEnergy() {
                             <div className="text-xs text-slate-600 truncate mt-0.5">{m.buildingName || '-'}</div>
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                            <button title="Quick send 1 record now" onClick={() => handleQuickSend(snid)}
-                              className="text-[10px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 hover:bg-orange-200 font-bold">⚡</button>
-                            <Switch size="small" checked={autoMeterIds.includes(snid)} onChange={() => toggleAutoMeter(snid)} />
                             {sel && <span className="text-orange-500 text-xs">✓</span>}
                           </div>
                         </div>
@@ -358,9 +313,6 @@ export default function MockEnergy() {
                             <div className="text-xs text-slate-600 truncate mt-0.5">{m.buildingName || '-'}</div>
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                            <button title="Quick send 1 record now" onClick={() => handleQuickSend(snid)}
-                              className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 hover:bg-purple-200 font-bold">⚡</button>
-                            <Switch size="small" checked={autoMeterIds.includes(snid)} onChange={() => toggleAutoMeter(snid)} />
                             {sel && <span className="text-purple-500 text-xs">✓</span>}
                           </div>
                         </div>
@@ -396,9 +348,6 @@ export default function MockEnergy() {
                             <div className="text-xs text-slate-600 truncate mt-0.5">{m.buildingName || '-'}</div>
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                            <button title="Quick send 1 record now" onClick={() => handleQuickSend(snid)}
-                              className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-600 hover:bg-green-200 font-bold">⚡</button>
-                            <Switch size="small" checked={autoMeterIds.includes(snid)} onChange={() => toggleAutoMeter(snid)} />
                             {sel && <span className="text-green-500 text-xs">✓</span>}
                           </div>
                         </div>

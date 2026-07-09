@@ -316,8 +316,8 @@ const LeftMenu = ({ history, location }) => {
                         { label: 'Billing & Invoice', key: ROUTE_PATHS.invoice, icon: <FileDoneOutlined /> },
                         { label: 'Transaction History', key: ROUTE_PATHS.transaction, icon: <SwapOutlined /> },
                         { label: 'Blockchain', key: ROUTE_PATHS.blockExplorer, icon: <DotChartOutlined /> },
-                        { label: 'Simulation', key: ROUTE_PATHS.simulation, icon: <ThunderboltOutlined /> },
                         { label: 'Analytics', key: ROUTE_PATHS.report, icon: <BarChartOutlined /> },
+                        { label: '📋 Patch Notes', key: ROUTE_PATHS.patchNotes, icon: <FileTextOutlined /> },
                     ],
                 },
             ];
@@ -360,8 +360,7 @@ const LeftMenu = ({ history, location }) => {
                     { label: 'Transaction History', key: ROUTE_PATHS.transaction, icon: <SwapOutlined /> },
                     { label: 'Invoices', key: ROUTE_PATHS.invoice, icon: <FileDoneOutlined /> },
                     { label: 'Receipts', key: ROUTE_PATHS.receipts, icon: <FileTextOutlined /> },
-                    { label: 'Energy Rate', key: `${ROUTE_PATHS.rateManagement}?category=energy`, icon: <PercentageOutlined /> },
-                    { label: 'Token Rate', key: `${ROUTE_PATHS.rateManagement}?category=token`, icon: <CreditCardOutlined /> },
+                    { label: 'Rate Management', key: ROUTE_PATHS.rateManagement, icon: <PercentageOutlined /> },
                 ],
             },
             {
@@ -379,13 +378,15 @@ const LeftMenu = ({ history, location }) => {
                 label: 'System',
                 children: [
                     { label: 'Blockchain', key: ROUTE_PATHS.blockExplorer, icon: <DotChartOutlined /> },
-                    { label: 'Simulation', key: ROUTE_PATHS.simulation, icon: <ThunderboltOutlined /> },
                     { label: 'Analytics', key: ROUTE_PATHS.report, icon: <BarChartOutlined /> },
                     { label: 'Publishers', key: ROUTE_PATHS.blockchainValidators, icon: <CheckCircleOutlined /> },
                     { label: 'Compare', key: ROUTE_PATHS.blockchainCompare, icon: <SwapOutlined /> },
                     { label: 'Mock Energy', key: ROUTE_PATHS.mockEnergy, icon: <ThunderboltOutlined /> },
                     { label: 'Meter Registration', key: ROUTE_PATHS.meterRegistration, icon: <ExperimentOutlined /> },
                     { label: 'User Guide 📖', key: ROUTE_PATHS.userGuide, icon: <QuestionCircleOutlined /> },
+                    { label: '📋 Patch Notes', key: ROUTE_PATHS.patchNotes, icon: <FileTextOutlined /> },
+                    { label: '🧪 Testing', key: ROUTE_PATHS.testing, icon: <ExperimentOutlined /> },
+                    { label: '🔌 API Status', key: ROUTE_PATHS.apiStatus, icon: <ThunderboltOutlined /> },
                 ],
             },
             
@@ -428,11 +429,14 @@ const LeftMenu = ({ history, location }) => {
         if (path.startsWith('/energy-selling')) return '/energy-selling';
         if (path.startsWith('/simulation')) return '/simulation';
         if (path.startsWith('/token-management')) return '/token-management';
-        if (path.startsWith('/rate-management') && search.includes('category=energy')) return '/rate-management?category=energy';
-        if (path.startsWith('/rate-management') && search.includes('category=token')) return '/rate-management?category=token';
-        if (path.startsWith('/rate-management')) return '/rate-management?category=energy';
+        if (path.startsWith('/rate-management') && search.includes('category=energy')) return `${ROUTE_PATHS.rateManagement}?category=energy`;
+        if (path.startsWith('/rate-management') && search.includes('category=token')) return `${ROUTE_PATHS.rateManagement}?category=token`;
+        if (path.startsWith('/rate-management')) return ROUTE_PATHS.rateManagement;
+        if (path.startsWith('/admin/testing')) return ROUTE_PATHS.testing;
         if (path.startsWith('/mock-energy')) return '/mock-energy';
         if (path.startsWith('/user-guide')) return '/user-guide';
+        if (path.startsWith('/patch-notes')) return '/patch-notes';
+        if (path.startsWith('/api-status')) return ROUTE_PATHS.apiStatus;
         if (path.startsWith('/home') || path === '/') return '/home';
         if (path.startsWith('/no-building-assigned')) {
             const source = new URLSearchParams(search).get('source');
@@ -500,7 +504,7 @@ const LeftMenu = ({ history, location }) => {
                             ) : null}
                         </div>
                         <div style={{ marginLeft: '8px' }}>
-                            <NotificationBell userId={localStorage.getItem(Key.UserId) || null} />
+                            <NotificationBell />
                         </div>
                 </div>
 

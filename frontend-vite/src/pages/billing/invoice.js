@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useSelector } from 'react-redux';
+import Plot from 'react-plotly.js';
 import {
   generateInvoices,
   getInvoices,
@@ -316,41 +317,25 @@ export default function Invoice() {
               <p className="text-xs text-gray-500">Token amount billed by month in {year}</p>
             </div>
             <div className="w-full h-64 border border-gray-100 rounded-lg p-3">
-              <svg viewBox="0 0 680 230" className="w-full h-full">
-                <line x1="34" y1="20" x2="34" y2="188" stroke="#d1d5db" strokeWidth="1" />
-                <line x1="34" y1="188" x2="650" y2="188" stroke="#d1d5db" strokeWidth="1" />
-                {[0, maxChartValue * 0.33, maxChartValue * 0.66, maxChartValue].map((v, i) => {
-                  const y = 188 - (v / maxChartValue) * 160;
-                  return (
-                    <g key={i}>
-                      <line x1="34" y1={y} x2="650" y2={y} stroke="#f3f4f6" strokeWidth="1" />
-                      <text x="8" y={y + 4} fontSize="10" fill="#9ca3af">{Math.round(v)}</text>
-                    </g>
-                  );
-                })}
-                <polyline
-                  fill="rgba(59,130,246,0.12)"
-                  stroke="none"
-                  points={chartValues.map((v, i) => {
-                    const x = 34 + i * 56;
-                    const y = 188 - (v / maxChartValue) * 160;
-                    return `${x},${y}`;
-                  }).join(' ') + ' 650,188 34,188'}
-                />
-                <polyline
-                  fill="none"
-                  stroke="#2563eb"
-                  strokeWidth="2"
-                  points={chartValues.map((v, i) => {
-                    const x = 34 + i * 56;
-                    const y = 188 - (v / maxChartValue) * 160;
-                    return `${x},${y}`;
-                  }).join(' ')}
-                />
-                {MONTH_NAMES.map((label, i) => (
-                  <text key={label} x={34 + i * 56} y="205" fontSize="10" fill="#9ca3af">{label}</text>
-                ))}
-              </svg>
+              <Plot
+                data={[{
+                  x: MONTH_NAMES, y: chartValues,
+                  type: 'scatter', mode: 'lines+markers',
+                  line: { color: '#2563eb', width: 2 },
+                  marker: { color: '#2563eb', size: 5 },
+                  fill: 'tozeroy', fillcolor: 'rgba(59,130,246,0.12)',
+                  hovertemplate: '%{x}<br>%{y:,.0f} tokens<extra></extra>',
+                }]}
+                layout={{
+                  autosize: true, height: 250,
+                  margin: { l: 45, r: 10, t: 5, b: 30 },
+                  xaxis: { tickfont: { size: 10, color: '#9ca3af' }, gridcolor: '#f3f4f6' },
+                  yaxis: { title: { text: 'Tokens', font: { size: 10, color: '#9ca3af' } }, tickfont: { size: 10, color: '#9ca3af' }, gridcolor: '#f3f4f6', rangemode: 'tozero' },
+                  paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', showlegend: false,
+                }}
+                config={{ displayModeBar: false }}
+                useResizeHandler style={{ width: '100%', height: '100%' }}
+              />
             </div>
           </div>
 
@@ -360,28 +345,23 @@ export default function Invoice() {
               <p className="text-xs text-gray-500">Total kWh usage snapshot for {formatPeriod(month, year)}</p>
             </div>
             <div className="w-full h-64 border border-gray-100 rounded-lg p-3">
-              <svg viewBox="0 0 680 230" className="w-full h-full">
-                <line x1="34" y1="20" x2="34" y2="188" stroke="#d1d5db" strokeWidth="1" />
-                <line x1="34" y1="188" x2="650" y2="188" stroke="#d1d5db" strokeWidth="1" />
-                {[0, maxConsumptionValue * 0.33, maxConsumptionValue * 0.66, maxConsumptionValue].map((v, i) => {
-                  const y = 188 - (v / maxConsumptionValue) * 160;
-                  return (
-                    <g key={i}>
-                      <line x1="34" y1={y} x2="650" y2={y} stroke="#f3f4f6" strokeWidth="1" />
-                      <text x="8" y={y + 4} fontSize="10" fill="#9ca3af">{Math.round(v)}</text>
-                    </g>
-                  );
-                })}
-                {consumptionValues.map((v, i) => {
-                  const height = (v / maxConsumptionValue) * 160;
-                  const x = 48 + i * 48;
-                  const y = 188 - height;
-                  return <rect key={MONTH_NAMES[i]} x={x} y={y} width="26" height={height} rx="3" fill="#41a95a" />;
-                })}
-                {MONTH_NAMES.map((label, i) => (
-                  <text key={label} x={48 + i * 48} y="205" fontSize="10" fill="#9ca3af">{label}</text>
-                ))}
-              </svg>
+              <Plot
+                data={[{
+                  x: MONTH_NAMES, y: consumptionValues,
+                  type: 'bar',
+                  marker: { color: '#41a95a', opacity: 0.9 },
+                  hovertemplate: '%{x}<br>%{y:,.0f} kWh<extra></extra>',
+                }]}
+                layout={{
+                  autosize: true, height: 250,
+                  margin: { l: 45, r: 10, t: 5, b: 30 },
+                  xaxis: { tickfont: { size: 10, color: '#9ca3af' }, gridcolor: '#f3f4f6' },
+                  yaxis: { title: { text: 'kWh', font: { size: 10, color: '#9ca3af' } }, tickfont: { size: 10, color: '#9ca3af' }, gridcolor: '#f3f4f6', rangemode: 'tozero' },
+                  paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', showlegend: false,
+                }}
+                config={{ displayModeBar: false }}
+                useResizeHandler style={{ width: '100%', height: '100%' }}
+              />
             </div>
           </div>
         </div>

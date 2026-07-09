@@ -203,8 +203,8 @@ async function attachInvoiceEnergyBreakdown(invoices = []) {
         const snapshotByBuilding = snapshotMaps.get(key) || new Map();
         const snapshot = snapshotByBuilding.get(invoice.buildingName);
 
-        const consumedKwh = toNumber(snapshot?.consumedKwh || invoice.kWH);
-        const marketPurchasedKwh = toNumber(snapshot?.marketPurchasedKwh);
+        const consumedKwh = toNumber(snapshot?.consumedKwh ?? invoice.kWH);
+        const marketPurchasedKwh = toNumber(snapshot?.marketPurchasedKwh ?? 0);
         const billableKwh = snapshot
             ? toNumber(snapshot.billableKwh)
             : Math.max(consumedKwh - marketPurchasedKwh, 0);
@@ -245,14 +245,14 @@ async function createMonthlyInvoices({ year, month, buildingName }) {
 
     const wallets = await prisma.wallet.findMany({
         where: {
-            id: {
-                in: buildings.map((building) => String(building.id)),
+            email: {
+                in: buildings.map((building) => String(building.email)),
             },
         },
     });
 
     const buildingByName = new Map(buildings.map((building) => [building.name, building]));
-    const walletByBuildingId = new Map(wallets.map((wallet) => [String(wallet.id), wallet]));
+    const walletByEmail = new Map(wallets.map((wallet) => [wallet.email, wallet]));
 
     const existingInvoices = await prisma.invoice.findMany({
         where: {
@@ -276,7 +276,7 @@ async function createMonthlyInvoices({ year, month, buildingName }) {
 
     for (const item of consumptionRows) {
         const building = buildingByName.get(item.buildingName);
-        const wallet = building ? walletByBuildingId.get(String(building.id)) : null;
+        const wallet = building ? walletByEmail.get(String(building.email)) : null;
 
         if (!building || !wallet) {
             skipped.push({

@@ -87,6 +87,12 @@ async function updateVerification(txid, verification = {}) {
             gasUsed: true, effectiveGasPrice: true, verifiedAt: true,
         },
     });
+
+    if (!existing) {
+        console.warn(`[updateVerification] Transaction not found: ${txid} — skipping update`);
+        return null;
+    }
+
     return await prisma.transaction.update({
         where: { txid: String(txid) },
         data: {

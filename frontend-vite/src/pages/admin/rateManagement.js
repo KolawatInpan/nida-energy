@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useDispatch } from 'react-redux';
+import { validateAuth } from '../../store/auth/auth.action';
 import { createEnergyRate, createTokenRate, getEnergyRates, getTokenRates } from '../../core/data_connecter/rate';
 
 const RATE_TYPES = {
@@ -27,6 +29,7 @@ function getStatusPill(status) {
 }
 
 export default function RateManagement() {
+  const dispatch = useDispatch();
   const [energyRates, setEnergyRates] = useState([]);
   const [tokenRates, setTokenRates] = useState([]);
   const [search, setSearch] = useState('');
@@ -60,6 +63,10 @@ export default function RateManagement() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    dispatch(validateAuth());
+  }, [dispatch]);
 
   useEffect(() => {
     loadRates();

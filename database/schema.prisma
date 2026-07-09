@@ -150,6 +150,7 @@ model RunningMeter {
   timestamp DateTime
   kW        Decimal? @db.Decimal(12, 4)
   kWH       Decimal? @db.Decimal(12, 4)
+  source    String?  // "SOLAR" | "MARKET" | "GRID" | "MANUAL" — where battery charge came from
 
   meter MeterInfo @relation(fields: [snid], references: [snid])
 
@@ -354,6 +355,7 @@ model EnergyOffer {
   totalPrice     Float
   status         EnergyOfferStatus @default(AVAILABLE)
   marketType     MarketType @default(MANUAL)
+  sourceType     String?  // e.g. produce, battery — used to restore energy on cancel
   targetDate     DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

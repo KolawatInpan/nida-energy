@@ -233,13 +233,36 @@ async function deleteUser(req, res) {
  */
 async function adminQuickRegister(req, res) {
 	try {
-		const { buildingName, email, password, address, city, postalCode, mapUrl, phoneNumber } = req.body || {};
+		const { buildingName, email, password, address, city, postalCode, mapUrl, phoneNumber, buildingRole } = req.body || {};
 		if (!buildingName || !email || !password) {
 			return res.status(400).json({ error: 'buildingName, email, and password are required' });
 		}
 
-		// 1. Create User
-		const newUser = await User.registerUser(buildingName, email, password);
+		// buildingRole: 'producer' = Ratchaphruek/Malai (has producer meters)
+		// Auditorium is mode-dependent: real=consumer only, demo=producer
+		// Others: consumer only
+		const { realPrisma, demoPrisma, getCurrentMode, REAL_MODE } = require('../../utils/prisma');
+		const isRealMode = getCurrentMode() === REAL_MODE;
+		const isRatchaphruek = buildingName === 'Ratchaphruek';
+		const isAuditorium = buildingName === 'Auditorium';
+
+		// Auditorium: producer in demo, consumer in real
+		const isProducer = isAuditorium
+			? !isRealMode  // demo mode = producer, real mode = consumer
+			: buildingRole === 'producer';
+
+		// 1. Create or reuse User
+		let newUser;
+		try {
+			newUser = await User.registerUser(buildingName, email, password);
+		} catch (err) {
+			if (err.message === 'User with this email already exists') {
+				newUser = await User.getUserByEmail(email);
+				console.log('[adminQuickRegister] User already exists, reusing:', email);
+			} else {
+				throw err;
+			}
+		}
 		if (phoneNumber) {
 			await User.updateUser(email, { telNum: phoneNumber }).catch(() => {});
 		}
@@ -248,6 +271,8 @@ async function adminQuickRegister(req, res) {
 		const { prisma } = require('../../utils/prisma');
 		const { randomUUID } = require('crypto');
 		let building = await prisma.building.findUnique({ where: { name: buildingName } });
+		// tradeMeterType: 'produce' for producers, 'battery' for consumers
+		const targetTradeMeterType = isProducer ? 'produce' : 'battery';
 		if (!building) {
 			building = await prisma.building.create({
 				data: {
@@ -257,34 +282,86 @@ async function adminQuickRegister(req, res) {
 					province: city || '',
 					postal: postalCode || '',
 					mapURL: mapUrl || '',
-					tradeMode: 'MANUAL',
+					tradeMode: 'AUTO_BATTERY_THRESHOLD',
+					tradeMeterType: targetTradeMeterType,
 					batterySellThreshold: 80,
 					solarSelfPercent: 80,
 				},
 			});
 		} else {
-			console.log('[adminQuickRegister] Building already exists, reusing:', buildingName);
+			// Update building if email or tradeMeterType changed
+			const updates = {};
+			if (building.email !== email) updates.email = email;
+			if (building.tradeMeterType !== targetTradeMeterType) updates.tradeMeterType = targetTradeMeterType;
+
+			if (Object.keys(updates).length > 0) {
+				building = await prisma.building.update({
+					where: { name: buildingName },
+					data: updates,
+				});
+				console.log('[adminQuickRegister] Building updated:', buildingName, updates);
+			} else {
+				console.log('[adminQuickRegister] Building already exists, reusing:', buildingName);
+			}
 		}
 
-		// 3. Create or reuse Wallet
-		let wallet = await prisma.wallet.findUnique({ where: { email } });
-		if (!wallet) {
-			const walletId = randomUUID();
-			wallet = await prisma.wallet.create({
-				data: { id: walletId, email, tokenBalance: 10000 },
-			});
+		// 3. Create Wallet with initial tokens = estimated monthly consumption
+		const largeBuildings = ['Ratchaphruek', 'Malai', 'Auditorium'];
+		const isLarge = largeBuildings.includes(buildingName);
+		// Large: ~6.5 kW avg × 24h × 30d ≈ 4,700 kWh/mo → 4,700 tokens
+		// Small: ~2.75 kW avg × 24h × 30d ≈ 2,000 kWh/mo → 2,000 tokens
+		const initialTokens = isLarge ? 4700 : 2000;
+
+		const walletId = randomUUID();
+		const dbsToCreate = isRealMode ? [realPrisma, demoPrisma] : [demoPrisma];
+		for (const db of dbsToCreate) {
+			const exists = await db.wallet.findUnique({ where: { email } }).catch(() => null);
+			if (!exists) {
+				await db.wallet.create({
+					data: { id: walletId, email, tokenBalance: initialTokens },
+				}).catch(err => console.warn('[adminQuickRegister] Wallet create failed for', email, err.message));
+			}
 		}
 
-		// 4. Create 3 meters (skip if SNID already exists)
+		// 4. Create meters based on building + mode
+		// Ratchaphruek: produce + battery + consume (3 meters, both modes)
+		// Malai: produce + consume (2 meters)
+		// Auditorium: produce + consume in demo, consume only in real
+		// Others (consumer buildings): consume only (1 meter)
 		const today = new Date().toISOString().split('T')[0];
 		const prefix = buildingName.replace(/ /g, '').substring(0, 3).toUpperCase();
 		const rand = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
 
-		const meters = [
-			{ snid: `${prefix}-PRD-${rand}`, type: 'producer', capacity: 3000 },
-			{ snid: `${prefix}-CON-${rand}`, type: 'consumer', capacity: 5000 },
-			{ snid: `${prefix}-BAT-${rand}`, type: 'battery', capacity: 10000 },
-		];
+		let meters;
+		if (isRatchaphruek) {
+			// Ratchaphruek: producer 5kW + battery 20kWh + consumer
+			meters = [
+				{ snid: `${prefix}-PRD-${rand}`, type: 'producer', capacity: 5 },
+				{ snid: `${prefix}-BAT-${rand}`, type: 'battery', capacity: 20 },
+				{ snid: `${prefix}-CON-${rand}`, type: 'consumer', capacity: 0 },
+			];
+		} else if (isProducer) {
+			// Malai: 30kW, Auditorium (demo): 3kW
+			const producerCapacity = isAuditorium ? 3 : 30;
+			meters = [
+				{ snid: `${prefix}-PRD-${rand}`, type: 'producer', capacity: producerCapacity },
+				{ snid: `${prefix}-CON-${rand}`, type: 'consumer', capacity: 0 },
+			];
+		} else {
+			// Auditorium (real mode) / other consumers: consume only
+			meters = [
+				{ snid: `${prefix}-CON-${rand}`, type: 'consumer', capacity: 0 },
+			];
+		}
+
+		// Remove old meters not in the new config (to handle role changes)
+		const keepTypes = meters.map(m => m.type);
+		const removeTypes = ['producer', 'battery', 'consumer'].filter(t => !keepTypes.includes(t));
+		if (removeTypes.length > 0) {
+			await prisma.meterInfo.deleteMany({
+				where: { buildingName, type: { in: removeTypes } },
+			}).catch(() => {});
+		}
 
 		const createdMeters = [];
 		for (const m of meters) {
@@ -301,6 +378,7 @@ async function adminQuickRegister(req, res) {
 						approveStatus: 'approved',
 						dateInstalled: new Date(today),
 						dateSubmit: new Date(),
+						isAutoMock: true,
 					},
 				});
 				createdMeters.push(m.snid);
@@ -310,12 +388,41 @@ async function adminQuickRegister(req, res) {
 		res.status(201).json({
 			message: 'Admin quick register complete',
 			user: { email, name: buildingName },
-			building: { id: building.id, name: buildingName },
+			building: { id: building.id, name: buildingName, role: isProducer ? 'producer' : 'consumer' },
 			meters: createdMeters.length ? createdMeters : meters.map(m => m.snid),
 		});
 	} catch (err) {
 		console.error('adminQuickRegister error', err);
 		res.status(400).json({ error: err.message });
+	}
+}
+
+/**
+ * Check if a user exists in real DB, demo DB, or both.
+ * Bypasses AsyncLocalStorage — queries both Prisma clients directly.
+ */
+async function checkUser(req, res) {
+	try {
+		const { email } = req.body || {};
+		if (!email) {
+			return res.status(400).json({ error: 'email is required' });
+		}
+
+		const { realPrisma, demoPrisma } = require('../../utils/prisma');
+
+		const [realUser, demoUser] = await Promise.all([
+			realPrisma.user.findUnique({ where: { email }, select: { email: true, name: true, role: true } }).catch(() => null),
+			demoPrisma.user.findUnique({ where: { email }, select: { email: true, name: true, role: true } }).catch(() => null),
+		]);
+
+		res.json({
+			email,
+			real: realUser ? { name: realUser.name, role: realUser.role } : null,
+			demo: demoUser ? { name: demoUser.name, role: demoUser.role } : null,
+		});
+	} catch (err) {
+		console.error('checkUser error', err);
+		res.status(500).json({ error: err.message });
 	}
 }
 
@@ -329,6 +436,7 @@ module.exports = {
 	login,
 	adminLogin,
 	adminQuickRegister,
+	checkUser,
 	updateUser,
 	deleteUser
 };

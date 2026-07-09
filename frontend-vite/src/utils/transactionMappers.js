@@ -121,10 +121,11 @@ export function buildTransactionCompareRows(transaction, preview) {
   const fields = [
     { label: 'Transaction ID', db: formatEntityId('TX', transaction.txid), chain: payload?.txid ? formatEntityId('TX', payload.txid) : '-' },
     { label: 'Wallet ID', db: transaction.walletId, chain: payload?.walletId ?? '-' },
-    { label: 'Building', db: transaction.buildingName || '-', chain: payload?.buildingName ?? '-' },
-    { label: 'SNID', db: transaction.snid || '-', chain: payload?.snid ?? '-' },
+    { label: 'From Building', db: payload?.fromBuilding || payload?.buildingName || transaction.buildingName || '-', chain: payload?.fromBuilding || payload?.buildingName || '-' },
+    { label: 'To Building', db: payload?.toBuilding || '-', chain: payload?.toBuilding || '-' },
     { label: 'Type', db: transaction.type || '-', chain: payload?.type ?? '-' },
     { label: 'Token Amount', db: Number(transaction.tokenAmount || 0), chain: payload?.tokenAmount ?? '-' },
+    { label: 'Energy (kWh)', db: payload?.kwh != null ? `${payload.kwh} kWh` : '—', chain: payload?.kwh != null ? `${payload.kwh} kWh` : '—' },
     { label: 'Status', db: transaction.status || '-', chain: payload?.status ?? '-' },
     { label: 'Timestamp', db: transaction.timestamp || '-', chain: payload?.timestamp ?? '-' },
   ];

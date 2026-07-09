@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useHistory, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from "react-redux";
+import axios from 'axios';
 import { validateAuth } from "../../store/auth/auth.action";
 import TORMeter from '../../components/TOR/TORMeter';
 import { getHourlyEnergyByMeter, getDailyEnergyByMeter, getMeters, getMeterBySnid } from '../../core/data_connecter/register';
 import { getEnergyRates } from '../../core/data_connecter/rate';
-import { buildHourlyTrend, buildTrailingDailyTrend, buildXAxisLabels, formatLocalDate } from '../../utils/meterAnalytics';
+import { buildHourlyTrend, buildTrailingDailyTrend, formatLocalDate } from '../../utils/meterAnalytics';
+import Plot from 'react-plotly.js';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+
+import { getApiBase } from '../../core/data_connecter/apiBase';
 
 const slugify = (name) => {
     if (!name) return '';
@@ -127,6 +131,157 @@ const getMockMeterData = (meterId) => {
     };
 };
 
+// ---- Battery Charge Source Donut Chart ----
+const SOURCE_COLORS = {
+    SOLAR: '#f59e0b',
+    MARKET: '#3b82f6',
+    GRID: '#ef4444',
+    MANUAL: '#8b5cf6',
+    UNKNOWN: '#9ca3af',
+};
+const SOURCE_LABELS = {
+    SOLAR: '☀️ Solar',
+    MARKET: '🏪 Market',
+    GRID: '🔌 Grid',
+    MANUAL: '🔧 Manual',
+    UNKNOWN: '❓ Unknown',
+};
+const DISCHARGE_LABELS = {
+    SELF: '🏠 Self-Consumption',
+    MARKET: '🏪 Market Sale',
+};
+
+function BatteryChargeSource({ snid }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (!snid) { setLoading(false); return; }
+        let mounted = true;
+        const controller = new AbortController();
+        setLoading(true);
+        axios.get(`${getApiBase()}/runningMeters/battery-charge-sources/${snid}?days=7`, {
+            signal: controller.signal,
+            timeout: 10000,
+        })
+            .then(res => { if (mounted) setData(res.data); })
+            .catch(() => { if (mounted) setData(null); })
+            .finally(() => { if (mounted) setLoading(false); });
+        return () => { mounted = false; controller.abort(); };
+    }, [snid]);
+
+    if (loading) return (
+        <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4 mb-6">
+            <div className="animate-pulse h-6 bg-gray-200 rounded w-1/2 mb-4" />
+            <div className="animate-pulse h-48 bg-gray-100 rounded" />
+        </div>
+    );
+
+    // Show placeholder when data unavailable
+    if (!data || !data.chargeSources) return (
+        <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4 mb-6">
+            <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                    <span className="text-xl">🔋</span>
+                </div>
+                <div>
+                    <h3 className="text-base font-bold text-gray-900">Battery Charge Sources</h3>
+                    <p className="text-xs text-gray-400">Charge source tracking will appear here once the backend is updated with the latest deployment.</p>
+                </div>
+            </div>
+        </div>
+    );
+
+    const buildingName = data.buildingName || 'This Building';
+    const chargeSources = data.chargeSources || [];
+    const dischargeSources = data.dischargeSources || [];
+    const dischargeTotal = data.dischargeTotalKwh || 0;
+    const chargeTotal = data.chargeTotalKwh || 0;
+
+    // Merge with all known sources
+    const sourceMap = {};
+    for (const s of chargeSources) sourceMap[s.source] = s.kwh;
+    const ALL_SOURCES = ['SOLAR', 'MARKET', 'GRID'];
+    const merged = ALL_SOURCES.map(src => ({ source: src, kwh: sourceMap[src] || 0 }))
+        .sort((a, b) => b.kwh - a.kwh);
+
+    const fmtKwh = (v) => v >= 10 ? v.toFixed(0) : v.toFixed(1);
+
+    return (
+        <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4 mb-6">
+            <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                    <span className="text-xl">🔋</span>
+                </div>
+                <div>
+                    <h3 className="text-base font-bold text-gray-900">Battery Energy Flow (7 days)</h3>
+                    <p className="text-xs text-gray-500">{buildingName}</p>
+                </div>
+            </div>
+
+            {/* Charge Section */}
+            <div className="mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                    <span className="text-green-600 text-sm font-bold">⬇ CHARGE</span>
+                    <span className="text-xs text-gray-400">{fmtKwh(chargeTotal)} kWh total</span>
+                </div>
+                <div className="space-y-1.5">
+                    {merged.map(s => {
+                        const pct = chargeTotal > 0 ? (s.kwh / chargeTotal * 100) : 0;
+                        const color = SOURCE_COLORS[s.source] || '#9ca3af';
+                        return (
+                            <div key={s.source} className="flex items-center gap-2 pl-2 py-1 rounded hover:bg-gray-50 transition-colors">
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-baseline">
+                                        <span className="text-xs font-medium text-gray-700">
+                                            {SOURCE_LABELS[s.source] || s.source}
+                                            <span className="text-gray-400 font-normal"> from {s.source === 'MARKET' ? 'Marketplace' : buildingName}</span>
+                                        </span>
+                                        <span className="text-xs font-semibold text-gray-800">{fmtKwh(s.kwh)} kWh</span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mt-0.5">
+                                        <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, pct)}%`, background: color }} />
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Discharge Section */}
+            <div className="border-t border-gray-100 pt-3">
+                <div className="flex items-center gap-2 mb-2">
+                    <span className="text-red-500 text-sm font-bold">⬆ DISCHARGE</span>
+                    <span className="text-xs text-gray-400">{fmtKwh(dischargeTotal)} kWh total</span>
+                </div>
+                <div className="space-y-1.5">
+                    {dischargeSources.map(s => {
+                        const pct = dischargeTotal > 0 ? (s.kwh / dischargeTotal * 100) : 0;
+                        const color = s.source === 'MARKET' ? SOURCE_COLORS.MARKET : '#ef4444';
+                        return (
+                            <div key={s.source} className="flex items-center gap-2 pl-2 py-1 rounded hover:bg-gray-50 transition-colors">
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-baseline">
+                                        <span className="text-xs font-medium text-gray-700">
+                                            {DISCHARGE_LABELS[s.source] || `❓ ${s.source}`}
+                                            <span className="text-gray-400 font-normal"> at {buildingName}</span>
+                                        </span>
+                                        <span className="text-xs font-semibold text-gray-800">{fmtKwh(s.kwh)} kWh</span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mt-0.5">
+                                        <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, pct)}%`, background: color }} />
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export default function Meter() {
     const { meterId } = useParams();
     const history = useHistory();
@@ -134,6 +289,7 @@ export default function Meter() {
     const dispatch = useDispatch();
     const authStore = useSelector((store) => store.auth.isAuthenticate);
     const [meter, setMeter] = useState(null);
+    const [offeredKwh, setOfferedKwh] = useState(0);
     const [allMeters, setAllMeters] = useState([]);
     const [selectedBuildingName, setSelectedBuildingName] = useState('');
     const [trendMode, setTrendMode] = useState('today');
@@ -148,6 +304,7 @@ export default function Meter() {
     });
     const [energyRates, setEnergyRates] = useState([]);
     const [notFound, setNotFound] = useState(false);
+    const [batterySource, setBatterySource] = useState('solar'); // 'solar' | 'central'
 
     const normalizeMeterType = (value) => {
         const text = String(value || '').toLowerCase();
@@ -219,24 +376,6 @@ export default function Meter() {
         const total = values.reduce((sum, value) => sum + value, 0);
         const peak = Math.max(...values, 0);
         return { labels, values, maxValue, total, peak };
-    };
-
-    const buildTrendPath = (values = [], width = 770, height = 120) => {
-        if (!values.length) return '';
-
-        const maxValue = Math.max(...values, 1);
-        return values.map((value, index) => {
-            const x = 30 + (index * (width / Math.max(values.length - 1, 1)));
-            const y = 140 - ((Number(value || 0) / maxValue) * height);
-            return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
-        }).join(' ');
-    };
-
-    const buildAreaPath = (values = [], width = 770, height = 120) => {
-        const linePath = buildTrendPath(values, width, height);
-        if (!linePath) return '';
-        const endX = 30 + width;
-        return `${linePath} L ${endX} 140 L 30 140 Z`;
     };
 
     const formatInstalledDate = (value) => {
@@ -535,51 +674,47 @@ export default function Meter() {
     }, [allMeters, selectedBuildingName]);
 
     const currentMeterRouteId = meterId || getMeterRouteId(meter?.raw || {});
-    const trendChart = hourlyTrend;
-    const yAxisMax = Math.max(Math.ceil(trendChart.maxValue || 0), 1);
-    const yAxisStep = yAxisMax / 3;
-    const yAxisLabels = [yAxisMax, yAxisStep * 2, yAxisStep, 0].map((value) => Math.round(value));
-    const trendPath = buildTrendPath(trendChart.values);
-    const areaPath = buildAreaPath(trendChart.values);
-    let xAxisLabels = buildXAxisLabels(trendChart.labels, trendMode);
-    if (trendMode === 'custom') {
-        const totalLabels = trendChart.labels.length;
-        if (totalLabels <= 7 && totalLabels > 0) {
-            xAxisLabels = trendChart.labels.map((label, index) => ({
-                label,
-                x: 30 + (index * (770 / Math.max(totalLabels - 1, 1))),
-                index
-            }));
-        } else if (totalLabels > 0) {
-            const step = Math.ceil(totalLabels / 7);
-            xAxisLabels = [];
-            for (let i = 0; i < totalLabels; i += step) {
-                xAxisLabels.push({ label: trendChart.labels[i], x: 30 + (i * (770 / (totalLabels - 1))), index: i });
-            }
-            if (xAxisLabels[xAxisLabels.length - 1].index !== totalLabels - 1) {
-                xAxisLabels.push({ label: trendChart.labels[totalLabels - 1], x: 800, index: totalLabels - 1 });
-            }
-        }
-    }
     const rawMeter = meter?.raw || {};
     const activePanel = new URLSearchParams(location.search).get('panel') || '';
     const isGridPanel = activePanel === 'grid';
-    const liveKwh = Number(rawMeter.kWH ?? rawMeter.value ?? 0);
-    const liveCapacity = Number(rawMeter.capacity ?? 0);
-    const liveCurrentKw = Number(rawMeter.value ?? 0);
+    // Battery source override: Central Battery → all zeros (no data from centralized storage)
+    const isCentralBattery = batterySource === 'central';
+    const trendChart = isCentralBattery
+        ? { labels: hourlyTrend.labels, values: hourlyTrend.values.map(() => 0), maxValue: 0, total: 0, peak: 0 }
+        : hourlyTrend;
+    const isProducerMeter = meter?.type === 'Producer';
+    const isConsumerMeter = meter?.type === 'Consumer';
+    const isBatteryMeter = String(meter?.type || meter?.raw?.type || '').toLowerCase().includes('battery');
+
+    // Fetch offered energy in marketplace for battery meters
+    useEffect(() => {
+        if (!meter?.id || !isBatteryMeter) { setOfferedKwh(0); return; }
+        axios.get(`${getApiBase()}/runningMeters/battery-charge-sources/${meter.id}?days=7`)
+            .then(res => { setOfferedKwh(res.data?.offeredKwh || 0); })
+            .catch(() => { setOfferedKwh(0); });
+    }, [meter?.id, isBatteryMeter]);
+
+    // Y-axis label: dynamic based on meter type
+    const yAxisUnitLabel = isConsumerMeter ? 'Consumption (kWh)'
+        : isBatteryMeter ? 'Storage (kWh)'
+        : 'Production (kWh)';
+    const liveKwh = isCentralBattery ? 0 : Number(rawMeter.kWH ?? rawMeter.value ?? 0);
+    const liveCapacity = isCentralBattery ? 0 : Number(rawMeter.capacity ?? 0);
+    // Battery: value field stores kWh (SoC from trading engine), not instantaneous kW
+    const liveCurrentKw = isCentralBattery ? 0 : (isBatteryMeter ? 0 : Number(rawMeter.value ?? 0));
     const liveUtilization = liveCapacity > 0 ? Math.min(100, Math.round((liveCurrentKw / liveCapacity) * 100)) : null;
     const peakHourIndex = trendChart.values.findIndex((value) => Number(value || 0) === Number(trendChart.peak || 0));
     const peakHourLabel = peakHourIndex >= 0 ? trendChart.labels[peakHourIndex] : 'N/A';
     const batterySoc = rawMeter.currentPercentage != null ? Number(rawMeter.currentPercentage) : null;
-    const batteryStoredKwh = rawMeter.currentkWH != null ? Number(rawMeter.currentkWH) : liveKwh;
+    // Battery stored energy: ALWAYS cap at capacity
+    const batteryStoredKwh = isBatteryMeter
+        ? (liveCapacity > 0 ? Math.min(liveKwh, liveCapacity) : liveKwh)
+        : liveKwh;
     const dailyTargetKwh = liveCapacity > 0 ? liveCapacity * 24 : 0;
     const progressPercent = dailyTargetKwh > 0 ? Math.min(100, Math.round((Number(meter?.lastReadingValue || 0) / dailyTargetKwh) * 100)) : null;
     const efficiencyValue = rawMeter.systemEfficiency != null
         ? Number(rawMeter.systemEfficiency)
         : (rawMeter.efficiency != null ? Number(rawMeter.efficiency) : null);
-    const isProducerMeter = meter?.type === 'Producer';
-    const isConsumerMeter = meter?.type === 'Consumer';
-    const isBatteryMeter = meter?.type === 'Battery / ESS';
     const solarTargetKwh = liveCapacity > 0 ? liveCapacity * 8 : 0;
     const storagePercent = batterySoc != null
         ? Math.max(0, Math.min(100, Math.round(batterySoc)))
@@ -607,10 +742,35 @@ export default function Meter() {
     const gridImportedTotal = Number(trendChart.total || 0);
     const estimatedGridCost = gridImportedTotal * latestEnergyRate;
     const timeframeLabel = trendMode === 'month' ? '30 Days' : trendMode === 'week' ? '7 Days' : trendMode === 'custom' ? 'Custom Range' : 'Today';
-    const trendTitle = isGridPanel ? 'Real-time Grid Import Trend' : 'Real-time Production Trend';
+    const trendTitle = isGridPanel ? 'Real-time Grid Import Trend'
+        : isConsumerMeter ? 'Real-time Consumption Trend'
+        : isBatteryMeter ? 'Real-time Storage Trend'
+        : 'Real-time Production Trend';
     const trendSubtitle = isGridPanel
         ? 'Energy drawn from the utility grid'
         : (isConsumerMeter ? 'Energy consumption in kWh over 24 hours' : trendMode === 'custom' ? 'Custom date range' : 'Energy generation in kWh over 24 hours');
+
+    // --- Meter Connectivity (real data) ---
+    const meterExists = Boolean(meter?.raw?.snid);
+    const lastMeterTimestamp = rawMeter?.timestamp ? new Date(rawMeter.timestamp) : null;
+    const nowMs = Date.now();
+    const lastSyncMs = lastMeterTimestamp ? nowMs - lastMeterTimestamp.getTime() : null;
+    // Last sync: show relative time or "Never"
+    const lastSyncText = lastSyncMs != null
+        ? (lastSyncMs < 60_000 ? 'Just now'
+            : lastSyncMs < 3_600_000 ? `${Math.round(lastSyncMs / 60_000)} min ago`
+            : lastSyncMs < 86_400_000 ? `${Math.round(lastSyncMs / 3_600_000)}h ago`
+            : `${Math.round(lastSyncMs / 86_400_000)}d ago`)
+        : 'Never';
+    // Signal strength based on data freshness
+    const signalStrength = lastSyncMs == null ? 'No Data'
+        : lastSyncMs < 3_600_000 ? 'Excellent'
+        : lastSyncMs < 86_400_000 ? 'Good'
+        : 'Weak';
+    const signalColor = lastSyncMs == null ? 'text-gray-400'
+        : lastSyncMs < 3_600_000 ? 'text-green-600'
+        : lastSyncMs < 86_400_000 ? 'text-amber-600'
+        : 'text-red-500';
 
     const handleBuildingChange = (nextBuildingName) => {
         setSelectedBuildingName(nextBuildingName);
@@ -628,11 +788,22 @@ export default function Meter() {
             history.push(`/meter/${nextMeterId}`);
         }
     };
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const fmtLabel = (l) => { const p = String(l).split('/'); return p.length === 2 ? `${parseInt(p[0])} ${MONTHS[parseInt(p[1])-1]||''}` : l; };
+    const customRangeLabel = trendMode === 'custom' && trendChart.labels.length > 0
+        ? `from ${fmtLabel(trendChart.labels[0])} to ${fmtLabel(trendChart.labels[trendChart.labels.length - 1])}`
+        : 'in range';
+    const timeframeUnit = trendMode === 'week' ? 'this week'
+        : trendMode === 'month' ? 'this month'
+        : trendMode === 'custom' ? customRangeLabel
+        : 'today';
     const summaryUnitLabel = isConsumerMeter
-        ? 'kWh consumed today'
+        ? `kWh consumed ${timeframeUnit}`
         : isBatteryMeter
-            ? `${formatWholeNumber(batteryStoredKwh)} kWh stored`
-            : 'kWh generated today';
+            ? (offeredKwh > 0
+                ? `${formatWholeNumber(Math.max(0, batteryStoredKwh - offeredKwh))} kWh available · ${offeredKwh.toFixed(1)} kWh on market`
+                : `${formatWholeNumber(batteryStoredKwh)} kWh stored`)
+            : `kWh generated ${timeframeUnit}`;
     const summaryProgressText = isBatteryMeter
         ? (
             liveCurrentKw > 0
@@ -643,13 +814,18 @@ export default function Meter() {
         )
         : summaryProgressPercent != null
             ? `Up ${summaryProgressPercent}% of target`
-            : 'No target available';
+            : `Total ${timeframeUnit}`;
     const summaryMetrics = isBatteryMeter
         ? [
             {
                 label: 'Stored Energy',
                 value: `${formatWholeNumber(batteryStoredKwh)} kWh`,
                 className: 'text-gray-900',
+            },
+            {
+                label: 'On Market',
+                value: offeredKwh > 0 ? `${offeredKwh.toFixed(1)} kWh` : '—',
+                className: offeredKwh > 0 ? 'text-blue-600' : 'text-gray-400',
             },
             {
                 label: 'Current Power',
@@ -834,6 +1010,27 @@ export default function Meter() {
                 <div className="flex gap-6 mb-6">
                     {/* Summary Card */}
                     <div className="flex-1 bg-white rounded-lg shadow-md border border-gray-200 p-6">
+                        {meter.type === 'Battery / ESS' && (
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="text-xs text-gray-500 font-semibold">Source:</span>
+                                <button
+                                    onClick={() => setBatterySource('solar')}
+                                    className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                                        batterySource === 'solar'
+                                            ? 'bg-amber-500 text-white'
+                                            : 'bg-white text-gray-600 border border-gray-200 hover:bg-amber-50'
+                                    }`}
+                                >☀️ Solar</button>
+                                <button
+                                    onClick={() => setBatterySource('central')}
+                                    className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                                        batterySource === 'central'
+                                            ? 'bg-gray-500 text-white'
+                                            : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                                    }`}
+                                >🏭 Central Battery</button>
+                            </div>
+                        )}
                         <div className="flex items-center gap-2 mb-4">
                             <span className="text-3xl">🌤️</span>
                             <div>
@@ -857,12 +1054,26 @@ export default function Meter() {
                             ))}
                         </div>
 
-                        <div className="bg-white rounded-full h-2 overflow-hidden mt-4">
+                        <div className="bg-white rounded-full h-2 overflow-hidden mt-4 flex">
+                            {/* Offered portion */}
+                            {isBatteryMeter && offeredKwh > 0 && liveCapacity > 0 && (
+                                <div
+                                    className="h-full bg-blue-500 transition-all"
+                                    style={{ width: `${Math.min(100, (offeredKwh / liveCapacity) * 100)}%` }}
+                                ></div>
+                            )}
+                            {/* Available portion */}
                             <div 
-                                className={`h-full rounded-full transition-all ${progressBarClass}`}
-                                style={{ width: `${summaryProgressPercent != null ? summaryProgressPercent : 0}%` }}
+                                className={`h-full rounded-full transition-all flex-1 ${progressBarClass}`}
+                                style={{ width: isBatteryMeter && offeredKwh > 0 ? `${Math.max(0, (summaryProgressPercent || 0) - Math.min(100, (offeredKwh / (liveCapacity || 1)) * 100))}%` : `${summaryProgressPercent != null ? summaryProgressPercent : 0}%` }}
                             ></div>
                         </div>
+                        {isBatteryMeter && offeredKwh > 0 && (
+                            <div className="flex items-center gap-4 mt-1 text-[10px] text-gray-400">
+                                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span> Available</span>
+                                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span> On Market</span>
+                            </div>
+                        )}
                     </div>
 
                     {/* Meter Connectivity Card */}
@@ -876,115 +1087,104 @@ export default function Meter() {
                         </div>
 
                         <div className="flex items-center gap-3 mb-6">
-                            <span className="w-4 h-4 bg-green-500 rounded-full"></span>
+                            <span className={`w-4 h-4 rounded-full ${meterExists ? 'bg-green-500' : 'bg-red-500'}`}></span>
                             <div>
-                                <div className="text-lg font-bold text-gray-900">1/1</div>
-                                <div className="text-sm text-green-600">Online</div>
+                                <div className="text-lg font-bold text-gray-900">{meterExists ? '1/1' : '0/1'}</div>
+                                <div className={`text-sm ${meterExists ? 'text-green-600' : 'text-red-600'}`}>{meterExists ? 'Online' : 'Offline'}</div>
                             </div>
                         </div>
 
                         <div className="space-y-3">
                             <div className="flex justify-between items-center">
                                 <span className="text-sm text-gray-600">API Status</span>
-                                <span className="text-sm font-semibold text-green-600">• Connected</span>
+                                <span className={`text-sm font-semibold ${meterExists ? 'text-green-600' : 'text-red-600'}`}>{meterExists ? '• Connected' : '• Not Found'}</span>
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-sm text-gray-600">Last Sync</span>
-                                <span className="text-sm font-semibold text-gray-900">2 min ago</span>
+                                <span className="text-sm font-semibold text-gray-900">{lastSyncText}</span>
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-sm text-gray-600">Data Interval</span>
-                                <span className="text-sm font-semibold text-gray-900">15 seconds</span>
+                                <span className="text-sm font-semibold text-gray-900">Hourly</span>
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-sm text-gray-600">Signal Strength</span>
-                                <span className="text-sm font-semibold text-gray-900">Excellent</span>
+                                <span className={`text-sm font-semibold ${signalColor}`}>{signalStrength}</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Real-time Production Trend */}
+                {/* Real-time Trend Chart */}
                 <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6 mb-6">
-                    <div className="mb-6">
+                    <div className="mb-4">
                         <h2 className="text-lg font-bold text-gray-900 mb-1">{trendTitle}</h2>
                         <p className="text-sm text-gray-600">{trendSubtitle}</p>
                     </div>
 
-                    {/* Simple line chart visualization */}
-                    <div className={`relative h-64 rounded-lg p-4 ${isConsumerMeter ? 'bg-gradient-to-b from-red-50 to-transparent' : isBatteryMeter ? 'bg-gradient-to-b from-orange-50 to-transparent' : 'bg-gradient-to-b from-green-50 to-transparent'}`}>
-                        <svg className="w-full h-full" viewBox="0 0 800 200" preserveAspectRatio="xMidYMid meet">
-                            {/* Y-axis labels */}
-                            <text x="5" y="20" className="text-xs fill-gray-400">{yAxisLabels[0]}</text>
-                            <text x="5" y="60" className="text-xs fill-gray-400">{yAxisLabels[1]}</text>
-                            <text x="5" y="100" className="text-xs fill-gray-400">{yAxisLabels[2]}</text>
-                            <text x="5" y="140" className="text-xs fill-gray-400">{yAxisLabels[3]}</text>
-
-                            {/* Grid lines */}
-                            <line x1="30" y1="20" x2="800" y2="20" stroke="#e5e7eb" strokeWidth="1"/>
-                            <line x1="30" y1="60" x2="800" y2="60" stroke="#e5e7eb" strokeWidth="1"/>
-                            <line x1="30" y1="100" x2="800" y2="100" stroke="#e5e7eb" strokeWidth="1"/>
-                            <line x1="30" y1="140" x2="800" y2="140" stroke="#e5e7eb" strokeWidth="1"/>
-
-                            {areaPath ? (
-                                <path
-                                    d={areaPath}
-                                    fill={trendColorRgba}
-                                    stroke="none"
-                                />
-                            ) : null}
-
-                            {trendPath ? (
-                                <path
-                                    d={trendPath}
-                                    stroke={trendColor}
-                                    strokeWidth="3"
-                                    fill="none"
-                                />
-                            ) : null}
-
-                            {/* X-axis labels */}
-                            {xAxisLabels.map((tick) => (
-                                <text key={`${tick.index}-${tick.label}`} x={tick.x} y="160" className="text-xs fill-gray-400">
-                                    {tick.label}
-                                </text>
-                            ))}
-                        </svg>
+                    <div className="h-64">
+                        <Plot
+                            data={[{
+                                x: trendChart.labels,
+                                y: trendChart.values,
+                                type: 'scatter',
+                                mode: 'lines+markers',
+                                marker: { color: trendColor, size: 3 },
+                                line: { color: trendColor, width: 2 },
+                                fill: 'tozeroy',
+                                fillcolor: trendColorRgba,
+                                hovertemplate: '%{x}<br>%{y:,.0f} kWh<extra></extra>',
+                            }]}
+                            layout={{
+                                autosize: true,
+                                margin: { l: 55, r: 15, t: 5, b: 45 },
+                                xaxis: {
+                                    tickfont: { size: 10, color: '#9ca3af' },
+                                    gridcolor: '#e5e7eb',
+                                    automargin: true,
+                                },
+                                yaxis: {
+                                    title: { text: yAxisUnitLabel, font: { size: 10, color: '#6b7280' } },
+                                    tickfont: { size: 10, color: '#9ca3af' },
+                                    gridcolor: '#e5e7eb',
+                                    rangemode: 'tozero',
+                                },
+                                paper_bgcolor: 'transparent',
+                                plot_bgcolor: 'transparent',
+                                showlegend: false,
+                                hovermode: 'x unified',
+                                hoverlabel: { bgcolor: 'rgba(0,0,0,0.8)', font: { size: 11, color: '#fff' } },
+                            }}
+                            config={{ displayModeBar: false }}
+                            useResizeHandler={true}
+                            style={{ width: '100%', height: '100%' }}
+                        />
                     </div>
 
                     {/* Chart controls */}
-                    <div className="flex justify-end gap-2 mt-4 items-center">
+                    <div className="text-right mt-3">
+                        <div className="inline-flex gap-1.5 items-center">
                         <button
                             type="button"
                             onClick={() => setTrendMode('today')}
-                            className={`px-3 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap ${trendMode === 'today' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                        >
-                            Today
-                        </button>
+                            className={`px-2.5 py-1 rounded text-xs font-semibold ${trendMode === 'today' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        >Today</button>
                         <button
                             type="button"
                             onClick={() => setTrendMode('week')}
-                            className={`px-3 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap ${trendMode === 'week' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                        >
-                            Week
-                        </button>
+                            className={`px-2.5 py-1 rounded text-xs font-semibold ${trendMode === 'week' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        >Week</button>
                         <button
                             type="button"
                             onClick={() => setTrendMode('month')}
-                            className={`px-3 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap ${trendMode === 'month' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                        >
-                            Month
-                        </button>
+                            className={`px-2.5 py-1 rounded text-xs font-semibold ${trendMode === 'month' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        >Month</button>
                         <button
                             type="button"
                             onClick={() => setTrendMode('custom')}
-                            className={`px-3 py-1 rounded text-xs font-semibold transition-colors whitespace-nowrap ${trendMode === 'custom' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                        >
-                            Custom
-                        </button>
-                    </div>
-                    {trendMode === 'custom' && (
-                        <div className="mt-1.5" style={{textAlign: 'right'}}>
+                            className={`px-2.5 py-1 rounded text-xs font-semibold ${trendMode === 'custom' ? trendBtnActive : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        >Custom</button>
+                        {trendMode === 'custom' && (
                             <DatePicker
                                 selectsRange={true}
                                 startDate={startDate}
@@ -992,13 +1192,19 @@ export default function Meter() {
                                 maxDate={new Date()}
                                 onChange={(update) => setCustomDateRange(update)}
                                 isClearable={true}
-                                placeholderText="Select date range"
-                                className="px-2 py-1 text-xs border border-gray-300 rounded w-52"
-                                wrapperClassName="inline-block"
+                                placeholderText="Select range"
+                                className="px-2 py-1 pr-6 text-xs border border-gray-300 rounded"
+                                style={{ width: 140 }}
                             />
+                        )}
                         </div>
-                    )}
+                    </div>
                 </div>
+
+                {/* Battery Charge Source Breakdown — only for battery meters */}
+                {isBatteryMeter && (
+                <BatteryChargeSource snid={meter?.id || meter?.raw?.snid} />
+                )}
 
                 <div className="flex gap-6 mb-6">
                     {/* Left Column: Meter Information */}
@@ -1115,6 +1321,11 @@ export default function Meter() {
                             </div>
 
                             <div className="space-y-4">
+                                {isCentralBattery && (
+                                    <div className="bg-gray-100 rounded-lg p-3 border border-gray-300 text-center">
+                                        <span className="text-sm text-gray-500">⚠️ No data available — Central Battery storage is not monitored in this system</span>
+                                    </div>
+                                )}
                                 <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                                     <div className="text-xs text-blue-600 mb-1">{isGridPanel ? 'Current Draw' : 'Live Reading'}</div>
                                     <div className="text-2xl font-bold text-blue-600">{formatWholeNumber(liveCurrentKw)} kW</div>
@@ -1132,12 +1343,12 @@ export default function Meter() {
                                         <div className="text-xs text-green-600">{isGridPanel ? 'Imported energy from utility grid' : 'Current meter energy value'}</div>
                                     </div>
                                     <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-                                        <div className="text-xs text-purple-600 mb-1">{isGridPanel ? 'Est. Grid Cost' : '24h Total'}</div>
+                                        <div className="text-xs text-purple-600 mb-1">{isGridPanel ? 'Est. Grid Cost' : trendMode === 'week' ? '7-Day Total' : trendMode === 'month' ? '30-Day Total' : trendMode === 'custom' ? customRangeLabel : '24h Total'}</div>
                                         <div className="text-xl font-bold text-purple-600">
                                             {isGridPanel ? `${formatWholeNumber(estimatedGridCost)} THB` : `${formatWholeNumber(trendChart.total || 0)} kWh`}
                                         </div>
                                         <div className="text-xs text-purple-600">
-                                            {isGridPanel ? `@ ${formatWholeNumber(latestEnergyRate)} THB per kWh` : 'Calculated from hourly records'}
+                                            {isGridPanel ? `@ ${formatWholeNumber(latestEnergyRate)} THB per kWh` : trendMode === 'today' ? 'Calculated from hourly records' : 'Calculated from daily records'}
                                         </div>
                                     </div>
                                 </div>

@@ -172,6 +172,9 @@ router.post('/register', UserController.register);
  */
 router.post('/login', UserController.login);
 
+// POST /api/users/check-user  { email } — checks both real & demo DBs
+router.post('/check-user', UserController.checkUser);
+
 // POST /api/users/admin-login  { password }
 router.post('/admin-login', UserController.adminLogin);
 

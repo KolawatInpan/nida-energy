@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useHistory } from 'react-router-dom';
+import { message, Modal, InputNumber, Select } from 'antd';
 import { getOffers, getBids, getBuildingByWalletId, triggerClearing, cancelOffer, cancelBid, sellToBid } from '../../core/data_connecter/market';
 import { purchaseEnergy } from '../../core/data_connecter/purchase';
 import { getBuildings, getMeters, getMetersByBuilding } from '../../core/data_connecter/register';
@@ -14,9 +15,12 @@ export default function Market() {
   const [activeTab, setActiveTab] = useState('offers'); // 'offers' | 'bids'
   const [loading, setLoading] = useState(false);
   const [destinationBuildings, setDestinationBuildings] = useState([]);
-  const [statusFilter, setStatusFilter] = useState('available');
+  const [statusFilter, setStatusFilter] = useState('active');
   const [marketTypeFilter, setMarketTypeFilter] = useState('all'); // 'all' | 'DAY_AHEAD' | 'INTRADAY'
-  const [bidStatusFilter, setBidStatusFilter] = useState('OPEN'); // 'all' | 'OPEN' | 'FILLED'
+  const [bidStatusFilter, setBidStatusFilter] = useState('OPEN');
+  const [sellToBidModal, setSellToBidModal] = useState(null); // { bid, kwh, sourceBuilding }
+  const [sellToBidLoading, setSellToBidLoading] = useState(false);
+  const [sellSourceBuildings, setSellSourceBuildings] = useState([]);
 
   const toNumber = (value) => {
     if (value === null || value === undefined) return 0;
@@ -166,35 +170,51 @@ export default function Market() {
           );
         };
 
+        const isConsumerMeter = (m) => {
+          const type = String(m?.type || '').toLowerCase();
+          const meterName = String(m?.meterName || '').toLowerCase();
+          return (
+            type.includes('consume') ||
+            type.includes('consumer') ||
+            type.includes('load') ||
+            type.includes('grid') ||
+            type.includes('smart meter') ||
+            meterName.includes('consume') ||
+            meterName.includes('consumer') ||
+            meterName.includes('smart')
+          );
+        };
+
         const results = await Promise.all((buildings || []).map(async (b) => {
           try {
             const metersRes = await getMetersByBuilding(b.id);
             const meters = Array.isArray(metersRes) ? metersRes : (metersRes?.data || metersRes?.meters || []);
 
             // Primary: building-scoped endpoint, fallback: global meters by building name/id
-            let batteryMeter = (meters || []).find(isBatteryMeter);
-            if (!batteryMeter) {
-              batteryMeter = (allMeters || []).find((m) => {
+            let targetMeter = (meters || []).find(isBatteryMeter) || (meters || []).find(isConsumerMeter);
+            if (!targetMeter) {
+              targetMeter = (allMeters || []).find((m) => {
                 const sameBuilding =
                   String(m?.buildingName || '').toLowerCase() === String(b?.name || '').toLowerCase() ||
                   String(m?.building?.name || '').toLowerCase() === String(b?.name || '').toLowerCase() ||
                   Number(m?.buildingId || m?.building?.id || -1) === Number(b?.id || -2);
-                return sameBuilding && isBatteryMeter(m);
+                return sameBuilding && (isBatteryMeter(m) || isConsumerMeter(m));
               });
             }
 
-            if (!batteryMeter) return null;
+            if (!targetMeter) return null;
 
+            const isBattery = isBatteryMeter(targetMeter);
             const current = toNumber(
-              batteryMeter?.value ??
-              batteryMeter?.kWH ??
-              batteryMeter?.kwh ??
-              batteryMeter?.currentkWH ??
+              targetMeter?.value ??
+              targetMeter?.kWH ??
+              targetMeter?.kwh ??
+              targetMeter?.currentkWH ??
               0
             );
             const capacityRaw = toNumber(
-              batteryMeter?.capacity ??
-              batteryMeter?.capacitykWH ??
+              targetMeter?.capacity ??
+              targetMeter?.capacitykWH ??
               0
             );
             const capacity = capacityRaw > 0 ? capacityRaw : Math.max(1, current || 1);
@@ -216,8 +236,9 @@ export default function Market() {
               current,
               capacity,
               tokenBalance,
-              snid: batteryMeter?.snid || '',
-              meterName: batteryMeter?.meterName || ''
+              snid: targetMeter?.snid || '',
+              meterName: targetMeter?.meterName || '',
+              meterType: isBattery ? 'battery' : 'consumer',
             };
           } catch (err) {
             return null;
@@ -354,7 +375,7 @@ export default function Market() {
                 
                 if (response && response.status === 201) {
                     console.log('Purchase successful:', response.data);
-                  alert(`✅ Successfully purchased ${purchaseAmount} kWh from ${selectedListing.building}\n➡️ Sending to: ${targetBuildingName} battery\n💰 Tokens sent to source building wallet (${selectedListing.building})\n💰 Total Cost: ${(purchaseAmount * selectedListing.rate).toFixed(2)} Tokens\n📄 Invoice ID: ${response.data.invoice.id}`);
+                  message.success(`${purchaseAmount} kWh purchased from ${selectedListing.building} → ${targetBuildingName}`);
 
                   refreshListings();
                   history.push('/receipts');
@@ -364,7 +385,7 @@ export default function Market() {
             } catch (err) {
                 console.error('Purchase error:', err);
                 const errorMsg = err.response?.data?.error || err.message || 'Unknown error';
-                alert(`❌ Purchase failed: ${errorMsg}`);
+                message.error(`Purchase failed: ${errorMsg}`);
                 // Refresh to show real status (e.g. offer got sold in between)
                 refreshListings();
             } finally {
@@ -383,12 +404,13 @@ export default function Market() {
 
         try {
             const steps = [
-                { step: 1, label: '🟢 Market Opens (06:00) — Accepting bids & offers', color: '#3b82f6' },
+                { step: 1, label: '🟢 Day-Ahead Market Opens (06:00) — Accepting bids & offers', color: '#3b82f6' },
                 { step: 2, label: '📝 Gathering order book...', color: '#6366f1' },
                 { step: 3, label: '🔴 Submissions Locked (18:00) — No more orders', color: '#ef4444' },
-                { step: 4, label: '⚡ Matching Executed (00:00) — Pairing bids with offers', color: '#f59e0b' },
-                { step: 5, label: '🤝 Force Distribution — Unsold energy to top consumers', color: '#8b5cf6' },
-                { step: 6, label: '✅ Market Cleared (05:00)', color: '#10b981' },
+                { step: 4, label: '🏠 Intra-Building Matching (same building first)', color: '#06b6d4' },
+                { step: 5, label: '⚡ Cross-Building Matching — Highest bid priority', color: '#f59e0b' },
+                { step: 6, label: '🤝 Force Distribution — Unsold energy to top consumers', color: '#8b5cf6' },
+                { step: 7, label: '✅ Day-Ahead Market Cleared', color: '#10b981' },
             ];
             for (const s of steps) {
                 setClearingStep(s.step);
@@ -396,7 +418,7 @@ export default function Market() {
             }
             const result = await triggerClearing();
             setClearingResult(result);
-            setClearingStep(7);
+            setClearingStep(8);
 
             // Refresh listings after clearing
             setTimeout(() => refreshListings(), 500);
@@ -409,11 +431,11 @@ export default function Market() {
     };
 
     const availableListings = listings.filter(l => l.status === 'AVAILABLE' && l.availableKwh > 0);
-    const filteredListings = (statusFilter === 'available' ? availableListings : listings)
+    const filteredListings = (statusFilter === 'active' ? availableListings : listings)
       .filter(l => marketTypeFilter === 'all' || l.marketType === marketTypeFilter);
     const filteredBids = bids
       .filter(b => marketTypeFilter === 'all' || b.marketType === marketTypeFilter)
-      .filter(b => bidStatusFilter === 'all' || b.status === bidStatusFilter);
+      .filter(b => bidStatusFilter === 'all' || b.status === bidStatusFilter || (bidStatusFilter === 'FILLED' && b.status === 'FULFILLED'));
     const totalAvailable = availableListings.reduce((sum, l) => sum + l.availableKwh, 0);
 
     const openBids = bids.filter(b => b.status === 'OPEN' && b.remaining > 0);
@@ -500,9 +522,10 @@ export default function Market() {
                   { s: 1, icon: '🟢', label: 'Open' },
                   { s: 2, icon: '📝', label: 'Gather' },
                   { s: 3, icon: '🔴', label: 'Lock' },
-                  { s: 4, icon: '⚡', label: 'Match' },
-                  { s: 5, icon: '🤝', label: 'Force' },
-                  { s: 6, icon: '✅', label: 'Clear' },
+                  { s: 4, icon: '🏠', label: 'Intra' },
+                  { s: 5, icon: '⚡', label: 'Match' },
+                  { s: 6, icon: '🤝', label: 'Force' },
+                  { s: 7, icon: '✅', label: 'Clear' },
                 ].map(({ s, icon, label }) => (
                   <div key={s} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
                     clearingStep > s ? 'bg-green-100 text-green-700' :
@@ -513,9 +536,9 @@ export default function Market() {
                   </div>
                 ))}
               </div>
-              {clearingStep <= 6 && (
+              {clearingStep <= 7 && (
                 <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-blue-500 h-2 rounded-full transition-all duration-700" style={{ width: `${(clearingStep / 6) * 100}%` }} />
+                  <div className="bg-blue-500 h-2 rounded-full transition-all duration-700" style={{ width: `${(clearingStep / 7) * 100}%` }} />
                 </div>
               )}
             </div>
@@ -527,8 +550,8 @@ export default function Market() {
               <div className="font-bold text-green-800 mb-1">✅ Market cleared successfully!</div>
               <div className="text-green-700 text-xs space-y-1">
                 <div>Run ID: <b>{clearingResult?.runId || 'auto-generated'}</b></div>
-                <div>🤝 Matches Found: <b>{clearingResult?.matchCount || 0}</b></div>
-                <div>🔴 Forced Distributions: <b>{clearingResult?.forcedDistributions || 0}</b></div>
+                <div>🤝 Matches Found: <b>{clearingResult?.matchCount || 0} kWh</b></div>
+                <div>🔴 Forced Distributions: <b>{clearingResult?.forcedDistributions || 0} kWh</b></div>
                 {clearingResult.matchCount === 0 && clearingResult.forcedDistributions === 0 && (
                   <div className="text-amber-700 mt-1">⚠️ No orders to clear. Post some Day-Ahead offers/bids first.</div>
                 )}
@@ -636,26 +659,29 @@ export default function Market() {
                           <th className="p-2 text-right">Monthly Use</th>
                           <th className="p-2 text-right">Score</th>
                           <th className="p-2 text-right">Allocated</th>
-                          <th className="p-2 text-center w-24">Result</th>
+                          <th className="p-2 text-center w-32">Result</th>
                         </tr>
                       </thead>
                       <tbody>
                         {clearingResult.priorityTable.map((p, i) => {
                           const isSelfCharged = p.status === 'self_charged';
                           const isReceived = p.status === 'received';
+                          const isSkipped = !isSelfCharged && !isReceived;
+                          const noBattery = p.note && p.note.includes('ไม่มี Battery');
                           return (
                             <tr key={i} className={`border-t border-gray-100 ${isSelfCharged ? 'bg-blue-50' : isReceived ? 'bg-green-50' : ''}`}>
                               <td className={`p-2 font-bold ${p.rank === 1 ? 'text-yellow-600' : 'text-gray-500'}`}>
                                 {p.rank === 1 ? '🥇' : p.rank === 2 ? '🥈' : p.rank === 3 ? '🥉' : p.rank}
                               </td>
-                              <td className="p-2 font-semibold text-gray-800">
+                              <td className={`p-2 font-semibold ${noBattery ? 'text-red-600' : 'text-gray-800'}`}>
                                 {p.building}
                                 {isSelfCharged && <span className="ml-1 text-[10px]" title="Self-charge: own battery">🏠</span>}
                               </td>
-                              <td className="p-2 text-right font-mono text-[11px]">
-                                {Math.round(p.batteryKwh || 0)}
-                                {p.batteryCapacity > 0 && <span className="text-gray-400">/{Math.round(p.batteryCapacity)}</span>}
-                                <span className="text-gray-400 ml-0.5">kWh</span>
+                              <td className={`p-2 text-right font-mono text-[11px] ${noBattery ? 'text-red-500' : ''}`}>
+                                {p.hasBattery !== false
+                                  ? <>{Math.round(p.batteryKwh || 0)}{p.batteryCapacity > 0 && <span className="text-gray-400">/{Math.round(p.batteryCapacity)}</span>}<span className="text-gray-400 ml-0.5">kWh</span></>
+                                  : <span className="text-red-400 italic">—</span>
+                                }
                               </td>
                               <td className="p-2 text-right font-mono">{Math.round(p.monthlyConsumptionKwh || 0)}</td>
                               <td className="p-2 text-right font-mono font-bold text-[11px]">{Math.round(p.score || 0)}</td>
@@ -667,8 +693,12 @@ export default function Market() {
                                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold text-[10px]" title={p.note || ''}>🏠 Self</span>
                                 ) : isReceived ? (
                                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold text-[10px]">✅ Got</span>
+                                ) : noBattery ? (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-semibold text-[10px]" title={p.note || ''}>❌ No Battery</span>
+                                ) : p.note && p.note.includes('token') ? (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold text-[10px]" title={p.note || ''}>💰 No Token</span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-400 text-[10px]">—</span>
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-400 text-[10px]" title={p.note || ''}>—</span>
                                 )}
                               </td>
                             </tr>
@@ -678,9 +708,11 @@ export default function Market() {
                     </table>
                   </div>
                   <div className="text-[10px] text-gray-500 mt-1.5 space-y-0.5">
-                    <div>📐 <b>Score = Battery kWh + Monthly Consumption kWh</b> — Higher score = higher priority.</div>
-                    <div>🏠 <b>Self-charge</b>: Seller's own battery gets energy first (free) up to threshold (SELF_CONSUME→100%, AUTO→batterySellThreshold%).</div>
-                    <div>🔄 <b>Cross-building</b>: Remaining energy distributed to other buildings by score ↓.</div>
+                    <div>📐 <b>Score = Battery emptiness + Monthly Consumption</b> — Higher score = higher priority.</div>
+                    <div>🏠 <b>Self-charge</b>: Seller's own battery gets energy first (free) up to threshold.</div>
+                    <div>🔄 <b>Cross-building</b>: Remaining energy distributed to other buildings by score ↓ (need tokens to buy).</div>
+                    <div><span className="text-red-500 font-bold">❌ ไม่มี Battery</span> — skipped (cannot receive energy without battery).</div>
+                    <div>💰 <b>Skipped</b>: Hover over "—" to see why (no tokens, no battery, seller's own building).</div>
                   </div>
                 </div>
               )}
@@ -781,8 +813,8 @@ export default function Market() {
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm focus:border-orange-400 focus:outline-none"
               >
-                <option value="available">AVAILABLE only</option>
-                <option value="all">All statuses</option>
+                <option value="active">🟢 Active</option>
+                <option value="all">All</option>
               </select>
             </div>
           </div>
@@ -837,9 +869,11 @@ export default function Market() {
                       <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
                         listing.status === 'AVAILABLE'
                           ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-200 text-gray-700'
+                          : listing.status === 'SOLD' || listing.status === 'FILLED' || listing.status === 'FULFILLED'
+                          ? 'bg-gray-200 text-gray-700'
+                          : 'bg-yellow-100 text-yellow-700'
                       }`}>
-                        {listing.status}
+                        {listing.status === 'AVAILABLE' || listing.status === 'OPEN' ? 'Active' : listing.status === 'SOLD' || listing.status === 'FILLED' || listing.status === 'FULFILLED' ? 'Completed' : listing.status}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-center">
@@ -856,10 +890,18 @@ export default function Market() {
                         {/* Cancel: available for AVAILABLE/OPEN offers */}
                         {listing.status === 'AVAILABLE' && (
                           <button
-                            onClick={async () => {
-                              if (!confirm(`Cancel offer ${listing.id.slice(0,8)}...?`)) return;
-                              try { await cancelOffer(listing.id); alert('Offer cancelled'); refreshListings(); }
-                              catch (e) { alert('Cancel failed: ' + (e.response?.data?.error || e.message)); }
+                            onClick={() => {
+                              Modal.confirm({
+                                title: 'Cancel Offer',
+                                content: `Cancel offer ${listing.id.slice(0,8)}...?`,
+                                okText: 'Yes, cancel',
+                                okType: 'danger',
+                                cancelText: 'No',
+                                onOk: async () => {
+                                  try { await cancelOffer(listing.id); message.success('Offer cancelled'); refreshListings(); }
+                                  catch (e) { message.error('Cancel failed: ' + (e.response?.data?.error || e.message)); }
+                                },
+                              });
                             }}
                             className="px-2 py-1 bg-red-100 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-200"
                             title={listing.marketType === 'DAY_AHEAD' ? 'Day-Ahead: Cancel only' : 'Cancel offer'}
@@ -909,8 +951,8 @@ export default function Market() {
                 className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm focus:border-purple-400 focus:outline-none"
               >
                 <option value="all">All</option>
-                <option value="OPEN">🟢 Open</option>
-                <option value="FILLED">✅ Filled</option>
+                <option value="OPEN">🟢 Active</option>
+                <option value="FILLED">✅ Completed</option>
               </select>
             </div>
           </div>
@@ -958,10 +1000,10 @@ export default function Market() {
                     <td className="py-2 px-3">
                       <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
                         bid.status === 'OPEN' ? 'bg-green-100 text-green-700' :
-                        bid.status === 'FILLED' ? 'bg-gray-200 text-gray-700' :
+                        bid.status === 'FILLED' || bid.status === 'FULFILLED' ? 'bg-gray-200 text-gray-700' :
                         'bg-yellow-100 text-yellow-700'
                       }`}>
-                        {bid.status}
+                        {bid.status === 'OPEN' ? 'Active' : bid.status === 'FILLED' || bid.status === 'FULFILLED' ? 'Completed' : bid.status}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-center">
@@ -970,13 +1012,32 @@ export default function Market() {
                         {bid.marketType !== 'DAY_AHEAD' && bid.status === 'OPEN' && bid.remaining > 0 && (
                           <button
                             onClick={async () => {
-                              const kwh = prompt(`Sell energy to bid ${bid.id.slice(0,8)}...\nBid wants ${bid.remaining} kWh at ${bid.rate.toFixed(2)} THB\nEnter kWh to sell:`, bid.remaining.toString());
-                              if (!kwh) return;
                               try {
-                                await sellToBid({ orderId: bid.id, kwh: parseFloat(kwh), price: bid.rate });
-                                alert('✅ Sold to bid!');
-                                refreshListings();
-                              } catch (e) { alert('Sell failed: ' + (e.response?.data?.error || e.message)); }
+                                const bRes = await getBuildings();
+                                const all = Array.isArray(bRes) ? bRes : (bRes?.data || []);
+                                // Only buildings with solar or battery meters
+                                const withMeters = await Promise.all(all.map(async (b) => {
+                                  try {
+                                    const mRes = await getMetersByBuilding(b.id);
+                                    const meters = Array.isArray(mRes) ? mRes : (mRes?.data || []);
+                                    const solarMeter = meters.find(m => (m.type || '').toLowerCase().includes('produce'));
+                                    const batteryMeter = meters.find(m => (m.type || '').toLowerCase().includes('battery'));
+                                    if (!solarMeter && !batteryMeter) return null;
+                                    const w = await getWalletByEmail(b.email).catch(() => null);
+                                    return {
+                                      ...b,
+                                      walletId: w?.data?.id || w?.id,
+                                      solarKwh: solarMeter ? Math.max(0, Number(solarMeter.value || solarMeter.kWH || 0)) : 0,
+                                      solarCap: solarMeter ? Number(solarMeter.capacity || 0) : 0,
+                                      batteryKwh: batteryMeter ? Math.max(0, Number(batteryMeter.value || batteryMeter.kWH || 0)) : 0,
+                                      batteryCap: batteryMeter ? Number(batteryMeter.capacity || 0) : 0,
+                                      hasSolar: !!solarMeter, hasBattery: !!batteryMeter,
+                                    };
+                                  } catch { return null; }
+                                }));
+                                setSellSourceBuildings(withMeters.filter(Boolean));
+                              } catch { setSellSourceBuildings([]); }
+                              setSellToBidModal({ bid, kwh: bid.remaining, sourceBuildingId: null, sourceType: 'solar' });
                             }}
                             className="px-3 py-1 bg-green-500 text-white text-xs font-bold rounded-lg hover:bg-green-600"
                           >
@@ -986,10 +1047,18 @@ export default function Market() {
                         {/* Cancel for open bids */}
                         {bid.status === 'OPEN' && (
                           <button
-                            onClick={async () => {
-                              if (!confirm(`Cancel bid ${bid.id.slice(0,8)}...?`)) return;
-                              try { await cancelBid(bid.id); alert('Bid cancelled'); refreshListings(); }
-                              catch (e) { alert('Cancel failed: ' + (e.response?.data?.error || e.message)); }
+                            onClick={() => {
+                              Modal.confirm({
+                                title: 'Cancel Bid',
+                                content: `Cancel bid ${bid.id.slice(0,8)}...?`,
+                                okText: 'Yes, cancel',
+                                okType: 'danger',
+                                cancelText: 'No',
+                                onOk: async () => {
+                                  try { await cancelBid(bid.id); message.success('Bid cancelled'); refreshListings(); }
+                                  catch (e) { message.error('Cancel failed: ' + (e.response?.data?.error || e.message)); }
+                                },
+                              });
                             }}
                             className="px-2 py-1 bg-red-100 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-200"
                             title={bid.marketType === 'DAY_AHEAD' ? 'Day-Ahead: Cancel only' : 'Cancel bid'}
@@ -1057,23 +1126,32 @@ export default function Market() {
                 className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               >
                 <option value="">Select destination building</option>
-                {destinationBuildings.map((building) => (
-                  <option key={building.id} value={String(building.id)}>
-                    {`${building.name} • Battery ${Math.round(building.current)}/${Math.round(building.capacity)} kWh • Token ${Math.round(building.tokenBalance || 0)}`}
-                  </option>
-                ))}
+                {destinationBuildings.map((building) => {
+                  const isBattery = building.meterType === 'battery';
+                  const meterLabel = isBattery
+                    ? `🔋 ${Math.round(building.current)}/${Math.round(building.capacity)} kWh`
+                    : `🏠 Consumer`;
+                  return (
+                    <option key={building.id} value={String(building.id)}>
+                      {`${building.name} • ${meterLabel} • Token ${Math.round(building.tokenBalance || 0)}`}
+                    </option>
+                  );
+                })}
               </select>
               {targetBuilding && (
                 <div className="text-xs text-gray-600 mt-2">
                   {(() => {
                     const b = selectedDestination;
                     if (!b) return 'Destination not found';
-                    return `Battery: ${Math.round(b.current)} / ${Math.round(b.capacity)} kWh • Token: ${Math.round(b.tokenBalance || 0)}`;
+                    const isBattery = b.meterType === 'battery';
+                    return isBattery
+                      ? `🔋 Battery: ${Math.round(b.current)} / ${Math.round(b.capacity)} kWh • Token: ${Math.round(b.tokenBalance || 0)}`
+                      : `🏠 Consumer • Token: ${Math.round(b.tokenBalance || 0)}`;
                   })()}
                 </div>
               )}
               {!destinationBuildings.length && (
-                <div className="text-xs text-amber-600 mt-2">No destination buildings with battery meter found.</div>
+                <div className="text-xs text-amber-600 mt-2">No destination buildings with battery or consumer meter found.</div>
               )}
             </div>
 
@@ -1115,6 +1193,117 @@ export default function Market() {
           </div>
         </div>
       )}
+
+      {/* Sell to Bid Modal */}
+      <Modal
+        title="Sell to Bid"
+        open={!!sellToBidModal}
+        onCancel={() => setSellToBidModal(null)}
+        onOk={async () => {
+          if (!sellToBidModal || !sellToBidModal.kwh || !sellToBidModal.sourceBuildingId) return;
+          const sourceBld = sellSourceBuildings.find(b => b.id === sellToBidModal.sourceBuildingId);
+          if (!sourceBld?.walletId) { message.error('No wallet found for selected building'); return; }
+          const isSolar = sellToBidModal.sourceType === 'solar';
+          const availKwh = sourceBld ? (isSolar ? sourceBld.solarKwh : sourceBld.batteryKwh) : 0;
+          if (availKwh <= 0) { message.error('Selected source has no energy available'); return; }
+          const maxSell = Math.min(sellToBidModal.bid.remaining, availKwh);
+          if (Number(sellToBidModal.kwh) > maxSell) { message.error(`Cannot sell more than ${maxSell.toFixed(1)} kWh`); return; }
+          setSellToBidLoading(true);
+          try {
+            await sellToBid({
+              orderId: sellToBidModal.bid.id,
+              sellerWalletId: sourceBld.walletId,
+              kwh: sellToBidModal.kwh,
+              price: sellToBidModal.bid.rate,
+              sourceType: sellToBidModal.sourceType || 'solar',
+            });
+            message.success('Sold to bid!');
+            setSellToBidModal(null);
+            refreshListings();
+          } catch (e) {
+            const errMsg = e.response?.data?.error || e.message;
+            message.error('Sell failed: ' + errMsg);
+            // Refresh to show real bid status (e.g. already fulfilled)
+            refreshListings();
+          }
+          finally { setSellToBidLoading(false); }
+        }}
+        confirmLoading={sellToBidLoading}
+        okText="Sell"
+        okButtonProps={{ disabled: (() => {
+          if (!sellToBidModal?.sourceBuildingId || !sellToBidModal?.kwh) return true;
+          const b = sellSourceBuildings.find(b => b.id === sellToBidModal?.sourceBuildingId);
+          if (!b) return true;
+          const isSolar = sellToBidModal?.sourceType === 'solar';
+          const avail = isSolar ? b.solarKwh : b.batteryKwh;
+          if (avail <= 0) return true;
+          const maxSell = Math.min(sellToBidModal.bid.remaining, avail);
+          if (Number(sellToBidModal.kwh) > maxSell) return true;
+          return false;
+        })() }}
+      >
+        {sellToBidModal && (() => {
+          const selBld = sellSourceBuildings.find(b => b.id === sellToBidModal.sourceBuildingId);
+          const isSolar = sellToBidModal.sourceType === 'solar';
+          const availKwh = selBld ? (isSolar ? selBld.solarKwh : selBld.batteryKwh) : 0;
+          const maxSell = Math.min(sellToBidModal.bid.remaining, availKwh);
+          return (
+          <div className="space-y-3 text-gray-700">
+            <p className="text-sm">
+              Bid wants <strong>{Number(sellToBidModal.bid.remaining).toFixed(2)} kWh</strong> at <strong className="text-green-600">{sellToBidModal.bid.rate.toFixed(2)} THB/kWh</strong>
+            </p>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Source Building</label>
+              <Select
+                className="w-full"
+                placeholder="Select source building..."
+                value={sellToBidModal.sourceBuildingId}
+                onChange={(val) => {
+                  const bld = sellSourceBuildings.find(b => b.id === val);
+                  const defaultType = bld?.hasSolar ? 'solar' : 'battery';
+                  setSellToBidModal({ ...sellToBidModal, sourceBuildingId: val, sourceType: defaultType });
+                }}
+                getPopupContainer={trigger => trigger.parentNode}
+                options={sellSourceBuildings.map(b => ({
+                  value: b.id,
+                  label: `${b.name}  (☀️${b.solarKwh.toFixed(1)}${b.hasBattery ? ` 🔋${b.batteryKwh.toFixed(1)}` : ''} kWh)`,
+                }))}
+              />
+            </div>
+            {selBld?.hasSolar && selBld?.hasBattery && (
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Source Type</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSellToBidModal({ ...sellToBidModal, sourceType: 'solar' })}
+                    className={`flex-1 px-3 py-1.5 rounded text-xs font-semibold transition-colors ${isSolar ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-amber-50'}`}
+                  >☀️ Solar ({selBld.solarKwh.toFixed(1)} kWh)</button>
+                  <button
+                    onClick={() => setSellToBidModal({ ...sellToBidModal, sourceType: 'battery' })}
+                    className={`flex-1 px-3 py-1.5 rounded text-xs font-semibold transition-colors ${!isSolar ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-green-50'}`}
+                  >🔋 Battery ({selBld.batteryKwh.toFixed(1)} kWh)</button>
+                </div>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Amount to sell (kWh) {selBld && <span className="text-gray-400">— available: {availKwh.toFixed(1)} kWh</span>}
+              </label>
+              <InputNumber
+                min={0.01} max={maxSell || 0.01} step={0.1}
+                value={Math.min(sellToBidModal.kwh, maxSell || 0)}
+                onChange={(v) => setSellToBidModal({ ...sellToBidModal, kwh: Math.min(v || 0, maxSell || 0) })}
+                className="w-full"
+                addonAfter="kWh"
+                disabled={availKwh <= 0}
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              Total: <strong className="text-gray-800">{(Math.min(sellToBidModal.kwh, maxSell || 0) * sellToBidModal.bid.rate).toFixed(2)} THB</strong>
+            </p>
+          </div>
+        );})()}
+      </Modal>
     </div>
   );
 }

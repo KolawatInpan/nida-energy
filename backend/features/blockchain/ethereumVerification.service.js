@@ -28,6 +28,31 @@ function getPrivateKey() {
   return String(process.env.ETH_PRIVATE_KEY || '').trim();
 }
 
+/**
+ * Derive a building-specific private key from Hardhat's default mnemonic.
+ * Uses building name hash % 20 to pick one of 20 Hardhat accounts.
+ * This gives each building a unique publisher address on-chain.
+ */
+function getPrivateKeyForBuilding(buildingName) {
+  const customKey = getPrivateKey();
+  // Derive building-specific key only on local Hardhat (chainId 31337)
+  // On real networks, use the configured private key
+  if (getChainId() === 31337 && buildingName) {
+    const mnemonic = 'test test test test test test test test test test test junk';
+    const index = Math.abs(String(buildingName).split('').reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0)) % 20;
+    const wallet = ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, `m/44'/60'/0'/0/${index}`);
+    return wallet.privateKey;
+  }
+  if (customKey) return customKey;
+  // Fallback: derive from building name
+  if (buildingName) {
+    const mnemonic = 'test test test test test test test test test test test junk';
+    const index = Math.abs(String(buildingName).split('').reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0)) % 20;
+    return ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, `m/44'/60'/0'/0/${index}`).privateKey;
+  }
+  return customKey;
+}
+
 function getVerificationContractAddress() {
   return String(process.env.ETH_VERIFICATION_CONTRACT_ADDRESS || '').trim();
 }
@@ -40,16 +65,18 @@ function isVerificationEnabled() {
   return Boolean(getRpcUrl() && getPrivateKey());
 }
 
-function buildVerificationPayload(transaction) {
+function buildVerificationPayload(transaction, extra = {}) {
   return {
     version: 1,
     source: 'nida-dashboard-ui',
     txid: String(transaction.txid),
     walletId: String(transaction.walletId),
     buildingName: transaction.buildingName ? String(transaction.buildingName) : null,
-    snid: transaction.snid ? String(transaction.snid) : null,
+    fromBuilding: extra.fromBuilding || transaction.fromBuilding || transaction.buildingName || null,
+    toBuilding: extra.toBuilding || transaction.toBuilding || null,
     type: String(transaction.type || ''),
-    tokenAmount: Number(transaction.tokenAmount || 0),
+    tokenAmount: Number(transaction.tokenAmount || transaction.amount || 0),
+    kwh: Number(extra.kwh ?? transaction.kwh ?? 0),
     status: String(transaction.status || ''),
     timestamp: (() => {
       if (transaction.timestamp instanceof Date) return transaction.timestamp.toISOString();
@@ -102,7 +129,7 @@ function getVerificationPreview(transaction) {
 async function publishVerification(transaction) {
   const preview = getVerificationPreview(transaction);
 
-  if (!isVerificationEnabled()) {
+  if (!isVerificationEnabled() && !(getRpcUrl())) {
     return {
       ...preview,
       published: false,
@@ -110,8 +137,9 @@ async function publishVerification(transaction) {
     };
   }
 
-  const provider = new ethers.JsonRpcProvider(getRpcUrl(), getChainId());
-  const signer = new ethers.Wallet(getPrivateKey(), provider);
+  const provider = new ethers.JsonRpcProvider(getRpcUrl() || 'http://blockchain:8545', getChainId() || 31337);
+  const privateKey = getPrivateKeyForBuilding(transaction.buildingName);
+  const signer = new ethers.Wallet(privateKey, provider);
 
   let response;
   if (preview.contractAddress) {
@@ -163,6 +191,7 @@ module.exports = {
   getVerificationContractAddress,
   getVerificationMethod,
   getPrivateKey,
+  getPrivateKeyForBuilding,
   parseStoredVerificationPayload,
   getRpcUrl,
   hashVerificationPayload,

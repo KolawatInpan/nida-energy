@@ -1,5 +1,6 @@
 const walletService = require('./wallet.service');
 const { sendTelegramMessage } = require('../../utils/telegram');
+const { createNotification } = require('../notification/notification.service');
 
 async function getWallets(req, res) {
     try {
@@ -100,10 +101,9 @@ async function topupByEmail(req, res) {
         const result = await walletService.topupWalletByEmail(email, amount, snid);
                 res.status(201).json(result);
 
-                // Notify via Telegram (fire-and-forget)
+                // Fire-and-forget: Telegram + DB notification
                 (async () => {
                     try {
-                        // Resolve building name: try transaction first, then lookup by email
                         let buildingName = result?.transaction?.buildingName;
                         if (!buildingName || buildingName === 'Unknown building') {
                             try {
@@ -113,7 +113,7 @@ async function topupByEmail(req, res) {
                             } catch {}
                         }
                         if (!buildingName || buildingName === 'Unknown building') {
-                            buildingName = email; // fallback to email
+                            buildingName = email;
                         }
                     const tokenAmount = Number((result?.transaction?.tokenAmount ?? amount) || 0);
                     const currentBalance = Number(result?.wallet?.tokenBalance ?? 0);
@@ -123,6 +123,20 @@ async function topupByEmail(req, res) {
                     await sendTelegramMessage({ text });
                     } catch (e) {
                         console.error('Telegram notify (topup) failed:', e?.message || e);
+                    }
+                })();
+
+                // Create in-app notification
+                (async () => {
+                    try {
+                        const tokenAmount = Number((result?.transaction?.tokenAmount ?? amount) || 0);
+                        await createNotification({
+                            type: 'topup',
+                            email: email,  // send to building owner
+                            message: `เติมเงิน +${tokenAmount.toLocaleString()} Token — ยอดคงเหลือ ${Number(result?.wallet?.tokenBalance ?? 0).toLocaleString()} Token`,
+                        });
+                    } catch (e) {
+                        console.error('Notification (topup) failed:', e?.message || e);
                     }
                 })();
     } catch (e) {

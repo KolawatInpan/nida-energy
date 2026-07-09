@@ -1,26 +1,61 @@
 const { Client } = require('pg');
 
-function getDatabaseUrl() {
+/**
+ * Returns DATABASE_URL for the given mode.
+ * 'real' → DATABASE_URL, 'demo' → DATABASE_URL_DEMO
+ */
+function getDatabaseUrlForMode(mode) {
+  const normalized = String(mode || '').toLowerCase() === 'demo' ? 'demo' : 'real';
+  if (normalized === 'demo') {
+    return process.env.DATABASE_URL_DEMO || process.env.DATABASE_URL;
+  }
   return process.env.DATABASE_URL;
 }
 
-async function withClient(callback) {
-  const connectionString = getDatabaseUrl();
-  if (!connectionString) {
-    throw new Error('DATABASE_URL is not configured');
+/**
+ * Runs the callback against BOTH databases (real + demo).
+ * Skips demo if DATABASE_URL_DEMO is not configured (graceful fallback).
+ */
+async function withBothClients(callback) {
+  const urls = [
+    { label: 'real', url: process.env.DATABASE_URL },
+  ];
+
+  // Add demo URL only if configured and different from real
+  if (process.env.DATABASE_URL_DEMO && process.env.DATABASE_URL_DEMO !== process.env.DATABASE_URL) {
+    urls.push({ label: 'demo', url: process.env.DATABASE_URL_DEMO });
   }
 
-  const client = new Client({ connectionString });
-  await client.connect();
-  try {
-    return await callback(client);
-  } finally {
-    await client.end();
+  const errors = [];
+
+  for (const { label, url } of urls) {
+    if (!url) {
+      console.warn(`[dbInit] Skipping ${label}: no DATABASE_URL configured`);
+      continue;
+    }
+
+    let client;
+    try {
+      client = new Client({ connectionString: url });
+      await client.connect();
+      await callback(client, label);
+    } catch (err) {
+      errors.push({ label, message: err.message });
+      console.warn(`[dbInit] Error on ${label} database:`, err.message);
+    } finally {
+      if (client) {
+        try { await client.end(); } catch (_) {}
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    console.warn(`[dbInit] ${errors.length} database(s) had errors:`, errors.map(e => e.label).join(', '));
   }
 }
 
 async function ensureCredIdColumn() {
-  await withClient(async (client) => {
+  await withBothClients(async (client, label) => {
     await client.query(`
       ALTER TABLE "User"
       ADD COLUMN IF NOT EXISTS "credId" UUID
@@ -29,8 +64,7 @@ async function ensureCredIdColumn() {
 }
 
 async function ensureUserRoleDefault() {
-  await withClient(async (client) => {
-    // Ensure 'USER' and 'ADMIN' enum values exist; adding without position is safe
+  await withBothClients(async (client, label) => {
     await client.query(`
       DO $$
       BEGIN
@@ -55,7 +89,7 @@ async function ensureUserRoleDefault() {
 }
 
 async function ensureTransactionVerificationColumns() {
-  await withClient(async (client) => {
+  await withBothClients(async (client, label) => {
     await client.query(`
       ALTER TABLE "Transaction"
       ADD COLUMN IF NOT EXISTS "verificationStatus" VARCHAR,
@@ -88,7 +122,7 @@ async function ensureTransactionVerificationColumns() {
 }
 
 async function ensureBlockTransactionColumns() {
-  await withClient(async (client) => {
+  await withBothClients(async (client, label) => {
     await client.query(`
       ALTER TABLE "BlockTransaction"
       ADD COLUMN IF NOT EXISTS "txHash" VARCHAR,
@@ -118,7 +152,7 @@ async function ensureBlockTransactionColumns() {
 }
 
 async function ensureWalletFloatColumns() {
-  await withClient(async (client) => {
+  await withBothClients(async (client, label) => {
     await client.query(`
       ALTER TABLE "Wallet"
       ALTER COLUMN "tokenBalance" TYPE DOUBLE PRECISION USING COALESCE("tokenBalance", 0)::double precision,
@@ -132,7 +166,7 @@ async function ensureWalletFloatColumns() {
 }
 
 async function ensureEnergyDecimalColumns() {
-  await withClient(async (client) => {
+  await withBothClients(async (client, label) => {
     const decimalColumns = {
       Building: ['energy'],
       MeterInfo: ['value', 'capacity', 'kWH'],
@@ -145,28 +179,21 @@ async function ensureEnergyDecimalColumns() {
 
     for (const [tableName, columns] of Object.entries(decimalColumns)) {
       for (const columnName of columns) {
-        // determine actual column name in DB (some schemas use lowercase 'kwh' etc.)
         let actualColumn = null;
-        // try exact name
         let q = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`, [tableName, columnName]);
         if (q.rowCount > 0) actualColumn = q.rows[0].column_name;
-        // try lowercase
         if (!actualColumn) {
           const lower = columnName.toLowerCase();
           q = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`, [tableName, lower]);
           if (q.rowCount > 0) actualColumn = q.rows[0].column_name;
         }
-        // try uppercase
         if (!actualColumn) {
           const upper = columnName.toUpperCase();
           q = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`, [tableName, upper]);
           if (q.rowCount > 0) actualColumn = q.rows[0].column_name;
         }
 
-        if (!actualColumn) {
-          // column doesn't exist in DB; skip
-          continue;
-        }
+        if (!actualColumn) continue;
 
         await client.query(`
           ALTER TABLE "${tableName}"
@@ -182,7 +209,7 @@ async function ensureEnergyDecimalColumns() {
 }
 
 async function ensureBuildingTradeColumns() {
-  await withClient(async (client) => {
+  await withBothClients(async (client, label) => {
     await client.query(`
       ALTER TABLE "Building"
       ADD COLUMN IF NOT EXISTS "batterySellThreshold" NUMERIC(5,2),
@@ -203,6 +230,5 @@ module.exports = {
   ensureTransactionVerificationColumns,
   ensureWalletFloatColumns,
   ensureEnergyDecimalColumns,
-   ensureBuildingTradeColumns,
+  ensureBuildingTradeColumns,
 };
-
