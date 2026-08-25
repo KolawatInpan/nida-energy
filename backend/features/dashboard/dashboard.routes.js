@@ -159,6 +159,19 @@ router.get("/monthly", DashboardController.getMonthlyEnergy);
 router.get("/search", DashboardController.searchBuildingEnergy);
 
 /**
+ * @openapi
+ * /api/dashboard/gaps:
+ *   get:
+ *     summary: Detect time gaps in meter logs
+ *     tags:
+ *       - Dashboard
+ *     responses:
+ *       '200':
+ *         description: Array of gap periods
+ */
+router.get("/gaps", DashboardController.getGaps);
+
+/**
  * Examples:
  * /dashboard/hourly response:
  *   application/json:

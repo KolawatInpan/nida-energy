@@ -27,8 +27,9 @@ const { runWithMode, REAL_MODE } = require('../../utils/prisma');
 // ─── Configuration ───────────────────────────────────────────────
 
 const FEED_URL = (process.env.ENERGY_FEED_URL || 'http://10.10.161.239:8089').replace(/\/+$/, '');
-const SYNC_INTERVAL_MS = (Number(process.env.ENERGY_FEED_INTERVAL_SEC) || 60) * 1000;
+const SYNC_INTERVAL_MS = (Number(process.env.ENERGY_FEED_INTERVAL_SEC) || 10) * 1000;
 const ENABLED = process.env.ENERGY_FEED_ENABLED !== 'false';
+const CURSOR_FILE = require('path').join(__dirname, 'syncCursor.txt');
 
 /** Map source type code → MeterInfo.type keyword for ILIKE search */
 const TYPE_KEYWORD = {
@@ -40,33 +41,33 @@ const TYPE_KEYWORD = {
 /** Load manual device→snid mapping + building map from JSON file */
 function loadDeviceMapping() {
   try {
-    const data = require('./deviceMapping.json');
-    // Return device entries only (skip _buildings meta key)
+    const raw = require('fs').readFileSync(require('path').join(__dirname, 'deviceMapping.json'), 'utf-8');
+    const data = JSON.parse(raw);
     const devices = {};
     for (const [k, v] of Object.entries(data)) {
       if (k !== '_buildings') devices[k] = v;
     }
     return devices;
-  } catch {
+  } catch (e) {
+    console.error('[ENERGY-FEED] loadDeviceMapping failed:', e.message, e.stack?.split('\n')[0]);
     return {};
   }
 }
 
 /** Load building map: file overrides env */
 function loadBuildingMap() {
-  // Start with env-based map
   let map = {};
   try {
     map = JSON.parse(process.env.ENERGY_FEED_BUILDING_MAP || '{}');
   } catch { /* ignore */ }
 
-  // Merge file-based map (overrides env)
   try {
-    const data = require('./deviceMapping.json');
-    if (data._buildings) {
-      Object.assign(map, data._buildings);
-    }
-  } catch { /* ignore */ }
+    const raw = require('fs').readFileSync(require('path').join(__dirname, 'deviceMapping.json'), 'utf-8');
+    const data = JSON.parse(raw);
+    if (data._buildings) Object.assign(map, data._buildings);
+  } catch (e) {
+    console.error('[ENERGY-FEED] loadBuildingMap failed:', e.message);
+  }
 
   return map;
 }
@@ -92,6 +93,27 @@ function toFeedTimeStr(date) {
   return date.toISOString().slice(0, 16);
 }
 
+/**
+ * Persist the newest DataDateTime seen to the cursor file.
+ * The file is the single source of truth for the sync cursor — it is written
+ * after EVERY batch (success or skip) so the sync always resumes exactly where
+ * it left off. Deleting the file restarts the sync from the beginning.
+ *
+ * NOTE: we advance +1ms past the newest log. JS Date only keeps millisecond
+ * precision, so `new Date(...).toISOString()` truncates sub-ms fractions. If we
+ * stored the raw truncated value, the next `time_from >= cursor` fetch would
+ * re-match the exact same log and loop forever, repeatedly re-integrating it
+ * (which makes battery SoC drift). +1ms guarantees we never re-fetch a seen log.
+ */
+function persistCursor(logs) {
+  try {
+    const last = logs[logs.length - 1];
+    const lastDateTime = last.DataDateTime || new Date((last.createAt || 0) * 1000).toISOString();
+    const cursorMs = new Date(lastDateTime).getTime() + 1;
+    require('fs').writeFileSync(CURSOR_FILE, new Date(cursorMs).toISOString(), 'utf-8');
+  } catch (_) {}
+}
+
 // ─── Device → snid Resolver ──────────────────────────────────────
 
 /**
@@ -100,90 +122,21 @@ function toFeedTimeStr(date) {
  */
 async function buildDeviceSnidMap(prisma, devices) {
   const map = {};
-  const notFound = [];
 
-  // ── Step 0: Load manual device→snid mapping (user-configured) ──
+  // ── Manual device→snid mapping ONLY (user-configured via Meter Pairing) ──
   const manualMap = loadDeviceMapping();
+  console.log(`[ENERGY-FEED] loadDeviceMapping returned ${Object.keys(manualMap).length} entries`);
   for (const device of devices) {
     if (manualMap[device]) {
       map[device] = manualMap[device];
     }
   }
 
-  const remainingDevices = devices.filter(d => !map[d]);
-  if (remainingDevices.length === 0) return map;
+  console.log(`[ENERGY-FEED] Matched ${Object.keys(map).length} of ${devices.length} devices`);
 
-  // ── Step 1: Smart lookup for unmapped devices ──
-  const buildingMap = loadBuildingMap();
-  const seenBuildings = new Set();
-  for (const device of remainingDevices) {
-    const parsed = parseDevice(device);
-    if (!parsed) continue;
-    seenBuildings.add(parsed.buildingCode);
-  }
-
-  for (const code of seenBuildings) {
-    const nameKeyword = buildingMap[code];
-    if (!nameKeyword) {
-      // Fallback: strip S- prefix and use as snid directly
-      for (const device of devices) {
-        if (!map[device] && device.startsWith(`S-${code}-`)) {
-          map[device] = device.replace(/^S-/, '');
-        }
-      }
-      continue;
-    }
-
-    const buildings = await prisma.building.findMany({
-      where: {
-        name: { contains: nameKeyword, mode: 'insensitive' },
-        OR: [
-          { status: null },
-          { status: { not: 'INACTIVE' } },
-        ],
-      },
-      select: { name: true },
-    });
-
-    if (buildings.length === 0) {
-      console.log(`[ENERGY-FEED] Building "${code}" → no match for "${nameKeyword}"`);
-      continue;
-    }
-
-    for (const building of buildings) {
-      const meters = await prisma.meterInfo.findMany({
-        where: { buildingName: building.name },
-        select: { snid: true, type: true },
-      });
-
-      for (const device of devices) {
-        if (map[device]) continue;
-        const parsed = parseDevice(device);
-        if (!parsed || parsed.buildingCode !== code) continue;
-
-        const typeKeyword = TYPE_KEYWORD[parsed.typeCode];
-        if (!typeKeyword) continue;
-
-        const matchedMeter = meters.find(m =>
-          (m.type || '').toLowerCase().includes(typeKeyword)
-        );
-
-        if (matchedMeter) {
-          map[device] = matchedMeter.snid;
-        }
-      }
-    }
-
-    for (const device of devices) {
-      if (map[device]) continue;
-      const parsed = parseDevice(device);
-      if (!parsed || parsed.buildingCode !== code) continue;
-      notFound.push(device);
-    }
-  }
-
-  if (notFound.length > 0) {
-    console.log(`[ENERGY-FEED] No meter match for: ${notFound.join(', ')}`);
+  const unmapped = devices.filter(d => !map[d]);
+  if (unmapped.length > 0) {
+    console.log(`[ENERGY-FEED] Unmapped devices (pair manually in API Status → Meter Pairing): ${unmapped.join(', ')}`);
   }
 
   return map;
@@ -195,22 +148,31 @@ async function syncFromEnergyFeed() {
   await runWithMode(REAL_MODE, async () => {
     const { prisma } = require('../../utils/prisma');
 
-    // 1. Find the latest RunningMeter timestamp
-    const latestRow = await prisma.runningMeter.findFirst({
-      orderBy: { timestamp: 'desc' },
-      select: { timestamp: true },
-    });
-
-    const timeFrom = latestRow
-      ? toFeedTimeStr(new Date(latestRow.timestamp.getTime() + 1000))
-      : '2026-01-01T00:00';
+    // 1. Resolve cursor — syncCursor.txt is the single source of truth.
+    //    Falls back to latest RunningMeter (legacy), then start of data.
+    let timeFrom;
+    try {
+      const cursor = require('fs').readFileSync(CURSOR_FILE, 'utf-8').trim();
+      if (cursor) timeFrom = cursor;
+    } catch (_) {}
+    if (!timeFrom) {
+      const latestRow = await prisma.runningMeter.findFirst({
+        orderBy: { timestamp: 'desc' },
+        select: { timestamp: true },
+      });
+      if (latestRow) {
+        timeFrom = toFeedTimeStr(new Date(latestRow.timestamp.getTime() + 1000));
+      } else {
+        timeFrom = '2026-01-01T00:00';
+      }
+    }
 
     console.log(`[ENERGY-FEED] Fetching logs since ${timeFrom}`);
 
     // 2. Fetch logs from energy feed source
     let logs;
     try {
-      const params = new URLSearchParams({ time_from: timeFrom, limit: '500' });
+      const params = new URLSearchParams({ time_from: timeFrom, limit: '1000' });
       const res = await fetch(`${FEED_URL}/meterlog?${params}`);
       if (!res.ok) {
         console.warn(`[ENERGY-FEED] Source returned HTTP ${res.status}`);
@@ -235,6 +197,9 @@ async function syncFromEnergyFeed() {
 
     if (Object.keys(snidMap).length === 0) {
       console.log('[ENERGY-FEED] No devices mapped to any meter — check ENERGY_FEED_BUILDING_MAP');
+      // Advance cursor past these unmapped logs so next sync skips them
+      persistCursor(logs);
+      console.log(`[ENERGY-FEED] Skipping ahead — all ${logs.length} logs from ${timeFrom} are unmapped`);
       return;
     }
 
@@ -262,13 +227,19 @@ async function syncFromEnergyFeed() {
       console.log(`[ENERGY-FEED] Skipped ${skipped} logs (no meter match or invalid data)`);
     }
 
-    if (mappedLogs.length === 0) return;
+    if (mappedLogs.length === 0) {
+      // No valid mapped logs this batch — still advance so we don't loop
+      persistCursor(logs);
+      return;
+    }
 
-    // 5. Feed into RunningMeter
+    // 5. Feed into RunningMeter (includes syncMeterSnapshotAndBuildingEnergy for latest per snid)
     const { insertRunningMetersBulk } = require('./energyAggregation');
     try {
       const uniqueSnids = [...new Set(mappedLogs.map(l => l.snid))];
       await insertRunningMetersBulk(mappedLogs);
+      // Advance cursor to newest DataDateTime of the batch (success = all seen)
+      persistCursor(logs);
       console.log(`[ENERGY-FEED] ✅ Fed ${mappedLogs.length} logs → ${uniqueSnids.length} meters`);
     } catch (err) {
       console.error(`[ENERGY-FEED] insertRunningMetersBulk failed: ${err.message}`);
@@ -310,4 +281,32 @@ function stopEnergyFeed() {
   }
 }
 
-module.exports = { startEnergyFeed, stopEnergyFeed, syncFromEnergyFeed };
+/**
+ * Get current sync status — latest cursor date and file-based fallback.
+ */
+async function getSyncStatus() {
+  const { prisma } = require('../../utils/prisma');
+  const latestRow = await prisma.runningMeter.findFirst({
+    orderBy: { timestamp: 'desc' },
+    select: { timestamp: true },
+  });
+  let fileCursor = null;
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    fileCursor = fs.readFileSync(path.join(__dirname, 'syncCursor.txt'), 'utf-8').trim();
+  } catch (_) {}
+
+  const totalRows = await prisma.runningMeter.count();
+
+  return {
+    latestRunningMeter: latestRow?.timestamp?.toISOString() || null,
+    fileCursor: fileCursor || null,
+    totalRunningMeterRows: totalRows,
+    syncIntervalSec: SYNC_INTERVAL_MS / 1000,
+    feedUrl: FEED_URL,
+    enabled: ENABLED,
+  };
+}
+
+module.exports = { startEnergyFeed, stopEnergyFeed, syncFromEnergyFeed, getSyncStatus };

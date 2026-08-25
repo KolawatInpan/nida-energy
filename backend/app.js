@@ -24,6 +24,7 @@ const paymentRoutes = require('./features/payments/payment.routes');
 const demoRoutes = require('./features/demo/demo.routes');
 
 const notificationRoutes = require('./features/notification/notification.route');
+const policyRoutes = require('./features/policy/policy.routes');
 
 function createApp() {
   const app = express();
@@ -55,6 +56,8 @@ function createApp() {
   app.use(dataModeMiddleware);
 
   app.use('/api/users', userRoutes);
+  app.use('/api/settings/policy', policyRoutes);
+  app.use('/api/settings', require('./features/settings/settings.routes'));
   app.use('/api/buildings', buildingRoutes);
   app.use('/api/meters', meterRoutes);
   app.use('/api/wallets', walletRoutes);

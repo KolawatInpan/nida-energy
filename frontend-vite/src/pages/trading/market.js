@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useHistory } from 'react-router-dom';
-import { message, Modal, InputNumber, Select } from 'antd';
-import { getOffers, getBids, getBuildingByWalletId, triggerClearing, cancelOffer, cancelBid, sellToBid } from '../../core/data_connecter/market';
+import { message, Modal, InputNumber, Select, Popover } from 'antd';
+import { QuestionCircleOutlined } from '@ant-design/icons';
+import { getOffers, getBids, getBuildingByWalletId, triggerClearing, triggerMatching, cancelOffer, cancelBid, sellToBid } from '../../core/data_connecter/market';
 import { purchaseEnergy } from '../../core/data_connecter/purchase';
 import { getBuildings, getMeters, getMetersByBuilding } from '../../core/data_connecter/register';
 import { getWalletByEmail } from '../../core/data_connecter/wallet';
 import TORSell from '../../components/TOR/TORSell';
 import { MarketTimeline } from '../../components/shared';
+import { fmtDate, fmtDateTime } from '../../utils/dateFormat';
 
 export default function Market() {
   const history = useHistory();
@@ -42,19 +44,13 @@ export default function Market() {
             return null;
           }
           
-          // Format date properly
-          let date = '';
-          if (item.createdAt || item.date || item.postedAt) {
-            const dateObj = new Date(item.createdAt || item.date || item.postedAt);
-            date = dateObj.toLocaleString('en-US', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            });
-          }
+          // Format date: Day-Ahead shows targetDate (tomorrow), others show createdAt
+          const isDA = String(item.marketType).toUpperCase() === 'DAY_AHEAD';
+          let date = isDA && item.targetDate
+            ? fmtDate(new Date(item.targetDate))
+            : (item.createdAt || item.date || item.postedAt)
+              ? fmtDateTime(new Date(item.createdAt || item.date || item.postedAt))
+              : '';
 
           let building = 'Unknown';
           try {
@@ -132,7 +128,9 @@ export default function Market() {
             status: String(item.status || 'OPEN').toUpperCase(),
             marketType: item.marketType || 'INTRADAY',
             targetDate: item.targetDate || '',
-            date: item.createdAt ? new Date(item.createdAt).toLocaleString('en-US', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:true}) : '',
+            date: item.targetDate && String(item.marketType).toUpperCase() === 'DAY_AHEAD'
+              ? fmtDate(new Date(item.targetDate))
+              : (item.createdAt ? fmtDateTime(new Date(item.createdAt)) : ''),
           };
         });
         if (mounted) setBids(mapped);
@@ -263,6 +261,10 @@ export default function Market() {
     const [clearingStep, setClearingStep] = useState(0);
     const [clearingResult, setClearingResult] = useState(null);
     const [clearingRunning, setClearingRunning] = useState(false);
+    const [matchingStep, setMatchingStep] = useState(0);
+    const [matchingResult, setMatchingResult] = useState(null);
+    const [matchingRunning, setMatchingRunning] = useState(false);
+    const [matchDetailModal, setMatchDetailModal] = useState(null); // { building, matches: [] }
 
   // derived: destination building selected in buy modal
   const selectedDestination = targetBuilding
@@ -293,7 +295,9 @@ export default function Market() {
                         else if (sourceStatus === 'AVAILABLE' || sourceStatus === 'OPEN' || sourceStatus === 'PARTIAL') status = 'AVAILABLE';
                         else status = sourceStatus;
                         return {
-                            id, date: item.createdAt ? new Date(item.createdAt).toLocaleString('en-US', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:true}) : '',
+                            id, date: item.targetDate && String(item.marketType).toUpperCase() === 'DAY_AHEAD'
+                              ? fmtDate(new Date(item.targetDate))
+                              : (item.createdAt ? fmtDateTime(new Date(item.createdAt)) : ''),
                             building, kwh: totalKwh, availableKwh: Math.max(0, totalKwh - kwhSold),
                             totalKwh, kwhSold, rate: toNumber(item.ratePerkWH ?? item.ratePerKwh ?? item.rate ?? item.price ?? 0),
                             total: toNumber(item.totalPrice ?? item.total ?? (totalKwh * toNumber(item.ratePerkWH ?? item.rate ?? 0))),
@@ -306,7 +310,7 @@ export default function Market() {
                     return arr.map(item => {
                         const kwh = toNumber(item.kWH ?? item.kwh ?? item.quantity ?? 0);
                         const filled = toNumber(item.kWHBought ?? item.kwhBought ?? item.filled ?? 0);
-                        return { id: item.id || item.bidId || '', building: item.buildingName || item.buyerName || 'Unknown', kwh, filled, remaining: Math.max(0, kwh - filled), rate: toNumber(item.ratePerkWH ?? item.ratePerKwh ?? item.rate ?? item.price ?? 0), status: String(item.status || 'OPEN').toUpperCase(), marketType: item.marketType || 'INTRADAY', targetDate: item.targetDate || '', date: item.createdAt ? new Date(item.createdAt).toLocaleString('en-US', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:true}) : '' };
+                        return { id: item.id || item.bidId || '', building: item.buildingName || item.buyerName || 'Unknown', kwh, filled, remaining: Math.max(0, kwh - filled), rate: toNumber(item.ratePerkWH ?? item.ratePerKwh ?? item.rate ?? item.price ?? 0), status: String(item.status || 'OPEN').toUpperCase(), marketType: item.marketType || 'INTRADAY', targetDate: item.targetDate || '', date: item.targetDate && String(item.marketType).toUpperCase() === 'DAY_AHEAD' ? fmtDate(new Date(item.targetDate)) : (item.createdAt ? fmtDateTime(new Date(item.createdAt)) : '') };
                     });
                 }),
             ]);
@@ -421,7 +425,7 @@ export default function Market() {
             setClearingStep(8);
 
             // Refresh listings after clearing
-            setTimeout(() => refreshListings(), 500);
+            setTimeout(() => refreshListings(), 1500);
         } catch (err) {
             console.error('Clearing failed:', err);
             setClearingResult({ error: err?.response?.data?.error || err.message });
@@ -430,12 +434,43 @@ export default function Market() {
         }
     };
 
+    const handleForceMatching = async () => {
+        setMatchingRunning(true);
+        setMatchingStep(1);
+        setMatchingResult(null);
+
+        try {
+            const steps = [
+                { step: 1, label: '🟢 Day-Ahead Market Opens (06:00) — Accepting bids & offers', color: '#3b82f6' },
+                { step: 2, label: '📝 Gathering order book...', color: '#6366f1' },
+                { step: 3, label: '🔴 Submissions Locked (18:00) — No more orders', color: '#ef4444' },
+                { step: 4, label: '🏠 Intra-Building Matching (same building first)', color: '#06b6d4' },
+                { step: 5, label: '⚡ Cross-Building Matching — Highest bid wins', color: '#f59e0b' },
+            ];
+            for (const s of steps) {
+                setMatchingStep(s.step);
+                await new Promise(r => setTimeout(r, 1000));
+            }
+            setMatchingStep(6);
+            const result = await triggerMatching();
+            setMatchingResult(result);
+            setMatchingStep(7);
+
+            setTimeout(() => refreshListings(), 1500);
+        } catch (err) {
+            console.error('Matching failed:', err);
+            setMatchingResult({ error: err?.response?.data?.error || err.message });
+        } finally {
+            setMatchingRunning(false);
+        }
+    };
+
     const availableListings = listings.filter(l => l.status === 'AVAILABLE' && l.availableKwh > 0);
-    const filteredListings = (statusFilter === 'active' ? availableListings : listings)
+    const filteredListings = (statusFilter === 'active' ? availableListings : statusFilter === 'matched' ? listings.filter(l => l.status === 'SOLD' || l.status === 'FILLED' || l.status === 'FULFILLED') : listings)
       .filter(l => marketTypeFilter === 'all' || l.marketType === marketTypeFilter);
     const filteredBids = bids
       .filter(b => marketTypeFilter === 'all' || b.marketType === marketTypeFilter)
-      .filter(b => bidStatusFilter === 'all' || b.status === bidStatusFilter || (bidStatusFilter === 'FILLED' && b.status === 'FULFILLED'));
+      .filter(b => bidStatusFilter === 'all' || b.status === bidStatusFilter || (bidStatusFilter === 'FILLED' && b.status === 'FULFILLED') || (bidStatusFilter === 'MATCHED' && (b.status === 'FILLED' || b.status === 'FULFILLED')));
     const totalAvailable = availableListings.reduce((sum, l) => sum + l.availableKwh, 0);
 
     const openBids = bids.filter(b => b.status === 'OPEN' && b.remaining > 0);
@@ -498,23 +533,185 @@ export default function Market() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <span className="font-bold text-gray-700 text-sm">⚡ Day-Ahead Market Simulation</span>
-              <span className="ml-2 text-xs text-gray-500">Trigger a full market cycle to see matching results</span>
+              <span className="ml-2 text-xs text-gray-500">Trigger market cycle phases to see results</span>
             </div>
-            <button
-              onClick={handleForceClearing}
-              disabled={clearingRunning}
-              className={`px-5 py-2.5 rounded-lg text-sm font-bold text-white transition-all ${
-                clearingRunning ? 'bg-gray-400 cursor-wait' : 'bg-orange-500 hover:bg-orange-600 shadow-md'
-              }`}
-            >
-              {clearingRunning ? `⏳ Running... Step ${clearingStep}/7` : '⚡ Force Day-Ahead Clearing'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleForceMatching}
+                disabled={matchingRunning || clearingRunning}
+                className={`px-4 py-2 rounded-lg text-xs font-bold text-white transition-all ${
+                  matchingRunning ? 'bg-gray-400 cursor-wait' : 'bg-indigo-500 hover:bg-indigo-600 shadow-md'
+                }`}
+              >
+                {matchingRunning ? `⏳ Step ${matchingStep}/5` : '⚡ 00:00 — Matching'}
+              </button>
+              <Popover trigger="click" title="⚡ 00:00 — Matching" content={
+                <div className="text-xs space-y-2 max-w-xs">
+                  <div className="font-semibold text-indigo-700">Warp to midnight matching phase</div>
+                  <div className="text-gray-600 space-y-1">
+                    <div>🟢 Opens order book, gathers all DAY_AHEAD bids & offers</div>
+                    <div>🏠 <b>Intra-building first:</b> same building self-consume</div>
+                    <div>⚡ <b>Cross-building:</b> highest bid price wins</div>
+                    <div className="text-[10px] text-gray-400 mt-1 pt-1 border-t border-gray-200">
+                      🚫 No force distribution — pure matching only<br />
+                      📋 Needs at least 1 BID + 1 OFFER to match
+                    </div>
+                  </div>
+                </div>
+              }>
+                <span className="ml-1 cursor-help text-indigo-300 hover:text-indigo-500">
+                  <QuestionCircleOutlined style={{ fontSize: 14 }} />
+                </span>
+              </Popover>
+              <button
+                onClick={handleForceClearing}
+                disabled={clearingRunning || matchingRunning}
+                className={`px-5 py-2 rounded-lg text-xs font-bold text-white transition-all ${
+                  clearingRunning ? 'bg-gray-400 cursor-wait' : 'bg-orange-500 hover:bg-orange-600 shadow-md'
+                }`}
+              >
+                {clearingRunning ? `⏳ Step ${clearingStep}/7` : '✅ 05:00 — Clearing'}
+              </button>
+              <Popover trigger="click" title="✅ 05:00 — Clearing" content={
+                <div className="text-xs space-y-2 max-w-xs">
+                  <div className="font-semibold text-orange-700">Warp to final clearing phase</div>
+                  <div className="text-gray-600 space-y-1">
+                    <div>🟢 Full cycle: Open → Gather → Lock → Match → Force → Clear</div>
+                    <div>🤝 <b>Force Distribution:</b> unsold energy → top consumers</div>
+                    <div>✅ Final settlement & order status update</div>
+                    <div className="text-[10px] text-gray-400 mt-1 pt-1 border-t border-gray-200">
+                      ⚠️ One-click full clearing — cannot undo<br />
+                      📊 Shows matches + force distributions + bid ranking
+                    </div>
+                  </div>
+                </div>
+              }>
+                <span className="ml-1 cursor-help text-orange-300 hover:text-orange-500">
+                  <QuestionCircleOutlined style={{ fontSize: 14 }} />
+                </span>
+              </Popover>
+            </div>
           </div>
 
           {/* Timeline Visualization */}
           <MarketTimeline />
 
-          {/* Progress Steps */}
+          {/* Matching Progress Steps */}
+          {matchingStep > 0 && matchingStep < 7 && (
+            <div className="mt-4">
+              <div className="text-xs font-semibold text-indigo-700 mb-2">⚡ 00:00 — Matching in progress...</div>
+              <div className="flex gap-2 flex-wrap">
+                {[
+                  { s: 1, icon: '🟢', label: 'Open' },
+                  { s: 2, icon: '📝', label: 'Gather' },
+                  { s: 3, icon: '🔴', label: 'Lock' },
+                  { s: 4, icon: '🏠', label: 'Intra' },
+                  { s: 5, icon: '⚡', label: 'Match' },
+                ].map(({ s, icon, label }) => (
+                  <div key={s} className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                    matchingStep > s ? 'bg-green-100 text-green-700' :
+                    matchingStep === s ? 'bg-indigo-100 text-indigo-700 animate-pulse' :
+                    'bg-gray-100 text-gray-400'
+                  }`}>
+                    {icon} {label}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                <div className="bg-indigo-500 h-2 rounded-full transition-all duration-700" style={{ width: `${(matchingStep / 5) * 100}%` }} />
+              </div>
+            </div>
+          )}
+
+          {/* Matching Result */}
+          {matchingResult && !matchingResult.error && matchingStep >= 7 && (
+            <div className="mt-3 p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-sm">
+              <div className="font-bold text-indigo-800 mb-1">⚡ 00:00 Matching complete!</div>
+              <div className="text-indigo-700 text-xs space-y-1">
+                <div>🤝 Matches Found: <b>{matchingResult?.matchCount || 0} kWh</b></div>
+                <div>🎯 Matching Rule: Highest bid price wins</div>
+                {matchingResult.matchCount === 0 && (
+                  <div className="mt-2 p-2 bg-yellow-50 rounded border border-yellow-200 text-yellow-800">
+                    ⚠️ No matches found — need at least one BID and one OFFER in the order book
+                  </div>
+                )}
+              </div>
+
+              {/* Bid Ranking */}
+              {matchingResult?.bidRanking && matchingResult.bidRanking.length > 0 && (
+                <div className="mt-3">
+                  <div className="font-bold text-indigo-800 mb-2 text-xs uppercase tracking-wide">🎯 Bid Priority Ranking</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse bg-white rounded-lg overflow-hidden shadow-sm">
+                      <thead>
+                        <tr className="bg-indigo-100 text-indigo-900">
+                          <th className="p-2 text-left w-8">#</th>
+                          <th className="p-2 text-left">Building</th>
+                          <th className="p-2 text-right">Bid Price</th>
+                          <th className="p-2 text-left">Result</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {matchingResult.bidRanking.map((b, i) => (
+                          <tr key={i} className={`border-t border-gray-100 ${i === 0 ? 'bg-green-50' : ''}`}>
+                            <td className={`p-2 font-bold ${i === 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                              {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1)}
+                            </td>
+                            <td className="p-2 font-semibold text-gray-800">{b.building}</td>
+                            <td className="p-2 text-right font-mono font-bold">{b.price != null ? b.price.toFixed(2) : '—'}</td>
+                            <td className="p-2 text-[11px]">
+                              {i === 0 ? (
+                                <span className="inline-flex px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-bold">🏆 Matched — Highest Bid</span>
+                              ) : (
+                                <span className="text-gray-500">Lower bid</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Match Details */}
+              {matchingResult?.matches && matchingResult.matches.length > 0 && (
+                <div className="mt-3">
+                  <div className="font-bold text-indigo-800 mb-2 text-xs uppercase tracking-wide">🤝 Matching Pairs</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse bg-white rounded-lg overflow-hidden shadow-sm">
+                      <thead>
+                        <tr className="bg-indigo-50 text-indigo-800">
+                          <th className="p-2 text-left">Seller</th>
+                          <th className="p-2 text-left">Buyer</th>
+                          <th className="p-2 text-right">kWh</th>
+                          <th className="p-2 text-right">Cleared Price</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {matchingResult.matches.map((m, i) => (
+                          <tr key={i} className="border-t border-gray-100">
+                            <td className="p-2 font-semibold text-gray-800">{m.seller}</td>
+                            <td className="p-2">{m.buyer}</td>
+                            <td className="p-2 text-right font-mono">{m.kwh}</td>
+                            <td className="p-2 text-right font-mono">{m.clearedPrice.toFixed(2)} ฿</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {matchingResult?.error && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              ❌ Matching failed: {matchingResult.error}
+            </div>
+          )}
+
+          {/* Clearing Progress Steps */}
           {clearingStep > 0 && (
             <div className="mt-4">
               <div className="flex gap-2 flex-wrap">
@@ -814,6 +1011,7 @@ export default function Market() {
                 className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm focus:border-orange-400 focus:outline-none"
               >
                 <option value="active">🟢 Active</option>
+                <option value="matched">🤝 Matched</option>
                 <option value="all">All</option>
               </select>
             </div>
@@ -866,15 +1064,32 @@ export default function Market() {
                       <span className="text-sm font-bold text-green-600">{listing.total.toFixed(0)}</span>
                     </td>
                     <td className="py-2 px-3">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                        listing.status === 'AVAILABLE'
-                          ? 'bg-green-100 text-green-700'
-                          : listing.status === 'SOLD' || listing.status === 'FILLED' || listing.status === 'FULFILLED'
-                          ? 'bg-gray-200 text-gray-700'
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {listing.status === 'AVAILABLE' || listing.status === 'OPEN' ? 'Active' : listing.status === 'SOLD' || listing.status === 'FILLED' || listing.status === 'FULFILLED' ? 'Completed' : listing.status}
-                      </span>
+                      {listing.status === 'SOLD' || listing.status === 'FILLED' || listing.status === 'FULFILLED' ? (
+                        <button
+                          onClick={() => {
+                            const allMatches = [
+                              ...(matchingResult?.matches || []),
+                              ...(clearingResult?.matches || []),
+                            ];
+                            const myMatches = allMatches.filter(m =>
+                              m.buyer === listing.building || m.seller === listing.building
+                            );
+                            setMatchDetailModal({ building: listing.building, matches: myMatches.length ? myMatches : allMatches });
+                          }}
+                          className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700 hover:bg-green-200 cursor-pointer underline"
+                          title="Click to see match details"
+                        >
+                          🤝 Matched
+                        </button>
+                      ) : (
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                          listing.status === 'AVAILABLE'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {listing.status === 'AVAILABLE' || listing.status === 'OPEN' ? 'Active' : listing.status}
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 px-3 text-center">
                       <div className="flex items-center gap-1 justify-center">
@@ -953,6 +1168,7 @@ export default function Market() {
                 <option value="all">All</option>
                 <option value="OPEN">🟢 Active</option>
                 <option value="FILLED">✅ Completed</option>
+                <option value="MATCHED">🤝 Matched</option>
               </select>
             </div>
           </div>
@@ -998,13 +1214,31 @@ export default function Market() {
                       <span className="font-bold text-blue-600 text-sm">{bid.rate.toFixed(2)}</span>
                     </td>
                     <td className="py-2 px-3">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                        bid.status === 'OPEN' ? 'bg-green-100 text-green-700' :
-                        bid.status === 'FILLED' || bid.status === 'FULFILLED' ? 'bg-gray-200 text-gray-700' :
-                        'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {bid.status === 'OPEN' ? 'Active' : bid.status === 'FILLED' || bid.status === 'FULFILLED' ? 'Completed' : bid.status}
-                      </span>
+                      {bid.status === 'FILLED' || bid.status === 'FULFILLED' ? (
+                        <button
+                          onClick={() => {
+                            const allMatches = [
+                              ...(matchingResult?.matches || []),
+                              ...(clearingResult?.matches || []),
+                            ];
+                            const myMatches = allMatches.filter(m =>
+                              m.buyer === bid.building || m.seller === bid.building
+                            );
+                            setMatchDetailModal({ building: bid.building, matches: myMatches.length ? myMatches : allMatches });
+                          }}
+                          className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700 hover:bg-green-200 cursor-pointer underline"
+                          title="Click to see match details"
+                        >
+                          🤝 Matched
+                        </button>
+                      ) : (
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                          bid.status === 'OPEN' ? 'bg-green-100 text-green-700' :
+                          'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {bid.status === 'OPEN' ? 'Active' : bid.status}
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 px-3 text-center">
                       <div className="flex items-center gap-1 justify-center">
@@ -1193,6 +1427,49 @@ export default function Market() {
           </div>
         </div>
       )}
+
+      {/* Match Detail Modal */}
+      <Modal
+        title={<span className="text-gray-900 text-lg font-bold">🤝 Match Details — {matchDetailModal?.building || ''}</span>}
+        open={!!matchDetailModal}
+        onCancel={() => setMatchDetailModal(null)}
+        footer={null}
+        width={500}
+      >
+        {matchDetailModal && (
+          <div className="py-2">
+            {matchDetailModal.matches.length > 0 ? (
+              <div className="space-y-2">
+                {matchDetailModal.matches.map((m, i) => (
+                  <div key={i} className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-semibold text-gray-800">
+                        {m.seller === matchDetailModal.building ? '📤 Sold to' : '📥 Bought from'}:
+                      </span>
+                      <span className="font-bold text-gray-900">
+                        {m.seller === matchDetailModal.building ? m.buyer : m.seller}
+                      </span>
+                    </div>
+                    <div className="flex gap-4 text-xs text-gray-700">
+                      <span>⚡ {m.kwh} kWh</span>
+                      <span>💰 {m.clearedPrice.toFixed(2)} ฿/kWh</span>
+                      {m.totalCost && <span>💵 {m.totalCost.toFixed(2)} ฿ total</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-center py-4 space-y-2">
+                <div className="text-gray-800 font-semibold">No match details available</div>
+                <div className="text-gray-600 text-xs">
+                  Run <b className="text-indigo-700">⚡ 00:00 — Matching</b> or <b className="text-orange-700">✅ 05:00 — Clearing</b> to generate match results,<br />
+                  then click <b className="text-green-700">🤝 Matched</b> again to view pair details.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
       {/* Sell to Bid Modal */}
       <Modal

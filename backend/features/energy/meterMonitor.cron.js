@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { sendTelegramMessage } = require('../../utils/telegram');
+const { dispatchNotification } = require('../notification/notification.service');
 
 /**
  * Check for inactive meters (no RunningMeter data in last N hours)
@@ -73,10 +73,21 @@ function startMeterMonitor() {
         ].join('\n');
 
         try {
-          await sendTelegramMessage({ text, parseMode: 'HTML' });
+          // Resolve building owner email so the notification respects per-user prefs
+          let ownerEmail = null;
+          try {
+            const building = await prisma.building.findUnique({ where: { name: m.buildingName }, select: { email: true } });
+            ownerEmail = building?.email || null;
+          } catch (_) {}
+          await dispatchNotification({
+            type: 'meter_inactive',
+            message: text,
+            email: ownerEmail,
+            userId: null,
+          });
           console.log(`[MeterMonitor] Notified: ${m.snid} (${m.buildingName})`);
         } catch (e) {
-          console.error(`[MeterMonitor] Telegram failed for ${m.snid}:`, e?.message || e);
+          console.error(`[MeterMonitor] Notification failed for ${m.snid}:`, e?.message || e);
         }
       }
 

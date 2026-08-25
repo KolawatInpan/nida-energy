@@ -46,18 +46,79 @@ async function findUserByEmailRaw(email) {
 
 async function createUser({ name, email, hashedPassword, role = 'USER' }) {
     const credId = randomUUID();
+    const maxSeq = await prisma.user.aggregate({ _max: { userId: true } });
+    const seqId = (maxSeq._max.userId || 0) + 1;
     return await prisma.user.create({
-        data: { name, email, passwordHash: hashedPassword, credId, role },
+        data: { name, email, passwordHash: hashedPassword, credId, userId: seqId, role },
         include: { credentials: true, wallets: true },
     });
 }
 
 async function updateUser(credId, data) {
-    return await prisma.user.update({
+    const { getCurrentPrisma } = require('../../utils/prisma');
+    const db = getCurrentPrisma();
+
+    const userData = { ...data };
+    const userId = userData.userId;
+    delete userData.userId;
+
+    const updated = await db.user.update({
         where: { credId: String(credId) },
-        data,
+        data: userData,
         include: { credentials: true, wallets: true },
     });
+
+    // Force userId update via raw SQL (defense in depth)
+    if (userId !== undefined) {
+        const num = userId === null ? null : Number(userId);
+        await db.$executeRawUnsafe(`UPDATE "User" SET "userId" = ${num === null ? 'NULL' : num} WHERE "credId" = '${String(credId)}'`);
+        updated.userId = num;
+    }
+
+    return updated;
+}
+
+/**
+ * Change a user's email address across ALL related tables in one transaction.
+ * email is the User primary key; FK tables (Wallet, Building, BuildingAssignment,
+ * MarketOrder) cascade automatically via ON UPDATE CASCADE, but Notification and
+ * ActivityLog store email as a plain string — those are updated manually here.
+ *
+ * @param {string} credId - current user credId
+ * @param {string} newEmail - new email address
+ * @returns {Promise<object>} updated user
+ */
+async function updateUserEmail(credId, newEmail) {
+    const { getCurrentPrisma } = require('../../utils/prisma');
+    const db = getCurrentPrisma();
+
+    const target = await db.user.findUnique({ where: { credId: String(credId) } });
+    if (!target) throw new Error('User not found');
+    const oldEmail = target.email;
+    const cleanNew = String(newEmail || '').trim().toLowerCase();
+
+    if (!cleanNew) throw new Error('Email is required');
+    if (cleanNew === oldEmail) return target; // no change
+
+    // Duplicate check (email is unique PK)
+    const existing = await db.user.findUnique({ where: { email: cleanNew } });
+    if (existing) throw new Error('Email already in use by another user');
+
+    await db.$transaction(async (tx) => {
+        // 1. Update User PK — FK tables (Wallet/Building/BuildingAssignment/MarketOrder)
+        //    cascade automatically because they are ON UPDATE CASCADE.
+        await tx.user.update({ where: { credId: String(credId) }, data: { email: cleanNew } });
+
+        // 2. Plain-string email tables — must be updated manually
+        await tx.notification.updateMany({ where: { email: oldEmail }, data: { email: cleanNew } });
+        await tx.activityLog.updateMany({ where: { email: oldEmail }, data: { email: cleanNew } });
+    });
+
+    const updated = await db.user.findUnique({
+        where: { credId: String(credId) },
+        include: { credentials: true, wallets: true },
+    });
+    return sanitizeUser(updated);
 }
 
 /**
@@ -123,39 +184,48 @@ async function cleanModeSpecificData(prismaClient, email, buildingNames, buildin
 async function deleteUser(credId) {
     if (!credId || String(credId).trim() === '') throw new Error('Invalid user id');
 
-    // Read from shared (real) DB via proxy
     const user = await prisma.user.findUnique({ where: { credId: String(credId) } });
     if (!user) throw new Error('User not found');
     const email = user.email;
 
-    // Gather IDs from shared tables (always reads real)
-    const buildings = await prisma.building.findMany({ where: { email }, select: { id: true, name: true } });
-    const buildingIds = buildings.map(b => b.id);
-    const buildingNames = buildings.map(b => b.name);
+    const { getCurrentPrisma } = require('../../utils/prisma');
+    const currentDb = getCurrentPrisma();
 
-    // ── Step 1: Clean mode-specific data ──
-    // Real mode → clean BOTH | Demo mode → clean demo ONLY
-    const { realPrisma, demoPrisma, getCurrentMode, REAL_MODE } = require('../../utils/prisma');
-    const isRealMode = getCurrentMode() === REAL_MODE;
-    await cleanModeSpecificData(demoPrisma, email, buildingNames, buildingIds);
-    if (isRealMode) {
-        await cleanModeSpecificData(realPrisma, email, buildingNames, buildingIds);
-    }
+    // ── Step 1: Unlink user from buildings (don't delete buildings or wallets!) ──
+    await currentDb.buildingAssignment.deleteMany({ where: { userEmail: email } });
+    await currentDb.building.updateMany({
+        where: { email },
+        data: { email: null },
+    });
 
-    // ── Step 2: Delete shared tables via proxy ──
-    // Proxy handles mode: Real → both | Demo → demo only
-    if (buildingNames.length > 0) {
-        await prisma.meterInfo.deleteMany({ where: { buildingName: { in: buildingNames } } });
-    }
-    if (buildingIds.length > 0) {
-        await prisma.battery.deleteMany({ where: { buildingId: { in: buildingIds } } });
-    }
-    await prisma.building.deleteMany({ where: { email } });
+    // ── Step 2: Delete only user-owned records (not building/wallet/invoice) ──
+    await currentDb.userCredential.deleteMany({ where: { credId: String(credId) } });
+    await currentDb.notification.deleteMany({ where: { email } });
+    await currentDb.activityLog.deleteMany({ where: { email } });
+    await currentDb.user.delete({ where: { credId: String(credId) } });
+}
 
-    await prisma.userCredential.deleteMany({ where: { credId: String(credId) } });
-    await prisma.notification.deleteMany({ where: { email } });
-    await prisma.activityLog.deleteMany({ where: { email } });
-    await prisma.user.delete({ where: { credId: String(credId) } });
+// ---- User Approval ----
+
+async function getPendingUsers() {
+    return prisma.user.findMany({
+        where: { status: 'pending', role: 'USER' },
+        orderBy: { createdAt: 'desc' },
+    });
+}
+
+async function approveUser(email) {
+    return prisma.user.update({
+        where: { email },
+        data: { status: 'approved' },
+    });
+}
+
+async function rejectUser(email) {
+    return prisma.user.update({
+        where: { email },
+        data: { status: 'rejected' },
+    });
 }
 
 module.exports = {
@@ -168,5 +238,9 @@ module.exports = {
     findUserByEmailRaw,
     createUser,
     updateUser,
+    updateUserEmail,
     deleteUser,
+    getPendingUsers,
+    approveUser,
+    rejectUser,
 };

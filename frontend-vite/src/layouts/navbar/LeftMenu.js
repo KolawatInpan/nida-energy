@@ -20,6 +20,7 @@ import {
     FileDoneOutlined,
     PercentageOutlined,
     QuestionCircleOutlined,
+    SettingOutlined,
 } from '@ant-design/icons';
 import Key from '../../global/key';
 import { useDispatch, useSelector } from 'react-redux';
@@ -30,7 +31,7 @@ import { ROUTE_PATHS, routeToBuilding, routeToMeter, routeToWallet } from '../..
 import { getStoredRoleName, normalizeRoleName } from '../../utils/authSession';
 import styled from 'styled-components';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUser, faRightFromBracket } from '@fortawesome/free-solid-svg-icons';
+import { faUser, faRightFromBracket, faBatteryFull } from '@fortawesome/free-solid-svg-icons';
 
 const AuthMenu = styled.div`
     margin-top: auto;
@@ -318,6 +319,7 @@ const LeftMenu = ({ history, location }) => {
                         { label: 'Blockchain', key: ROUTE_PATHS.blockExplorer, icon: <DotChartOutlined /> },
                         { label: 'Analytics', key: ROUTE_PATHS.report, icon: <BarChartOutlined /> },
                         { label: '📋 Patch Notes', key: ROUTE_PATHS.patchNotes, icon: <FileTextOutlined /> },
+                        { label: '⚙️ Settings', key: ROUTE_PATHS.settings, icon: <SettingOutlined /> },
                     ],
                 },
             ];
@@ -369,7 +371,14 @@ const LeftMenu = ({ history, location }) => {
                 children: [
                     firstProducerMeterId ? { label: 'Production', key: `${routeToMeter(firstProducerMeterId)}?panel=production`, icon: <ThunderboltOutlined /> } : null,
                     firstConsumerMeterId ? { label: 'Consumption', key: `${routeToMeter(firstConsumerMeterId)}?panel=consumption`, icon: <BarChartOutlined /> } : null,
-                    firstBatteryMeterId ? { label: 'Battery Storage', key: `${routeToMeter(firstBatteryMeterId)}?panel=battery`, icon: <ExperimentOutlined /> } : null,
+                    firstBatteryMeterId ? { label: 'Battery Storage', key: `${routeToMeter(firstBatteryMeterId)}?panel=battery`, icon: (
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 10 }}>
+                            <rect x="1" y="6" width="18" height="12" rx="2" />
+                            <line x1="23" y1="10" x2="23" y2="14" />
+                            <line x1="7" y1="10" x2="7" y2="14" />
+                            <line x1="11" y1="10" x2="11" y2="14" />
+                        </svg>
+                    ) } : null,
                     firstConsumerMeterId ? { label: 'Grid Usage', key: `${routeToMeter(firstConsumerMeterId)}?panel=grid`, icon: <SlidersOutlined /> } : null,
                 ].filter(Boolean),
             },
@@ -381,15 +390,12 @@ const LeftMenu = ({ history, location }) => {
                     { label: 'Analytics', key: ROUTE_PATHS.report, icon: <BarChartOutlined /> },
                     { label: 'Publishers', key: ROUTE_PATHS.blockchainValidators, icon: <CheckCircleOutlined /> },
                     { label: 'Compare', key: ROUTE_PATHS.blockchainCompare, icon: <SwapOutlined /> },
-                    { label: 'Mock Energy', key: ROUTE_PATHS.mockEnergy, icon: <ThunderboltOutlined /> },
                     { label: 'Meter Registration', key: ROUTE_PATHS.meterRegistration, icon: <ExperimentOutlined /> },
-                    { label: 'User Guide 📖', key: ROUTE_PATHS.userGuide, icon: <QuestionCircleOutlined /> },
                     { label: '📋 Patch Notes', key: ROUTE_PATHS.patchNotes, icon: <FileTextOutlined /> },
-                    { label: '🧪 Testing', key: ROUTE_PATHS.testing, icon: <ExperimentOutlined /> },
                     { label: '🔌 API Status', key: ROUTE_PATHS.apiStatus, icon: <ThunderboltOutlined /> },
+                    { label: '⚙️ Settings', key: ROUTE_PATHS.settings, icon: <SettingOutlined /> },
                 ],
             },
-            
         ];
     }, [buildings, memberBuilding, meters, member]);
 
@@ -432,11 +438,10 @@ const LeftMenu = ({ history, location }) => {
         if (path.startsWith('/rate-management') && search.includes('category=energy')) return `${ROUTE_PATHS.rateManagement}?category=energy`;
         if (path.startsWith('/rate-management') && search.includes('category=token')) return `${ROUTE_PATHS.rateManagement}?category=token`;
         if (path.startsWith('/rate-management')) return ROUTE_PATHS.rateManagement;
-        if (path.startsWith('/admin/testing')) return ROUTE_PATHS.testing;
         if (path.startsWith('/mock-energy')) return '/mock-energy';
-        if (path.startsWith('/user-guide')) return '/user-guide';
         if (path.startsWith('/patch-notes')) return '/patch-notes';
         if (path.startsWith('/api-status')) return ROUTE_PATHS.apiStatus;
+        if (path.startsWith('/settings')) return ROUTE_PATHS.settings;
         if (path.startsWith('/home') || path === '/') return '/home';
         if (path.startsWith('/no-building-assigned')) {
             const source = new URLSearchParams(search).get('source');

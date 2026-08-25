@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Modal, message } from 'antd';
 import { deleteUser, getUsers, getBuildingsFromEmail, updateUser } from '../../core/data_connecter/user';
 import { formatEntityId } from '../../utils/formatters';
 
@@ -18,9 +19,7 @@ const dangerButtonClass = 'rounded-lg bg-rose-500 px-2.5 py-1.5 text-[11px] font
 const roleBadgeClass = (role) => {
   const normalized = String(role || '').trim().toUpperCase();
   if (normalized === 'ADMIN') return 'bg-blue-50 text-blue-700 ring-1 ring-blue-100';
-  if (normalized === 'PRODUCER') return 'bg-amber-50 text-amber-700 ring-1 ring-amber-100';
-  if (normalized === 'BATTERY') return 'bg-violet-50 text-violet-700 ring-1 ring-violet-100';
-  if (normalized === 'CONSUMER') return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100';
+
   return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200';
 };
 
@@ -106,22 +105,35 @@ const Users = () => {
 
   const handleSave = async (credId) => {
     try {
-      const updated = await updateUser(credId, {
+      const updatePayload = {
         name: editData.name,
-        telNum: editData.telNum,
         role: editData.role,
-      });
+        status: editData.status,
+      };
+      // Email change (only send if actually different)
+      if (editData.email !== undefined && String(editData.email).trim() !== '') {
+        const currentUser = users.find((u) => u.credId === credId);
+        if (String(editData.email).trim().toLowerCase() !== String(currentUser?.email || '').trim().toLowerCase()) {
+          updatePayload.email = String(editData.email).trim();
+        }
+      }
+      if (editData.userId !== undefined && editData.userId !== null) {
+        updatePayload.userId = parseInt(editData.userId, 10);
+        if (Number.isNaN(updatePayload.userId)) delete updatePayload.userId;
+      }
+      const updated = await updateUser(credId, updatePayload);
 
       setUsers((prev) => prev.map((item) => (
         item.credId === credId
-          ? { ...item, ...updated, building: item.building }
+          ? { ...item, ...updated, building: item.building, userId: updated?.userId ?? updatePayload?.userId ?? item.userId }
           : item
       )));
       setEditingRow(null);
       setEditData({});
+      message.success('User updated');
     } catch (error) {
       console.error('Failed to update user:', error);
-      window.alert(error?.response?.data?.error || 'Failed to update user');
+      message.error(error?.response?.data?.error || 'Failed to update user. Try re-logging in.');
     }
   };
 
@@ -134,16 +146,24 @@ const Users = () => {
     setEditData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleDelete = async (credId) => {
-    if (window.confirm('Are you sure you want to delete this user?')) {
-      try {
-        await deleteUser(credId);
-        setUsers((prev) => prev.filter((item) => item.credId !== credId));
-      } catch (error) {
-        console.error('Failed to delete user:', error);
-        window.alert(error?.response?.data?.error || 'Failed to delete user');
-      }
-    }
+  const handleDelete = async (credId, userName) => {
+    Modal.confirm({
+      title: 'Delete User',
+      content: `Are you sure you want to delete "${userName || 'this user'}"?`,
+      okText: 'Delete',
+      okButtonProps: { className: '!bg-red-500 !border-red-500' },
+      centered: true,
+      async onOk() {
+        try {
+          await deleteUser(credId);
+          setUsers((prev) => prev.filter((item) => item.credId !== credId));
+          message.success('User deleted');
+        } catch (error) {
+          console.error('Failed to delete user:', error);
+          message.error(error?.response?.data?.error || 'Failed to delete user');
+        }
+      },
+    });
   };
 
   const handleSort = (key) => {
@@ -235,9 +255,9 @@ const Users = () => {
                     </button>
                   </th>
                   <th className="w-[16%] px-6 py-4 text-center">
-                    <button type="button" onClick={() => handleSort('telNum')} className={tableHeadButtonClass}>
-                      <span>Contact</span>
-                      <span>{getSortIndicator('telNum', sortConfig)}</span>
+                    <button type="button" onClick={() => handleSort('email')} className={tableHeadButtonClass}>
+                      <span>Email</span>
+                      <span>{getSortIndicator('email', sortConfig)}</span>
                     </button>
                   </th>
                   <th className="w-[12%] px-6 py-4 text-center">
@@ -246,26 +266,37 @@ const Users = () => {
                       <span>{getSortIndicator('role', sortConfig)}</span>
                     </button>
                   </th>
-                  <th className="w-[14%] px-4 py-4 text-center text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Actions</th>
+                  <th className="w-[8%] px-2 py-4 text-center text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Status</th>
+                  <th className="w-[10%] px-4 py-4 text-center text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
                 {loading ? (
                   <tr>
-                    <td colSpan="6" className="px-6 py-16 text-center text-sm text-slate-500">Loading user data...</td>
+                    <td colSpan="7" className="px-6 py-16 text-center text-sm text-slate-500">Loading user data...</td>
                   </tr>
                 ) : sortedUsers.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="px-6 py-16 text-center text-sm text-slate-500">No users available.</td>
+                    <td colSpan="7" className="px-6 py-16 text-center text-sm text-slate-500">No users available.</td>
                   </tr>
                 ) : sortedUsers.map((user) => (
                   <tr key={user.credId} className="transition hover:bg-slate-50/80">
                     {editingRow === user.credId ? (
                       <>
                         <td className="px-4 py-4 text-center">
-                          <span className="inline-flex whitespace-nowrap rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
-                            {formatEntityId('USR', editData.credId)}
-                          </span>
+                          <input
+                            type="number"
+                            value={editData.userId ?? ''}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === '') { handleInputChange('userId', null); return; }
+                              const num = parseInt(raw, 10);
+                              handleInputChange('userId', Number.isNaN(num) ? raw : num);
+                            }}
+                            placeholder="User ID #"
+                            className={inputClass}
+                            style={{ maxWidth: 80 }}
+                          />
                         </td>
                         <td className="px-6 py-4 text-center">
                           <input type="text" value={editData.name || ''} onChange={(e) => handleInputChange('name', e.target.value)} className={inputClass} />
@@ -274,15 +305,19 @@ const Users = () => {
                           <input type="text" value={editData.building || ''} readOnly className={`${inputClass} cursor-not-allowed bg-slate-50 text-slate-400`} />
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <input type="text" value={editData.telNum || ''} onChange={(e) => handleInputChange('telNum', e.target.value)} className={inputClass} />
+                          <input type="email" value={editData.email || ''} onChange={(e) => handleInputChange('email', e.target.value)} className={inputClass} placeholder="user@email.com" />
                         </td>
                         <td className="px-6 py-4 text-center">
                           <select value={editData.role || 'USER'} onChange={(e) => handleInputChange('role', e.target.value)} className={inputClass}>
                             <option value="ADMIN">ADMIN</option>
                             <option value="USER">USER</option>
-                            <option value="CONSUMER">CONSUMER</option>
-                            <option value="PRODUCER">PRODUCER</option>
-                            <option value="BATTERY">BATTERY</option>
+                          </select>
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          <select value={editData.status || 'approved'} onChange={(e) => handleInputChange('status', e.target.value)} className={inputClass}>
+                            <option value="pending">Pending</option>
+                            <option value="approved">Approved</option>
+                            <option value="rejected">Rejected</option>
                           </select>
                         </td>
                         <td className="px-4 py-4 text-center">
@@ -295,22 +330,35 @@ const Users = () => {
                     ) : (
                       <>
                         <td className="px-4 py-4 text-center">
-                          <span className="inline-flex whitespace-nowrap rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
-                            {formatEntityId('USR', user.credId)}
+                          <span className="inline-flex items-center gap-1">
+                            <button type="button" onClick={() => handleEdit(user.credId)} title="Edit"
+                              className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200 text-xs">✏️</button>
+                            <span className="inline-flex whitespace-nowrap rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
+                              {formatEntityId('USER', user.userId || user.credId)}
+                            </span>
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-center text-sm font-medium text-slate-800">{user.name || '-'}</td>
-                        <td className="px-6 py-4 text-center text-sm text-slate-600">{user.building || '-'}</td>
-                        <td className="px-6 py-4 text-center text-sm text-slate-600">{user.telNum || '-'}</td>
+                        <td className="px-6 py-4 text-center text-sm font-medium text-slate-800 max-w-[140px] truncate">{user.name || '-'}</td>
+                        <td className="px-6 py-4 text-center text-sm text-slate-600 max-w-[140px] truncate">{user.building || '-'}</td>
+                        <td className="px-6 py-4 text-center text-sm text-slate-600 max-w-[180px] truncate" title={user.email}>{user.email || user.telNum || '-'}</td>
                         <td className="px-6 py-4 text-center">
                           <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] ${roleBadgeClass(user.role)}`}>
                             {String(user.role || 'USER').toUpperCase()}
                           </span>
                         </td>
                         <td className="px-4 py-4 text-center">
-                          <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
-                            <button type="button" onClick={() => handleEdit(user.credId)} className={secondaryButtonClass}>Edit</button>
-                            <button type="button" onClick={() => handleDelete(user.credId)} className={dangerButtonClass}>Delete</button>
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                            (user.status || 'approved') === 'approved' ? 'bg-emerald-50 text-emerald-700' :
+                            (user.status || 'approved') === 'rejected' ? 'bg-red-50 text-red-700' :
+                            'bg-amber-50 text-amber-700'
+                          }`}>
+                            {user.status || 'approved'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <button type="button" onClick={() => handleDelete(user.credId, user.name)} title="Delete"
+                              className="w-7 h-7 flex items-center justify-center rounded-md bg-red-100 text-red-600 hover:bg-red-200 text-sm">🗑️</button>
                           </div>
                         </td>
                       </>

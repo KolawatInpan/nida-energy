@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { getBuildings } from '../../core/data_connecter/register';
-import { getWalletBalance, getWalletByEmail, getWalletTransactions, recalculateWalletBalance, topupWalletByEmail, createStripePaymentIntent } from '../../core/data_connecter/wallet';
+import { getWalletBalance, getWalletById, getWalletTransactions, recalculateWalletBalance, topupWalletByEmail, createStripePaymentIntent } from '../../core/data_connecter/wallet';
 import { getQuotaWarnings } from '../../core/data_connecter/invoice';
 import { formatCurrency, formatEntityId, formatToken, formatTokenShort, formatVerificationStatus, getSignedTokenAmount, getTransactionDisplayType, toSafeNumber } from '../../utils/formatters';
 import { normalizeRoleName } from '../../utils/authSession';
@@ -10,6 +10,7 @@ import { calculateQuotaStatus } from '../../utils/walletQuota';
 import { NoBuildingAssignedPage } from '../../components/shared';
 import TORWallet from '../../components/TOR/TORWallet';
 import Key from '../../global/key';
+import { fmtDate, fmtDateTime } from '../../utils/dateFormat';
 
 function shortenValue(value, start = 10, end = 8) {
   if (!value) return '-';
@@ -128,7 +129,7 @@ export default function Wallet() {
         return;
       }
 
-      const walletRes = await getWalletByEmail(target.email);
+      const walletRes = await getWalletById(String(target.id));
       const walletPayload = walletRes?.data || null;
       let w = walletPayload ? {
         ...walletPayload,
@@ -300,7 +301,7 @@ export default function Wallet() {
             </div>
             <div className="text-right pl-4 border-l border-gray-300">
               <div className="text-sm text-gray-600 font-medium">Today</div>
-              <div className="text-sm font-semibold text-gray-900">{new Date().toLocaleDateString()}</div>
+              <div className="text-sm font-semibold text-gray-900">{fmtDate(new Date())}</div>
             </div>
           </div>
         </div>
@@ -340,7 +341,7 @@ export default function Wallet() {
                 <div className="bg-blue-500 bg-opacity-50 rounded-xl p-4 backdrop-blur-sm border border-blue-400">
                   <div className="text-blue-100 text-sm font-medium mb-1">Recent Transaction Wallet</div>
                   <div className="text-3xl font-bold mb-2">{latestTransaction ? formatToken(Math.abs(toSafeNumber(latestTransaction?.tokenAmount))) : '-'}</div>
-                  <div className="text-blue-100 text-xs">{latestTransaction ? new Date(latestTransaction?.timestamp).toLocaleString() : '-'}</div>
+                  <div className="text-blue-100 text-xs">{latestTransaction ? fmtDateTime(new Date(latestTransaction?.timestamp)) : '-'}</div>
                 </div>
               </div>
 

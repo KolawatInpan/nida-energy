@@ -51,3 +51,22 @@ export async function deleteUser(credId, force = false) {
         throw error;
     }
 }
+
+// User Approval
+export async function getPendingUsers() {
+    const base = getApiBase();
+    const res = await axios.get(`${base}/users/pending/list`);
+    return res.data;
+}
+
+export async function approveUser(email) {
+    const base = getApiBase();
+    const res = await axios.put(`${base}/users/approve/${encodeURIComponent(email)}`);
+    return res.data;
+}
+
+export async function rejectUser(email) {
+    const base = getApiBase();
+    const res = await axios.put(`${base}/users/reject/${encodeURIComponent(email)}`);
+    return res.data;
+}

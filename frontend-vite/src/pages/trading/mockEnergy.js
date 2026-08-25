@@ -112,7 +112,7 @@ export default function MockEnergy() {
       const dy = cleared.dailyEnergy || 0;
       setTotalInserts(0); setCompletedInserts(0); setProgress(0);
       setStatus('');
-      message.success(`Cleared: ${rm} running logs, ${hr} hourly, ${dy} daily`);
+      message.success(`Cleared: ${rm} running logs, ${hr} hourly, ${dy} daily — sync cursor reset ✅ (will re-pull from start)`);
     } catch (err) {
       console.error('Reset failed', err);
       message.error('Reset failed: ' + (err?.response?.data?.error || err?.message || 'Unknown error'));

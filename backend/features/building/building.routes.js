@@ -132,6 +132,16 @@ router.post("/register", BuildingController.createBuilding);
  *     "name": "New Building"
  *   }
  */
+// Building Approval (must be before /:id to avoid route conflict)
+router.get("/pending/list", BuildingController.getPendingBuildings);
+router.put("/:id/approve", BuildingController.approveBuilding);
+router.put("/:id/reject", BuildingController.rejectBuilding);
+
+// User Assignment (M:N)
+router.post("/:id/assign", BuildingController.assignUserToBuilding);
+router.delete("/:id/assign/:userEmail", BuildingController.removeUserFromBuilding);
+router.get("/:id/assignments", BuildingController.getBuildingAssignments);
+
 router.put("/:id", BuildingController.updateBuilding);
 router.delete("/:id", BuildingController.deleteBuilding);
 

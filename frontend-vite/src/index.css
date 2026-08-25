@@ -2,6 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Notification type grid — plain CSS so it works regardless of Tailwind JIT
+   variant generation (sm:/md:/xl: prefixes were not being emitted in dev). */
+.nida-notif-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)) !important;
+  gap: 0.75rem !important;
+}
+
+/* Fix Notification Disable/Enable All buttons — the global antd theme sets
+   .ant-btn-sm { height:100%; padding:33.3% } which stretches them vertically. */
+.nida-all-btns {
+  height: 30px !important;
+}
+.nida-all-btns .ant-btn-sm,
+button.nida-all-btn.ant-btn-sm {
+  height: 30px !important;
+  line-height: 28px !important;
+  padding: 0 14px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  font-size: 12px !important;
+  border-radius: 8px !important;
+  border: none !important;
+}
+
+/* Active state (the channel is currently all-on / all-off) — solid color.
+   Must beat antd's .ant-btn[disabled] background. */
+button.nida-all-btn.ant-btn-sm.nida-state-on,
+button.nida-all-btn.ant-btn-sm.nida-state-on[disabled] {
+  background: var(--nida-state-color, #10b981) !important;
+  color: #fff !important;
+}
+button.nida-all-btn.ant-btn-sm.nida-state-on[disabled]:hover {
+  background: var(--nida-state-color, #10b981) !important;
+  color: #fff !important;
+}
+
 @layer base {
   body {
     margin: 0;

@@ -110,6 +110,7 @@ async function updateMeter(req, res) {
       status: req.body?.status,
       isAutoMock: req.body?.isAutoMock,
       mockProfile: req.body?.mockProfile,
+      newSnid: req.body?.newSnid,
     };
     const updated = await MeterModel.updateMeter(req.params.snid, payload);
     res.json(updated);

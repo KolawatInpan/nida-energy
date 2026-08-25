@@ -8,12 +8,13 @@ import { getAllTransactions } from '../../core/data_connecter/api_caller';
 import { getRecentBlockchainTransactions } from '../../core/data_connecter/blockExplorer';
 import { getQuotaWarnings } from '../../core/data_connecter/invoice';
 import { getPendingMeters } from '../../core/data_connecter/meter';
-import { getBuildings, getDailyEnergyByMeter, getHourlyEnergyByMeter, getMeters, getMetersByBuilding } from '../../core/data_connecter/register';
+import { getBuildings, getDailyEnergyByMeter, getGaps, getHourlyEnergyByMeter, getMeters, getMetersByBuilding } from '../../core/data_connecter/register';
 import { getEnergyRates, getTokenRates } from '../../core/data_connecter/rate';
 import { formatEnergy, formatEntityId, formatToken } from '../../utils/formatters';
 import { getApiBase } from '../../core/data_connecter/apiBase';
 import { buildComparisonXAxisLabels, buildNiceScale, swapComparisonSelection } from '../../utils/dashboardCharts';
 import { AdminKpiSection } from './components';
+import GapBar from '../../components/charts/GapBar';
 
 const toNumber = (value) => {
   const numeric = Number(value);
@@ -219,6 +220,8 @@ export default function DashboardHome() {
   const [customStart, customEnd] = customDateRange;
   const [systemEnergyTrend, setSystemEnergyTrend] = useState(() => buildEmptySystemTrend('30d'));
   const [systemEnergyLoading, setSystemEnergyLoading] = useState(false);
+  const [systemGaps, setSystemGaps] = useState([]);
+  const [systemChartRange, setSystemChartRange] = useState({ start: null, end: null });
   const [energyRates, setEnergyRates] = useState([]);
   const [tokenRates, setTokenRates] = useState([]);
   const [energyInsights, setEnergyInsights] = useState({
@@ -489,6 +492,15 @@ export default function DashboardHome() {
             production: sumHourlyRows(producerRows),
             consumption: sumHourlyRows(consumerRows),
           });
+          // Detect gaps for today
+          const gapMeterId1d = producerIds[0] || consumerIds[0];
+          if (gapMeterId1d) {
+            const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+            const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
+            getGaps({ meterId: gapMeterId1d, date: todayStr }).then((g) => {
+              if (mounted) { setSystemGaps(Array.isArray(g) ? g : []); setSystemChartRange({ start: todayStart.toISOString(), end: todayEnd.toISOString() }); }
+            }).catch(() => {});
+          }
           return;
         }
 
@@ -585,6 +597,13 @@ export default function DashboardHome() {
 
         if (!mounted) return;
         setSystemEnergyTrend({ labels, production, consumption });
+        // Detect gaps for the date range
+        const gapMeterIdRange = producerIds[0] || consumerIds[0];
+        if (gapMeterIdRange && rangeStart && rangeEnd) {
+          getGaps({ meterId: gapMeterIdRange, from: rangeStart.toISOString(), to: rangeEnd.toISOString() }).then((g) => {
+            if (mounted) { setSystemGaps(Array.isArray(g) ? g : []); setSystemChartRange({ start: rangeStart.toISOString(), end: rangeEnd.toISOString() }); }
+          }).catch(() => {});
+        }
       } catch (error) {
         console.error('Failed to load system energy trend:', error);
         if (!mounted) return;
@@ -1104,7 +1123,7 @@ export default function DashboardHome() {
     hour12: true,
   }), [currentTime]);
 
-  const currentDateLabel = useMemo(() => currentTime.toLocaleDateString('en-US', {
+  const currentDateLabel = useMemo(() => currentTime.toLocaleDateString('en-GB', {
     weekday: 'long',
     month: 'short',
     day: 'numeric',
@@ -1229,6 +1248,7 @@ export default function DashboardHome() {
                 </span>
                 {systemEnergyLoading && <span className="text-blue-500">Updating chart...</span>}
               </div>
+              <GapBar gaps={systemGaps} rangeStart={systemChartRange.start} rangeEnd={systemChartRange.end} />
             </div>
           </Card>
         </section>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import Plot from 'react-plotly.js';
@@ -12,6 +12,7 @@ import { formatEntityId } from '../../utils/formatters';
 import { normalizeRoleName as normalizeRoleNameFromSession } from '../../utils/authSession';
 import { NoBuildingAssignedPage } from '../../components/shared';
 import Key from '../../global/key';
+import { fmtDate, fmtDateTime } from '../../utils/dateFormat';
 
 const RATE_PER_KWH = 1;
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -28,7 +29,7 @@ function formatPeriod(month, year) {
 
 function formatDateTime(value) {
   if (!value) return '-';
-  return new Date(value).toLocaleString();
+  return fmtDateTime(new Date(value));
 }
 
 function shortenValue(value, start = 8, end = 8) {
@@ -382,7 +383,8 @@ export default function Invoice() {
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 rounded-lg border border-gray-300 text-xs bg-white">
                 <option value="all">All Status</option>
                 <option value="unpaid">Unpaid</option>
-                <option value="paid">Paid</option>
+                <option value="late">🔴 Overdue</option>
+                <option value="paid">✅ Paid</option>
               </select>
             </div>
           </div>
@@ -394,12 +396,13 @@ export default function Invoice() {
                   <th className="w-[14%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Invoice ID</th>
                   <th className="w-[12%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Building</th>
                   <th className="w-[11%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Billing Period</th>
-                  <th className="w-[9%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Total Used</th>
-                  <th className="w-[10%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Market Discount</th>
-                  <th className="w-[9%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Billable kWh</th>
-                  <th className="w-[8%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Rate</th>
-                  <th className="w-[10%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Total Amount</th>
-                  <th className="w-[9%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Peak Usage</th>
+                  <th className="w-[9%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Total Used (kWh)</th>
+                  <th className="w-[10%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Market Discount (kWh)</th>
+                  <th className="w-[9%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Billable (kWh)</th>
+                  <th className="w-[8%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Rate (T/kWh)</th>
+                  <th className="w-[10%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Total (Token)</th>
+                  <th className="w-[9%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Peak (kWh)</th>
+                  <th className="w-[9%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Due Date</th>
                   <th className="w-[8%] text-center px-3 py-3 text-xs font-semibold text-gray-500">Status</th>
                   <th className="w-[10%] text-left px-3 py-3 text-xs font-semibold text-gray-500">Action</th>
                 </tr>
@@ -419,7 +422,7 @@ export default function Invoice() {
                   const receiptId = invoice.receipt?.id;
                   return (
                     <tr key={invoice.id} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="px-3 py-3 text-sm font-semibold text-blue-600">
+                      <td className="px-2 py-2.5 text-xs font-semibold text-blue-600">
                         <button
                           type="button"
                           onClick={() => {
@@ -429,51 +432,51 @@ export default function Invoice() {
                             }
                             history.push(`/invoice/${encodeURIComponent(invoice.id)}/pay`);
                           }}
-                          className="block max-w-full truncate text-left text-blue-600 hover:underline"
+                          className="block max-w-full truncate text-left text-xs text-blue-600 hover:underline"
                           title={invoice.id}
                         >
                           {formatEntityId('INV', invoice.id)}
                         </button>
                       </td>
-                      <td className="px-3 py-3 text-sm text-gray-700">
+                      <td className="px-2 py-2.5 text-xs text-gray-700">
                         <span className="block truncate" title={invoice.buildingName}>{invoice.buildingName}</span>
                       </td>
-                      <td className="px-3 py-3 text-sm text-gray-700">
+                      <td className="px-2 py-2.5 text-xs text-gray-700">
                         <span className="block truncate" title={formatPeriod(invoice.month, invoice.year)}>{formatPeriod(invoice.month, invoice.year)}</span>
                       </td>
-                      <td className="px-3 py-3 text-sm text-gray-700">
-                        <span className="block truncate" title={`${toNumber(invoice.consumedKwh ?? invoice.kWH).toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh`}>
-                          {toNumber(invoice.consumedKwh ?? invoice.kWH).toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh
+                      <td className="px-2 py-2.5 text-xs text-gray-700">
+                        {toNumber(invoice.consumedKwh ?? invoice.kWH).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </td>
+                      <td className="px-2 py-2.5 text-xs text-green-700 font-medium">
+                        - {toNumber(invoice.marketPurchasedKwh).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </td>
+                      <td className="px-2 py-2.5 text-xs text-gray-900 font-semibold">
+                        {toNumber(invoice.billableKwh ?? invoice.kWH).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </td>
+                      <td className="px-2 py-2.5 text-xs text-gray-700">
+                        {RATE_PER_KWH.toFixed(1)}
+                      </td>
+                      <td className="px-2 py-2.5 text-xs font-semibold text-gray-900">
+                        {toNumber(invoice.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </td>
+                      <td className="px-2 py-2.5 text-xs text-gray-700">
+                        <div className="truncate">{toNumber(invoice.peakkWH).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                        <div className="text-[10px] text-gray-400 truncate">{invoice.peakDate ? fmtDate(new Date(invoice.peakDate)) : '-'}</div>
+                      </td>
+                      <td className="px-2 py-2.5 text-xs text-gray-700">
+                        {invoice.dueDate ? (
+                          <div className={invoice.status === 'late' ? 'text-red-600 font-semibold' : ''}>
+                            <div className="truncate">{fmtDate(new Date(invoice.dueDate))}</div>
+                            {invoice.status === 'late' && <div className="text-[10px] text-red-500">Overdue</div>}
+                          </div>
+                        ) : '-'}
+                      </td>
+                      <td className="px-2 py-2.5 text-center">
+                        <span className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold capitalize ${getStatusPill(invoice.status)}`}>
+                          {invoice.status === 'late' ? 'Overdue' : (invoice.status || 'unpaid')}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-sm text-green-700 font-medium">
-                        <span className="block truncate" title={`- ${toNumber(invoice.marketPurchasedKwh).toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh`}>
-                          - {toNumber(invoice.marketPurchasedKwh).toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-900 font-semibold">
-                        <span className="block truncate" title={`${toNumber(invoice.billableKwh ?? invoice.kWH).toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh`}>
-                          {toNumber(invoice.billableKwh ?? invoice.kWH).toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-700">
-                        <span className="block truncate" title={`${RATE_PER_KWH.toFixed(1)} Token/kWh`}>{RATE_PER_KWH.toFixed(1)} Token/kWh</span>
-                      </td>
-                      <td className="px-3 py-3 text-sm font-semibold text-gray-900">
-                        <span className="block truncate" title={`${toNumber(invoice.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })} Token`}>
-                          {toNumber(invoice.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })} Token
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-700">
-                        <div>{toNumber(invoice.peakkWH).toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh</div>
-                        <div className="text-xs text-gray-400">{invoice.peakDate ? new Date(invoice.peakDate).toLocaleDateString() : '-'}</div>
-                      </td>
-                      <td className="px-3 py-3 text-sm text-center">
-                        <span className={`inline-flex items-center justify-center px-2 py-1 rounded-full text-xs font-semibold capitalize ${getStatusPill(invoice.status)}`}>
-                          {invoice.status || 'unpaid'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-sm">
+                      <td className="px-2 py-2.5">
                         {isPaid && receiptId ? (
                           <button
                             type="button"

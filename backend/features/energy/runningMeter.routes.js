@@ -120,6 +120,12 @@ router.get('/backfill-status', RunningMeterController.backfillStatus);
  */
 router.get('/battery-charge-sources/:snid', RunningMeterController.getBatteryChargeSources);
 
+/**
+ * GET /api/runningMeters/soc-series/:snid?start=YYYY-MM-DD&end=YYYY-MM-DD
+ * Returns the battery's REAL State-of-Charge series (daily) from RunningMeter.kWH.
+ */
+router.get('/soc-series/:snid', RunningMeterController.getBatterySocSeries);
+
 module.exports = router;
 
 

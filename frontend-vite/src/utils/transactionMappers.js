@@ -5,6 +5,7 @@ import {
   getSignedTokenAmount,
   getTransactionDisplayType,
 } from './formatters';
+import { fmtDate, fmtDateTime, fmtTime } from './dateFormat';
 
 export function normalizeCompareValue(value) {
   if (value == null || value === '') return '';
@@ -47,9 +48,9 @@ export function buildTransactionDetailView(transaction, txid) {
     signedAmount,
     type,
     status: String(transaction.status || 'UNKNOWN').toUpperCase(),
-    createdAtLabel: createdAt ? createdAt.toLocaleString() : 'N/A',
-    createdDateLabel: createdAt ? createdAt.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A',
-    createdTimeLabel: createdAt ? createdAt.toLocaleTimeString() : 'N/A',
+    createdAtLabel: createdAt ? fmtDateTime(createdAt) : 'N/A',
+    createdDateLabel: createdAt ? fmtDate(createdAt) : 'N/A',
+    createdTimeLabel: createdAt ? fmtTime(createdAt) : 'N/A',
     buildingName: transaction.buildingName || 'N/A',
     snid: transaction.snid || 'N/A',
     walletId: transaction.walletId || 'N/A',
@@ -61,8 +62,8 @@ export function buildTransactionDetailView(transaction, txid) {
     contractAddress: transaction.contractAddress || '',
     blockNumber: transaction.blockNumber ?? '-',
     verificationMethod: formatVerificationMethod(transaction.verificationMethod),
-    verifiedAtLabel: verifiedAtDate ? verifiedAtDate.toLocaleString() : 'N/A',
-    verifiedTimeLabel: verifiedAtDate ? verifiedAtDate.toLocaleTimeString() : 'Pending',
+    verifiedAtLabel: verifiedAtDate ? fmtDateTime(verifiedAtDate) : 'N/A',
+    verifiedTimeLabel: verifiedAtDate ? fmtTime(verifiedAtDate) : 'Pending',
     confirmationSeconds: timeDiffSeconds,
     canVerify: !transaction.txHash || String(transaction.verificationStatus || '').toUpperCase() === 'FAILED',
     effectiveGasPrice: transaction.effectiveGasPrice || '-',

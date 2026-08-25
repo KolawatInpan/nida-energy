@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { deleteMeter, getMeters, updateMeter } from '../../core/data_connecter/meter';
+import { getBuildings } from '../../core/data_connecter/register';
 import { formatEntityId } from '../../utils/formatters';
 
 const getSortIndicator = (key, sortConfig) => {
@@ -44,6 +45,10 @@ const Meters = () => {
   const [sortConfig, setSortConfig] = useState({ key: 'buildingName', direction: 'asc' });
   const [editingRow, setEditingRow] = useState(null);
   const [editData, setEditData] = useState({});
+  const [filterBuilding, setFilterBuilding] = useState('');
+  const [filterType, setFilterType] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [allBuildings, setAllBuildings] = useState([]);
 
   useEffect(() => {
     const fetchMeters = async () => {
@@ -70,6 +75,13 @@ const Meters = () => {
     fetchMeters();
   }, []);
 
+  useEffect(() => {
+    getBuildings().then(data => {
+      const list = Array.isArray(data) ? data : (data?.buildings || []);
+      setAllBuildings(list.map(b => b.name || b).filter(Boolean).sort());
+    }).catch(() => {});
+  }, []);
+
   const handleEdit = (snid) => {
     const target = meters.find((item) => item.snid === snid);
     if (!target) return;
@@ -84,6 +96,7 @@ const Meters = () => {
         type: editData.type,
         capacity: editData.capacity,
         status: normalizeApprovalStatus(editData.status),
+        newSnid: editData.newSnid && editData.newSnid !== snid ? editData.newSnid : undefined,
       });
 
       setMeters((prev) => prev.map((item) => (
@@ -135,8 +148,20 @@ const Meters = () => {
     }));
   };
 
+  const uniqueBuildings = useMemo(() => [...new Set(meters.map(m => m.buildingName))].sort(), [meters]);
+  const uniqueTypes = useMemo(() => [...new Set(meters.map(m => String(m.type).trim()))].sort(), [meters]);
+
+  const filteredMeters = useMemo(() => {
+    return meters.filter(m => {
+      if (filterBuilding && m.buildingName !== filterBuilding) return false;
+      if (filterType && String(m.type).trim() !== filterType) return false;
+      if (filterStatus && normalizeApprovalStatus(m.status) !== filterStatus) return false;
+      return true;
+    });
+  }, [meters, filterBuilding, filterType, filterStatus]);
+
   const sortedMeters = useMemo(() => {
-    const rows = [...meters];
+    const rows = [...filteredMeters];
     rows.sort((a, b) => {
       const left = a?.[sortConfig.key];
       const right = b?.[sortConfig.key];
@@ -153,11 +178,34 @@ const Meters = () => {
       return sortConfig.direction === 'asc' ? result : -result;
     });
     return rows;
-  }, [meters, sortConfig]);
+  }, [filteredMeters, sortConfig]);
 
   const approvedCount = meters.filter((meter) => normalizeApprovalStatus(meter.status) === 'APPROVED').length;
   const pendingCount = meters.filter((meter) => normalizeApprovalStatus(meter.status) === 'PENDING').length;
   const rejectedCount = meters.filter((meter) => normalizeApprovalStatus(meter.status) === 'REJECTED').length;
+
+  // Detect duplicate meter types within the same building
+  const duplicateTypeWarnings = useMemo(() => {
+    const byBuilding = {};
+    meters.forEach((m) => {
+      const bld = m.buildingName;
+      const type = normalizeApprovalStatus(m.status) === 'APPROVED' ? String(m.type).trim() : '';
+      if (!bld || !type) return;
+      if (!byBuilding[bld]) byBuilding[bld] = {};
+      if (!byBuilding[bld][type]) byBuilding[bld][type] = [];
+      byBuilding[bld][type].push(m.snid);
+    });
+    const warnings = [];
+    Object.entries(byBuilding).forEach(([bld, types]) => {
+      Object.entries(types).forEach(([type, snids]) => {
+        if (snids.length > 1) {
+          warnings.push({ building: bld, type, snids });
+        }
+      });
+    });
+    warnings.sort((a, b) => a.building.localeCompare(b.building) || a.type.localeCompare(b.type));
+    return warnings;
+  }, [meters]);
 
   return (
     <div className={shellClass}>
@@ -190,14 +238,65 @@ const Meters = () => {
           </div>
         </div>
 
+        {/* Duplicate Meter Type Warning */}
+        {duplicateTypeWarnings.length > 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <span className="text-xl">⚠️</span>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-bold text-amber-800 mb-2">
+                  Duplicate Meter Types Detected ({duplicateTypeWarnings.length} building{duplicateTypeWarnings.length > 1 ? 's' : ''})
+                </h3>
+                <div className="space-y-1.5">
+                  {duplicateTypeWarnings.map((w) => (
+                    <div key={`${w.building}-${w.type}`} className="text-xs text-amber-700 flex flex-wrap items-center gap-2">
+                      <span className="font-semibold">{w.building}</span>
+                      <span className="inline-flex rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                        {w.type}
+                      </span>
+                      <span className="text-amber-600">×{w.snids.length}</span>
+                      <span className="text-amber-500 font-mono text-[10px]">({w.snids.join(', ')})</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className={panelClass}>
           <div className="flex flex-col gap-3 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-slate-900">All Meters</h2>
               <p className="text-sm text-slate-500">Keep approval states readable and maintain clear links back to their assigned buildings.</p>
             </div>
-            <div className="rounded-full bg-slate-100 px-4 py-2 text-xs font-medium text-slate-500">
-              {rejectedCount} rejected meter{rejectedCount === 1 ? '' : 's'}
+            <div className="flex items-center gap-2 flex-wrap">
+              <select value={filterBuilding} onChange={e => setFilterBuilding(e.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600">
+                <option value="">🏢 All Buildings</option>
+                {uniqueBuildings.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+              <select value={filterType} onChange={e => setFilterType(e.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600">
+                <option value="">⚡ All Types</option>
+                {uniqueTypes.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600">
+                <option value="">📋 All Status</option>
+                <option value="APPROVED">Approved</option>
+                <option value="PENDING">Pending</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+              {(filterBuilding || filterType || filterStatus) && (
+                <button onClick={() => { setFilterBuilding(''); setFilterType(''); setFilterStatus(''); }}
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-500 hover:bg-slate-50">
+                  ✕ Clear
+                </button>
+              )}
+              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500">
+                {sortedMeters.length} of {meters.length}
+              </span>
             </div>
           </div>
 
@@ -251,13 +350,28 @@ const Meters = () => {
                   <tr key={meter.snid} className="transition hover:bg-slate-50/80">
                     {editingRow === meter.snid ? (
                       <>
-                        <td className="px-6 py-4 text-center">
-                          <span className="inline-flex rounded-full bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 ring-1 ring-blue-100">
-                            {formatEntityId('MTR', editData.snid)}
-                          </span>
+                        <td className="px-6 py-4 text-center whitespace-nowrap">
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                            <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
+                              {editData.snid}
+                            </span>
+                            <input
+                              type="text"
+                              value={editData.newSnid || ''}
+                              onChange={(e) => handleInputChange('newSnid', e.target.value)}
+                              placeholder="New SNID"
+                              className={inputClass}
+                              style={{ maxWidth: 160, fontSize: 11 }}
+                            />
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <input type="text" value={editData.buildingName || ''} onChange={(e) => handleInputChange('buildingName', e.target.value)} className={inputClass} />
+                          <select value={editData.buildingName || ''} onChange={(e) => handleInputChange('buildingName', e.target.value)} className={inputClass}>
+                            <option value="">Select building...</option>
+                            {allBuildings.map(b => (
+                              <option key={b} value={b}>{b}</option>
+                            ))}
+                          </select>
                         </td>
                         <td className="px-6 py-4 text-center">
                           <select value={editData.type || 'Consume'} onChange={(e) => handleInputChange('type', e.target.value)} className={inputClass}>
@@ -285,14 +399,18 @@ const Meters = () => {
                       </>
                     ) : (
                       <>
-                        <td className="px-6 py-4 text-center">
-                          <Link
-                            to={`/meter/${encodeURIComponent(meter.snid)}`}
-                            className="inline-flex rounded-full bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 ring-1 ring-blue-100 transition hover:bg-blue-100"
-                            title={`Open meter ${meter.snid}`}
-                          >
-                            {formatEntityId('MTR', meter.snid)}
-                          </Link>
+                        <td className="px-6 py-4 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            <button type="button" onClick={() => handleEdit(meter.snid)} title="Edit"
+                              className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200 text-xs flex-shrink-0">✏️</button>
+                            <Link
+                              to={`/meter/${encodeURIComponent(meter.snid)}`}
+                              className="inline-flex rounded-full bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 ring-1 ring-blue-100 transition hover:bg-blue-100"
+                              title={`Open meter ${meter.snid}`}
+                            >
+                              {meter.snid}
+                            </Link>
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-center text-sm font-medium text-slate-800">{meter.buildingName || '-'}</td>
                         <td className="px-6 py-4 text-center">
@@ -307,9 +425,9 @@ const Meters = () => {
                           </span>
                         </td>
                         <td className="px-4 py-4 text-center">
-                          <div className="flex flex-wrap items-center justify-center gap-2">
-                            <button type="button" onClick={() => handleEdit(meter.snid)} className={secondaryButtonClass}>Edit</button>
-                            <button type="button" onClick={() => handleDelete(meter.snid)} className={dangerButtonClass}>Delete</button>
+                          <div className="flex flex-wrap items-center justify-center gap-1">
+                            <button type="button" onClick={() => handleDelete(meter.snid)} title="Delete"
+                              className="w-7 h-7 flex items-center justify-center rounded-md bg-red-100 text-red-600 hover:bg-red-200 text-sm">🗑️</button>
                           </div>
                         </td>
                       </>

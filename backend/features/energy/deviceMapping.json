@@ -1,1 +1,14 @@
-{}
+{
+  "RAT-BAT-0002": "RAT-BAT-001",
+  "RAT-CON-0002": "RAT-CON-001",
+  "RAT-PRD-0002": "RAT-PRD-001",
+  "AUD-CON-0001": "AUD-CON-003",
+  "MAL-CON-0002": "MAL-CON-002",
+  "MAL-PRD-0002": "MAL-PRD-002",
+  "NID-CON-0002": "NID-CON-004",
+  "_buildings": {
+    "AUD": "Auditorium",
+    "MAL": "Malai",
+    "NID": "Nidasumpan"
+  }
+}

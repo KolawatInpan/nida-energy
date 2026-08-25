@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { message } from 'antd';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import {
   getBuildings,
   getUsers,
@@ -7,7 +10,6 @@ import {
   registerUser,
   registerWallet,
   requestOtpEmail,
-  adminQuickRegister,
 } from '../../core/data_connecter/register';
 import { useTOR } from '../../global/TORContext';
 import TORRegister from '../../components/TOR/TORRegister';
@@ -20,20 +22,41 @@ const REGISTRATION_MODES = {
   METER_ONLY: 'meter-only',
 };
 
-const BUILDING_PRESETS = [
-  { id: 'ratchaphruek', label: 'Ratchaphruek', name: 'Ratchaphruek', role: 'producer', roleLabel: '⚡ Producer + Battery + Consume', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/TGTXyK34yCovJinC7' },
-  { id: 'malai', label: 'Malai', name: 'Malai', role: 'producer', roleLabel: '☀️ Producer (Produce + Consume)', address: 'สถาบันฯ นิด้า 118, อาคารมาลัยหุวะนันท์ ชั้น 1', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Z18Qw8KoDC6rZNcV6' },
-  { id: 'auditorium', label: 'Auditorium', name: 'Auditorium', role: 'producer', roleLabel: '🌓 Producer (demo) / Consumer (real)', address: '148 ถนนเสรีไทย แขวงคลองจั่น เขตบางกะปิ', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=13.771579509456485,100.65443996963269' },
-  { id: 'nidasumpan', label: 'Nida Sumpan', name: 'Nidasumpan', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Fhtz7rWTBYtvmqZN9' },
-  { id: 'bunchana', label: 'Bunchana', name: 'Bunchana', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Seri Thai Rd, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/x2F8LynSaXAy31Jt7' },
-  { id: 'chup', label: 'Chup', name: 'Chup', role: 'consumer', roleLabel: '🔌 Consumer only', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/giR2p4fUSkdVC3vaA' },
-  { id: 'narathip', label: 'Narathip', name: 'Narathip', role: 'consumer', roleLabel: '🔌 Consumer only', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Sz4gkVap4b37AujM8' },
-  { id: 'navamin', label: 'Navamin', name: 'Navamin', role: 'consumer', roleLabel: '🔌 Consumer only', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/tV3JPGpz8qNTM4d18' },
-  { id: 'nidahouse', label: 'Nida House', name: 'Nida house', role: 'consumer', roleLabel: '🔌 Consumer only', address: 'อาคารนันทนาการ Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/1YVnyjcwWCA3zgvK8' },
-  { id: 'serithai', label: 'Serithai', name: 'Serithai', role: 'consumer', roleLabel: '🔌 Consumer only', address: 'Seri Thai Rd, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=Serithai+NIDA+Bangkok' },
-  { id: 'siam', label: 'Siam', name: 'Siam', role: 'consumer', roleLabel: '🔌 Consumer only', address: 'Siam, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=Siam+NIDA+Bangkok' },
-];
+function PasswordRule({ met, label }) {
+  return (
+    <div className={`flex items-center gap-1.5 text-xs ${met ? 'text-green-600' : 'text-gray-400'}`}>
+      <span>{met ? '✅' : '⬜'}</span>
+      <span>{label}</span>
+    </div>
+  );
+}
 
+const BUILDING_PRESETS = [
+  { id: 'ratchaphruek', label: '🏢 Ratchaphruek', name: 'Ratchaphruek', role: 'producer', roleLabel: '⚡ Producer + Battery + Consume', address: '148 Serithai Road, Klong-Chan, Bangkapi, Bangkok Thailand 10240', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/TGTXyK34yCovJinC7' },
+  { id: 'malai', label: '🏢 Malai', name: 'Malai', role: 'producer', roleLabel: '☀️ Producer (Produce + Consume)', address: '148 Serithai Road, Klong-Chan, Bangkapi, Bangkok Thailand 10240', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Z18Qw8KoDC6rZNcV6' },
+  { id: 'auditorium', label: '🏢 Auditorium', name: 'Auditorium', role: 'producer', roleLabel: '🌓 Producer (demo) / Consumer (real)', address: '148 Serithai Road, Klong-Chan, Bangkapi, Bangkok Thailand 10240', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=13.771579509456485,100.65443996963269' },
+  { id: 'nidasumpan', label: '🏢 Nida Sumpan', name: 'Nidasumpan', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Serithai Road, Klong-Chan, Bangkapi, Bangkok Thailand 10240', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Fhtz7rWTBYtvmqZN9' },
+  { id: 'bunchana', label: '🏢 Bunchana', name: 'Bunchana', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Serithai Road, Klong-Chan, Bangkapi, Bangkok Thailand 10240', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/x2F8LynSaXAy31Jt7' },
+  { id: 'chup', label: '🏢 Chup', name: 'Chup', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Serithai Road, Klong-Chan, Bangkapi, Bangkok Thailand 10240', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/giR2p4fUSkdVC3vaA' },
+  { id: 'narathip', label: '🏢 Narathip', name: 'Narathip', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Serithai Road, Klong-Chan, Bangkapi, Bangkok Thailand 10240', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Sz4gkVap4b37AujM8' },
+  { id: 'navamin', label: '🏢 Navamin', name: 'Navamin', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Serithai Road, Klong-Chan, Bangkapi, Bangkok Thailand 10240', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/tV3JPGpz8qNTM4d18' },
+  { id: 'nidahouse', label: '🏢 Nida House', name: 'Nida house', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Serithai Road, Klong-Chan, Bangkapi, Bangkok Thailand 10240', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/1YVnyjcwWCA3zgvK8' },
+  { id: 'serithai', label: '🏢 Serithai', name: 'Serithai', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Serithai Road, Klong-Chan, Bangkapi, Bangkok Thailand 10240', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=Serithai+NIDA+Bangkok' },
+  { id: 'siam', label: '🏢 Siam', name: 'Siam', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Serithai Road, Klong-Chan, Bangkapi, Bangkok Thailand 10240', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=Siam+NIDA+Bangkok' },
+];
+const USER_PRESETS = [
+  { id: 'user-ratcha', name: 'Ratchaphruek User', email: 'nida.ratcha@nida.com', password: 'nida123' },
+  { id: 'user-malai', name: 'Malai User', email: 'nida.malai@nida.com', password: 'nida123' },
+  { id: 'user-audi', name: 'Auditorium User', email: 'nida.audi@nida.com', password: 'nida123' },
+  { id: 'user-nidas', name: 'Nidasumpan User', email: 'nida.nidas@nida.com', password: 'nida123' },
+  { id: 'user-buncha', name: 'Bunchana User', email: 'nida.buncha@nida.com', password: 'nida123' },
+  { id: 'user-chup', name: 'Chup User', email: 'nida.chup@nida.com', password: 'nida123' },
+  { id: 'user-nara', name: 'Narathip User', email: 'nida.nara@nida.com', password: 'nida123' },
+  { id: 'user-nava', name: 'Navamin User', email: 'nida.nava@nida.com', password: 'nida123' },
+  { id: 'user-nidah', name: 'Nida House User', email: 'nida.nidah@nida.com', password: 'nida123' },
+  { id: 'user-seri', name: 'Serithai User', email: 'nida.seri@nida.com', password: 'nida123' },
+  { id: 'user-siam', name: 'Siam User', email: 'nida.siam@nida.com', password: 'nida123' },
+];
 const INITIAL_FORM = {
   contactName: '',
   contactEmail: '',
@@ -149,41 +172,60 @@ export default function MeterRegistration() {
   };
 
   const handleAdminQuickCreate = async (preset, idx) => {
-    const emails = ['nida.ratcha@nida.com', 'nida.malai@nida.com', 'nida.audi@nida.com', 'nida.nidas@nida.com', 'nida.buncha@nida.com', 'nida.chup@nida.com', 'nida.nara@nida.com', 'nida.nava@nida.com', 'nida.nidah@nida.com', 'nida.seri@nida.com', 'nida.siam@nida.com'];
-    const email = emails[idx] || `nida${idx + 1}@nida.com`;
-    const password = 'nida123';
-
     setAdminQuickLoading(preset.id);
     try {
-      const res = await adminQuickRegister({
-        buildingName: preset.name,
-        email,
-        password,
-        address: preset.address,
-        city: preset.city,
-        postalCode: preset.postalCode,
-        mapUrl: preset.mapUrl,
-        buildingRole: preset.role,
-      }, databaseMode);
-      const result = res?.data || res;
-      setPopupResult({ ok: true, preset, email, password, meters: result.meters || [], mode: databaseMode });
-      console.log('Admin quick create result:', result);
-      getBuildings().then(b => setBuildingsList(Array.isArray(b) ? b : [])).catch(() => {});
+      // Step 1: Create Building only (no user)
+      const b = await registerBuilding(preset.name, preset.mapUrl, preset.address, preset.city, preset.postalCode, null, databaseMode);
+      const buildingId = b?.id || b?.data?.id;
+      const today = new Date().toISOString().split('T')[0];
+
+      // Step 2: Create Meters based on building role
+      const meterSNs = [];
+      if (preset.role === 'producer') {
+        // Producer: produce + consume meters (battery only for Ratchaphruek)
+        const isRatchaphruek = preset.id === 'ratchaphruek';
+        try { await registerMeter(buildingId, 'produce', `${preset.name.substring(0,3).toUpperCase()}-PRD-${String(idx+1).padStart(3,'0')}`, 5, today, databaseMode); meterSNs.push('produce'); } catch(e) { console.warn('produce meter failed', e); }
+        try { await registerMeter(buildingId, 'consume', `${preset.name.substring(0,3).toUpperCase()}-CON-${String(idx+1).padStart(3,'0')}`, null, today, databaseMode); meterSNs.push('consume'); } catch(e) { console.warn('consume meter failed', e); }
+        if (isRatchaphruek) { try { await registerMeter(buildingId, 'battery', `${preset.name.substring(0,3).toUpperCase()}-BAT-${String(idx+1).padStart(3,'0')}`, 20, today, databaseMode); meterSNs.push('battery'); } catch(e) { console.warn('battery meter failed', e); } }
+      } else {
+        // Consumer only
+        try { await registerMeter(buildingId, 'consume', `${preset.name.substring(0,3).toUpperCase()}-CON-${String(idx+1).padStart(3,'0')}`, null, today, databaseMode); meterSNs.push('consume'); } catch(e) { console.warn('consume meter failed', e); }
+      }
+
+      message.success(`${preset.name}: building + ${meterSNs.length} meter(s) created`);
+      getBuildings().then(r => setBuildingsList(Array.isArray(r) ? r : [])).catch(() => {});
+      setPopupResult({ ok: true, preset, email: null, password: null, meters: meterSNs, mode: databaseMode, buildingOnly: true });
     } catch (err) {
       setPopupResult({ ok: false, error: err?.response?.data?.error || err.message, mode: databaseMode });
-      console.error('Admin quick create error:', err);
-    } finally {
-      setAdminQuickLoading(null);
-    }
+    } finally { setAdminQuickLoading(null); }
+  };
+
+  const handleUserQuickCreate = async (preset, idx) => {
+    setAdminQuickLoading(preset.id);
+    try {
+      await registerUser(preset.name, preset.email, preset.password, null, null, databaseMode, true);
+      message.success(`User ${preset.email} created`);
+      getUsers().then(u => setUsersList(Array.isArray(u) ? u : [])).catch(() => {});
+      setPopupResult({ ok: true, preset: { name: preset.email }, email: preset.email, password: preset.password, meters: [], mode: databaseMode, userOnly: true });
+    } catch (err) {
+      // User already exists — treat as success
+      if (err?.response?.data?.error?.includes('already exists')) {
+        message.info(`User ${preset.email} already exists`);
+        setPopupResult({ ok: true, preset: { name: preset.email }, email: preset.email, password: preset.password, meters: [], mode: databaseMode, userOnly: true });
+      } else {
+        setPopupResult({ ok: false, error: err?.response?.data?.error || err.message, mode: databaseMode });
+      }
+    } finally { setAdminQuickLoading(null); }
   };
 
   const needsBuildingSection = registrationMode === REGISTRATION_MODES.BUILDING_ONLY || registrationMode === REGISTRATION_MODES.FULL || registrationMode === REGISTRATION_MODES.METER_ONLY;
   const needsUserSection = registrationMode === REGISTRATION_MODES.USER_ONLY || registrationMode === REGISTRATION_MODES.FULL;
   const needsMeterSection = registrationMode === REGISTRATION_MODES.FULL || registrationMode === REGISTRATION_MODES.METER_ONLY;
 
-  // Always fetch buildings for quick-create "exists" summary
+  // Always fetch buildings & users for quick-create "exists" summary
   useEffect(() => {
     getBuildings().then(b => setBuildingsList(Array.isArray(b) ? b : [])).catch(() => {});
+    getUsers().then(u => setUsersList(Array.isArray(u) ? u : [])).catch(() => {});
   }, [databaseMode]);
 
   useEffect(() => {
@@ -232,8 +274,18 @@ export default function MeterRegistration() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.termsAccepted || !formData.dataAccuracyAccepted) {
-      alert('Please accept the required consent checkboxes');
+    // Password validation for FULL and USER_ONLY modes
+    const needsUser = registrationMode === REGISTRATION_MODES.FULL || registrationMode === REGISTRATION_MODES.USER_ONLY;
+    if (needsUser && formData.initialPassword) {
+      const pw = formData.initialPassword;
+      if (pw.length < 8 || !/[0-9]/.test(pw)) {
+        message.warning('Password must be at least 8 characters with at least 1 number.');
+        return;
+      }
+    }
+
+    if (!formData.termsAccepted) {
+      alert('Please accept the Terms of Service and Privacy Policy');
       return;
     }
 
@@ -272,8 +324,8 @@ export default function MeterRegistration() {
     }
 
     if (registrationMode === REGISTRATION_MODES.BUILDING_ONLY) {
-      if (!formData.buildingName || !formData.contactEmail) {
-        alert('Please fill in all required building fields');
+      if (!formData.buildingName) {
+        alert('Please enter a building name');
         return;
       }
     }
@@ -292,8 +344,8 @@ export default function MeterRegistration() {
     }
 
     if (registrationMode === REGISTRATION_MODES.METER_ONLY) {
-      if (!formData.selectedUserEmail || !formData.selectedBuildingId) {
-        alert('Please choose an existing contact and existing building');
+      if (!formData.selectedBuildingId) {
+        alert('Please choose an existing building');
         return;
       }
       for (const meter of formData.meters) {
@@ -310,7 +362,7 @@ export default function MeterRegistration() {
       const otp = otpCode;
 
       if (registrationMode === REGISTRATION_MODES.USER_ONLY) {
-        const password = formData.initialPassword || Math.random().toString(36).slice(-8);
+        const password = formData.initialPassword || (() => { const c='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; let p=''; p+='ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random()*26)]; p+='abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random()*26)]; p+='0123456789'[Math.floor(Math.random()*10)]; for(let i=0;i<5;i++)p+=c[Math.floor(Math.random()*c.length)]; return p; })();
         await registerUser(formData.contactName, formData.contactEmail, password, formData.phoneNumber, otp, databaseMode);
       }
 
@@ -321,31 +373,34 @@ export default function MeterRegistration() {
           formData.address,
           formData.city,
           formData.postalCode,
-          formData.contactEmail,
+          null,
           databaseMode,
         );
       }
 
       if (registrationMode === REGISTRATION_MODES.FULL) {
-        const password = formData.initialPassword || Math.random().toString(36).slice(-8);
-        await registerUser(formData.contactName, formData.contactEmail, password, formData.phoneNumber, otp, databaseMode);
-
+        // Building-first: create building, then user, then wallet, then meters
         const building = await registerBuilding(
           formData.buildingName,
           formData.googleMapsUrl,
           formData.address,
           formData.city,
           formData.postalCode,
-          formData.contactEmail,
+          null,
           databaseMode,
         );
 
         buildingIdToUse = building?.id || null;
 
-        try {
-          await registerWallet(buildingIdToUse, formData.contactEmail, databaseMode);
-        } catch (error) {
-          console.warn('registerWallet failed; continuing', error);
+        const password = formData.initialPassword || (() => { const c='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; let p=''; p+='ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random()*26)]; p+='abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random()*26)]; p+='0123456789'[Math.floor(Math.random()*10)]; for(let i=0;i<5;i++)p+=c[Math.floor(Math.random()*c.length)]; return p; })();
+        await registerUser(formData.contactName, formData.contactEmail, password, formData.phoneNumber, otp, databaseMode);
+
+        if (buildingIdToUse) {
+          try {
+            await registerWallet(buildingIdToUse, formData.contactEmail, databaseMode);
+          } catch (error) {
+            console.warn('registerWallet failed; continuing', error);
+          }
         }
       }
 
@@ -470,6 +525,37 @@ export default function MeterRegistration() {
             )})}
           </div>
 
+          {/* User Quick Create */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+            {USER_PRESETS.map((preset, idx) => {
+              const exists = usersList.some(u => String(u?.email || '').toLowerCase() === preset.email.toLowerCase());
+              return (
+              <div key={preset.id} style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 9, color: '#16a34a', fontWeight: 600, marginBottom: 2, minHeight: 13 }}>
+                  {exists ? 'User exists' : '\u00A0'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUserQuickCreate(preset, idx)}
+                  disabled={adminQuickLoading === preset.id}
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: 6,
+                    border: '1px solid #3b82f6',
+                    background: adminQuickLoading === preset.id ? '#bfdbfe' : '#dbeafe',
+                    color: '#1e40af',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    opacity: adminQuickLoading ? 0.6 : 1,
+                  }}
+                >
+                  {adminQuickLoading === preset.id ? '⏳' : '👤'} {preset.name}
+                </button>
+              </div>
+            )})}
+          </div>
+
           {/* Toolbar: DB selector + Back to Login */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 8, border: `1.5px solid ${databaseMode === DEMO_MODE ? '#f59e0b' : '#3b82f6'}`, background: databaseMode === DEMO_MODE ? '#fffbeb' : '#eff6ff' }}>
@@ -515,23 +601,7 @@ export default function MeterRegistration() {
           </div>
 
           {registrationMode === REGISTRATION_MODES.METER_ONLY ? (
-            <SectionCard title="Existing Contact & Building" icon="🔗">
-              <div>
-                <label className="mb-1 block text-sm font-medium">Select Existing Contact *</label>
-                <select
-                  required
-                  value={formData.selectedUserEmail}
-                  onChange={(e) => handleFormChange('selectedUserEmail', e.target.value)}
-                  className="w-full rounded border px-3 py-2"
-                >
-                  <option value="">-- Choose contact --</option>
-                  {usersList.map((user) => (
-                    <option key={user.email || user.credId} value={user.email}>
-                      {user.name} — {user.email}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <SectionCard title="Existing Building" icon="🔗">
               <div>
                 <label className="mb-1 block text-sm font-medium">Select Existing Building *</label>
                 <select
@@ -551,53 +621,10 @@ export default function MeterRegistration() {
             </SectionCard>
           ) : null}
 
-          {needsUserSection ? (
-            <SectionCard title="Contact Person Information" icon="👤">
-              <div>
-                <label className="mb-1 block text-sm font-medium">Contact Name *</label>
-                <input
-                  required
-                  type="text"
-                  value={formData.contactName}
-                  onChange={(e) => handleFormChange('contactName', e.target.value)}
-                  className="w-full rounded border px-3 py-2"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium">Email *</label>
-                <input
-                  required
-                  type="email"
-                  value={formData.contactEmail}
-                  onChange={(e) => { handleFormChange('contactEmail', e.target.value); setShowOtpStep(false); }}
-                  className="w-full rounded border px-3 py-2"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium">Initial Password</label>
-                <input
-                  type="password"
-                  value={formData.initialPassword}
-                  onChange={(e) => handleFormChange('initialPassword', e.target.value)}
-                  className="w-full rounded border px-3 py-2"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium">Phone</label>
-                <input
-                  type="tel"
-                  value={formData.phoneNumber}
-                  onChange={(e) => handleFormChange('phoneNumber', e.target.value)}
-                  className="w-full rounded border px-3 py-2"
-                />
-              </div>
-            </SectionCard>
-          ) : null}
-
           {needsBuildingSection && registrationMode !== REGISTRATION_MODES.METER_ONLY ? (
             <SectionCard title="Building / Organization Information" icon="🏢">
               <div className="mb-2">
-                <label className="mb-2 block text-sm font-medium text-gray-700">Quick Fill (Presets)</label>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Quick Create Building (No User — assign later)</label>
                 <div className="flex flex-wrap gap-2">
                   {BUILDING_PRESETS.map((preset) => (
                     <button
@@ -620,35 +647,6 @@ export default function MeterRegistration() {
                   onChange={(e) => handleFormChange('buildingName', e.target.value)}
                   className="w-full rounded border px-3 py-2"
                 />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium">Owner / Contact Email *</label>
-                {registrationMode === REGISTRATION_MODES.BUILDING_ONLY ? (
-                  <select
-                    required
-                    value={formData.contactEmail}
-                    onChange={e => handleFormChange('contactEmail', e.target.value)}
-                    className="w-full rounded border px-3 py-2"
-                  >
-                    <option value="">-- Select user email --</option>
-                    {usersList.map(user => (
-                      <option key={user.email || user.credId} value={user.email}>{user.name ? `${user.name} (${user.email})` : user.email}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    required={registrationMode === REGISTRATION_MODES.BUILDING_ONLY}
-                    type="email"
-                    list="existing-user-emails"
-                    value={formData.contactEmail}
-                    onChange={(e) => handleFormChange('contactEmail', e.target.value)}
-                    className="w-full rounded border px-3 py-2"
-                    placeholder="Type email or choose from existing users"
-                  />
-                )}
-                {registrationMode === REGISTRATION_MODES.BUILDING_ONLY && (
-                  <p className="mt-1 text-xs text-gray-500">Select user email from the system only.</p>
-                )}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">Google Maps URL</label>
@@ -687,6 +685,56 @@ export default function MeterRegistration() {
                     className="w-full rounded border px-3 py-2"
                   />
                 </div>
+              </div>
+            </SectionCard>
+          ) : null}
+
+          {needsUserSection ? (
+            <SectionCard title="Contact Person Information" icon="👤">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Contact Name *</label>
+                <input
+                  required
+                  type="text"
+                  value={formData.contactName}
+                  onChange={(e) => handleFormChange('contactName', e.target.value)}
+                  className="w-full rounded border px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Email *</label>
+                <input
+                  required
+                  type="email"
+                  value={formData.contactEmail}
+                  onChange={(e) => { handleFormChange('contactEmail', e.target.value); setShowOtpStep(false); }}
+                  className="w-full rounded border px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Initial Password</label>
+                <input
+                  type="password"
+                  value={formData.initialPassword}
+                  onChange={(e) => handleFormChange('initialPassword', e.target.value)}
+                  placeholder="Min. 8 characters, A-Z, a-z, 0-9"
+                  className="w-full rounded border px-3 py-2"
+                />
+                {formData.initialPassword && (
+                  <div className="mt-1 space-y-0.5">
+                    <PasswordRule met={formData.initialPassword.length >= 8} label="At least 8 characters" />
+                    <PasswordRule met={/[0-9]/.test(formData.initialPassword)} label="At least 1 number" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Phone</label>
+                <input
+                  type="tel"
+                  value={formData.phoneNumber}
+                  onChange={(e) => handleFormChange('phoneNumber', e.target.value)}
+                  className="w-full rounded border px-3 py-2"
+                />
               </div>
             </SectionCard>
           ) : null}
@@ -735,22 +783,25 @@ export default function MeterRegistration() {
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-sm font-medium">Expected Capacity</label>
+                        <label className="mb-1 block text-sm font-medium">Expected Capacity (kWh)</label>
                         <input
                           type="text"
                           value={meter.capacity}
                           onChange={(e) => handleMeterChange(idx, 'capacity', e.target.value)}
+                          placeholder="e.g. 5"
                           className="w-full rounded border px-3 py-2"
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="mb-1 block text-sm font-medium">Meter Installation Date</label>
-                      <input
-                        type="date"
-                        value={meter.dateInstalled}
-                        onChange={(e) => handleMeterChange(idx, 'dateInstalled', e.target.value)}
-                        className="w-full rounded border px-3 py-2"
+                      <label className="mb-1 block text-sm font-medium">Meter Installation Date (dd-mm-yyyy)</label>
+                      <DatePicker
+                        selected={meter.dateInstalled ? new Date(meter.dateInstalled + 'T00:00:00') : null}
+                        onChange={(date) => handleMeterChange(idx, 'dateInstalled', date ? date.toISOString().slice(0, 10) : '')}
+                        dateFormat="dd-MM-yyyy"
+                        placeholderText="dd-mm-yyyy"
+                        maxDate={new Date()}
+                        className="w-full rounded border px-3 py-2 text-sm"
                       />
                     </div>
                   </div>
@@ -768,22 +819,18 @@ export default function MeterRegistration() {
           ) : null}
 
           <SectionCard title="Terms & Consent" icon="✅">
-            <label className="flex items-start rounded-lg border p-3 hover:bg-gray-50">
-              <input type="checkbox" checked={formData.termsAccepted} onChange={() => handleCheckboxChange('termsAccepted')} className="mt-1" />
+            <label className="flex items-start rounded-lg border p-4 hover:bg-gray-50 cursor-pointer">
+              <input type="checkbox" checked={formData.termsAccepted} onChange={() => handleCheckboxChange('termsAccepted')} className="mt-0.5" />
               <div className="ml-3">
-                <div className="text-sm font-medium">I accept the Terms of Service and Privacy Policy</div>
-              </div>
-            </label>
-            <label className="flex items-start rounded-lg border p-3 hover:bg-gray-50">
-              <input type="checkbox" checked={formData.dataAccuracyAccepted} onChange={() => handleCheckboxChange('dataAccuracyAccepted')} className="mt-1" />
-              <div className="ml-3">
-                <div className="text-sm font-medium">I confirm the accuracy of all provided information</div>
-              </div>
-            </label>
-            <label className="flex items-start rounded-lg border p-3 hover:bg-gray-50">
-              <input type="checkbox" checked={formData.systemNotificationsAccepted} onChange={() => handleCheckboxChange('systemNotificationsAccepted')} className="mt-1" />
-              <div className="ml-3">
-                <div className="text-sm font-medium">I agree to receive system notifications</div>
+                <div className="text-sm font-medium text-gray-900">
+                  I accept the{' '}
+                  <a href="/policy" target="_blank" className="text-blue-600 underline hover:text-blue-800" onClick={e => e.stopPropagation()}>
+                    Terms of Service
+                  </a>
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  By checking this box, you agree to all terms and policies of the NIDA Energy Trading Platform.
+                </div>
               </div>
             </label>
           </SectionCard>
@@ -925,10 +972,18 @@ export default function MeterRegistration() {
                 <div className="text-sm text-gray-700 space-y-1.5 bg-gray-50 rounded-xl p-4 mb-4">
                   <div>🏢 <strong>{popupResult.preset?.name}</strong></div>
                   <div>📋 <span style={{ color: '#6b7280' }}>{popupResult.preset?.roleLabel}</span></div>
-                  <div>📧 {popupResult.email}</div>
-                  <div>🔑 {popupResult.password}</div>
-                  <div>📟 {(popupResult.meters || []).join(', ') || 'none'}</div>
-                  <div>💰 10,000 tokens</div>
+                  {popupResult.userOnly ? (
+                    <div className="text-xs text-amber-600 mt-2">👤 User created — assign to building later in Admin</div>
+                  ) : popupResult.buildingOnly ? (
+                    <div className="text-xs text-amber-600 mt-2">⚠️ Building + {popupResult.meters?.length || 0} meter(s) created — assign user later in Admin</div>
+                  ) : (
+                    <>
+                      <div>📧 {popupResult.email}</div>
+                      <div>🔑 {popupResult.password}</div>
+                      <div>📟 {(popupResult.meters || []).join(', ') || 'none'}</div>
+                      <div>💰 10,000 tokens</div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="text-sm text-red-700 bg-red-50 rounded-xl p-4 mb-4">

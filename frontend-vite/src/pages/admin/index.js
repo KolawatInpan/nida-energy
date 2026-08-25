@@ -4,6 +4,7 @@ export { default as Meters } from './meters';
 export { default as Quota } from './quota';
 export { default as ApprovedRequest } from './approvedRequest';
 export { default as RegisterRequestDetail } from './registerRequestDetail';
+export { default as UserDetail } from './userDetail';
 export { default as AdminResetDatabase } from './adminResetDatabase';
 export { default as TokenManagement } from './tokenManagement';
 export { default as RateManagement } from './rateManagement';

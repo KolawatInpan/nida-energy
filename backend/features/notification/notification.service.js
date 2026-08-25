@@ -1,5 +1,6 @@
 // Notification service: สร้าง notification ตาม event ต่างๆ
 const { prisma } = require('../../utils/prisma');
+const { isNotificationEnabled } = require('./notification.types');
 
 /**
  * สร้าง notification
@@ -29,6 +30,77 @@ async function createNotification({ type, message, email: directEmail = null, us
       read: false
     },
   });
+}
+
+/**
+ * Dispatch a notification through the channels the user has enabled:
+ *  - Always: in-app notification (DB)
+ *  - If notifyTelegram + telegramChatId: Telegram direct message
+ *  - If notifyEmail + email: Email
+ * All outbound sends are fire-and-forget (never block / throw to caller).
+ *
+ * @param {Object} param0
+ * @param {string} param0.type - event type
+ * @param {string} param0.message - message text (also used for Telegram/Email body)
+ * @param {string} [param0.email] - recipient email (used to find the user & send email)
+ * @param {string} [param0.userId] - user credId
+ * @param {number} [param0.buildingId]
+ * @param {number} [param0.meterId]
+ * @param {string} [param0.channel] - 'all' | 'telegram' | 'email' (default 'all')
+ */
+async function dispatchNotification({ type, message, email: directEmail = null, userId = null, buildingId = null, meterId = null, channel = 'all' }) {
+  // 1. Resolve the recipient user (prefer explicit userId, else directEmail)
+  let user = null;
+  if (userId) {
+    user = await prisma.user.findUnique({ where: { credId: String(userId) } }).catch(() => null);
+  }
+  if (!user && directEmail) {
+    user = await prisma.user.findUnique({ where: { email: directEmail } }).catch(() => null);
+  }
+  const userEmail = user?.email || directEmail || null;
+
+  // 0. Preference gate: skip outbound channels if this type is disabled for the user.
+  //    In-app notification is always created regardless of type preference.
+  const typeEnabled = isNotificationEnabled(user, type);
+
+  // 2. Always create the in-app notification
+  try {
+    await createNotification({ type, message, email: userEmail, userId, buildingId, meterId });
+  } catch (e) {
+    console.error('[dispatchNotification] in-app create failed:', e.message);
+  }
+
+  if (!typeEnabled) {
+    return { userId: user?.credId || null, email: userEmail, telegram: false, emailSent: false, typeDisabled: true };
+  }
+
+  // 3. Telegram (if enabled + has chat id)
+  const wantTelegram = channel === 'all' || channel === 'telegram';
+  if (wantTelegram && user?.notifyTelegram !== false && user?.telegramChatId) {
+    try {
+      const { sendTelegramMessage } = require('../../utils/telegram');
+      await sendTelegramMessage({ text: message, parseMode: 'HTML', chatId: user.telegramChatId });
+    } catch (e) {
+      console.error('[dispatchNotification] Telegram failed:', e.message);
+    }
+  }
+
+  // 4. Email (if enabled + has email)
+  const wantEmail = channel === 'all' || channel === 'email';
+  if (wantEmail && user?.notifyEmail !== false && userEmail) {
+    try {
+      const { sendEmail } = require('../../utils/email');
+      await sendEmail({
+        to: userEmail,
+        subject: `[NIDA Energy] ${type}`,
+        html: `<div style="font-family:Arial,sans-serif"><h3>${type}</h3><p>${message}</p></div>`,
+      });
+    } catch (e) {
+      console.error('[dispatchNotification] Email failed:', e.message);
+    }
+  }
+
+  return { userId: user?.credId || null, email: userEmail, telegram: user?.notifyTelegram !== false && !!user?.telegramChatId, emailSent: user?.notifyEmail !== false && !!userEmail };
 }
 
 /**
@@ -71,6 +143,7 @@ async function markAsRead(notificationId) {
 
 module.exports = {
   createNotification,
+  dispatchNotification,
   getNotifications,
   markAsRead,
 };

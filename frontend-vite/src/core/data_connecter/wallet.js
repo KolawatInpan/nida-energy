@@ -29,6 +29,13 @@ export function getWalletByEmail(email) {
         .catch(err => { console.error('getWalletByEmail error', err); throw err; });
 }
 
+export function getWalletById(walletId) {
+    const base = getApiBase();
+    return axios.get(`${base}/wallets/${encodeURIComponent(walletId)}`)
+        .then(ress => ress)
+        .catch(err => { console.error('getWalletById error', err); throw err; });
+}
+
 export function topupWalletByEmail(email, amount, snid) {
     const base = getApiBase();
     return axios.post(`${base}/wallets/by-email/${encodeURIComponent(email)}/topup`, { amount, snid })

@@ -20,6 +20,10 @@ function buildAuthUser(user) {
 		name: user.name,
 		email: user.email,
 		role: user.role,
+		status: user.status || 'approved',  // pending | approved | rejected
+		telegramChatId: user.telegramChatId || null,
+		notifyEmail: user.notifyEmail !== false,
+		notifyTelegram: user.notifyTelegram !== false,
 		wallets: user.wallets || [],
 		credentials: user.credentials || [],
 	};
@@ -97,18 +101,20 @@ async function requestOtp(req, res) {
 async function register(req, res) {
 	try {
 		const { name, email, password, otp } = req.body;
+		const bypassOtp = req.headers['x-admin-bypass-otp'] === 'true';
 		
-		// ตรวจสอบ OTP
-		const storedOtp = otpStore.get(email);
-		if (!storedOtp) return res.status(400).json({ error: 'OTP is required. Please request an OTP first.' });
-		console.log('[OTP verify]', { email, sent: storedOtp.code, received: String(otp).trim(), match: String(storedOtp.code) === String(otp).trim() });
-		if (String(storedOtp.code) !== String(otp).trim()) return res.status(400).json({ error: 'Invalid OTP' });
-		if (Date.now() > storedOtp.expiresAt) {
+		// ตรวจสอบ OTP (skip if admin bypass)
+		if (!bypassOtp) {
+			const storedOtp = otpStore.get(email);
+			if (!storedOtp) return res.status(400).json({ error: 'OTP is required. Please request an OTP first.' });
+			console.log('[OTP verify]', { email, sent: storedOtp.code, received: String(otp).trim(), match: String(storedOtp.code) === String(otp).trim() });
+			if (String(storedOtp.code) !== String(otp).trim()) return res.status(400).json({ error: 'Invalid OTP' });
+			if (Date.now() > storedOtp.expiresAt) {
+				otpStore.delete(email);
+				return res.status(400).json({ error: 'OTP expired. Please request a new one.' });
+			}
 			otpStore.delete(email);
-			return res.status(400).json({ error: 'OTP expired. Please request a new one.' });
 		}
-		
-		otpStore.delete(email); // ยืนยันสำเร็จ ลบ OTP ทิ้ง
 
 		console.log('Registering user', { name, email });
 		const newUser = await User.registerUser(name, email, password);
@@ -129,6 +135,11 @@ async function login(req, res) {
 		const user = await User.authenticateUser(email, password);
 		if (!user) {
 			return res.status(401).json({ error: 'Invalid email or password' });
+		}
+
+		// Rejected users cannot login; pending users can login but see pending status
+		if (user.status === 'rejected') {
+			return res.status(403).json({ error: 'Your account has been rejected. Please contact admin.' });
 		}
 
 		const authUser = buildAuthUser(user);
@@ -204,6 +215,10 @@ async function updateUser(req, res) {
 		if (err.message === 'User not found') {
 			return res.status(404).json({ error: err.message });
 		}
+		if (err?.code === 'P2002') {
+			const field = (err?.meta?.target || []).join(', ');
+			return res.status(409).json({ error: `Duplicate: ${field || 'value'} already exists` });
+		}
 		res.status(500).json({ error: err.message });
 	}
 }
@@ -255,6 +270,8 @@ async function adminQuickRegister(req, res) {
 		let newUser;
 		try {
 			newUser = await User.registerUser(buildingName, email, password);
+			// Admin-created users are pre-approved
+			if (newUser?.credId) await User.updateUser(newUser.credId, { status: 'approved' }).catch(() => {});
 		} catch (err) {
 			if (err.message === 'User with this email already exists') {
 				newUser = await User.getUserByEmail(email);
@@ -263,8 +280,8 @@ async function adminQuickRegister(req, res) {
 				throw err;
 			}
 		}
-		if (phoneNumber) {
-			await User.updateUser(email, { telNum: phoneNumber }).catch(() => {});
+		if (phoneNumber && newUser?.credId) {
+			await User.updateUser(newUser.credId, { telNum: phoneNumber }).catch(() => {});
 		}
 
 		// 2. Create or reuse Building
@@ -286,6 +303,8 @@ async function adminQuickRegister(req, res) {
 					tradeMeterType: targetTradeMeterType,
 					batterySellThreshold: 80,
 					solarSelfPercent: 80,
+					approvalStatus: 'approved',
+					status: 'ACTIVE',
 				},
 			});
 		} else {
@@ -313,14 +332,12 @@ async function adminQuickRegister(req, res) {
 		const initialTokens = isLarge ? 4700 : 2000;
 
 		const walletId = randomUUID();
-		const dbsToCreate = isRealMode ? [realPrisma, demoPrisma] : [demoPrisma];
-		for (const db of dbsToCreate) {
-			const exists = await db.wallet.findUnique({ where: { email } }).catch(() => null);
-			if (!exists) {
-				await db.wallet.create({
-					data: { id: walletId, email, tokenBalance: initialTokens },
-				}).catch(err => console.warn('[adminQuickRegister] Wallet create failed for', email, err.message));
-			}
+		const db = isRealMode ? realPrisma : demoPrisma;
+		const exists = await db.wallet.findUnique({ where: { email } }).catch(() => null);
+		if (!exists) {
+			await db.wallet.create({
+				data: { id: walletId, email, tokenBalance: initialTokens },
+			}).catch(err => console.warn('[adminQuickRegister] Wallet create failed for', email, err.message));
 		}
 
 		// 4. Create meters based on building + mode
@@ -408,17 +425,14 @@ async function checkUser(req, res) {
 			return res.status(400).json({ error: 'email is required' });
 		}
 
-		const { realPrisma, demoPrisma } = require('../../utils/prisma');
+		const { getCurrentPrisma } = require('../../utils/prisma');
+		const db = getCurrentPrisma();
 
-		const [realUser, demoUser] = await Promise.all([
-			realPrisma.user.findUnique({ where: { email }, select: { email: true, name: true, role: true } }).catch(() => null),
-			demoPrisma.user.findUnique({ where: { email }, select: { email: true, name: true, role: true } }).catch(() => null),
-		]);
+		const user = await db.user.findUnique({ where: { email }, select: { email: true, name: true, role: true } }).catch(() => null);
 
 		res.json({
 			email,
-			real: realUser ? { name: realUser.name, role: realUser.role } : null,
-			demo: demoUser ? { name: demoUser.name, role: demoUser.role } : null,
+			found: user ? { name: user.name, role: user.role } : null,
 		});
 	} catch (err) {
 		console.error('checkUser error', err);
@@ -438,5 +452,15 @@ module.exports = {
 	adminQuickRegister,
 	checkUser,
 	updateUser,
-	deleteUser
+	deleteUser,
+	// User Approval
+	async getPendingUsers(req, res) {
+		try { res.json(await User.getPendingUsers()); } catch (err) { res.status(500).json({ error: err.message }); }
+	},
+	async approveUser(req, res) {
+		try { res.json(await User.approveUser(req.params.email)); } catch (err) { res.status(500).json({ error: err.message }); }
+	},
+	async rejectUser(req, res) {
+		try { res.json(await User.rejectUser(req.params.email)); } catch (err) { res.status(500).json({ error: err.message }); }
+	},
 };

@@ -1,18 +1,23 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useDispatch, useSelector } from "react-redux";
 import Plot from 'react-plotly.js';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import axios from 'axios';
+import { getApiBase } from '../../core/data_connecter/apiBase';
 import { validateAuth } from "../../store/auth/auth.action";
 import { getMember } from '../../store/member/member.action';
-import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/register';
+import { getBuildings, getGaps, getMetersByBuilding } from '../../core/data_connecter/register';
 import { searchBuildingEnergy } from '../../core/data_connecter/dashboard';
+import { getWalletByEmail } from '../../core/data_connecter/wallet';
 import Key from '../../global/key';
 import { formatDateLocal, toNumeric } from '../../utils/energyAnalytics';
 import { buildComparisonXAxisLabels, buildNiceScale, swapComparisonSelection } from '../../utils/dashboardCharts';
 import { formatEnergy } from '../../utils/formatters';
 import TORReport from '../../components/TOR/TORReport';
+import GapBar from '../../components/charts/GapBar';
+import { fmtDate, fmtDateTime } from '../../utils/dateFormat';
 
 const buildEmptyChartData = (days) => Array.from({ length: days }, (_, index) => ({
     day: `Day ${index + 1}`,
@@ -31,6 +36,7 @@ const slugify = (name) => String(name || '').toLowerCase().replace(/\s+/g, '-').
 
 const meterTypeOf = (m) => (m?.type || '').toString().toLowerCase();
 const hasBatteryMeter = (m) => meterTypeOf(m).includes('battery');
+const hasProducerMeter = (m) => meterTypeOf(m).includes('produce');
 
 const downloadBlobFile = (content, filename, mimeType) => {
     const blob = new Blob([content], { type: mimeType });
@@ -69,7 +75,7 @@ const getDaysForRange = (range, customStart, customEnd) => {
   if (range === 'custom' && customStart && customEnd) {
     return Math.max(1, Math.ceil((customEnd - customStart) / (1000 * 60 * 60 * 24)) + 1);
   }
-  return range === '7days' ? 7 : range === '30days' ? 30 : 90;
+  return range === '1week' ? 7 : range === '1month' ? 30 : 365;
 };
 
 // Export functions
@@ -77,7 +83,7 @@ const exportToExcel = () => {
     // Generate CSV data
     const csvData = [
         ['Total Energy Analytics Report', '', '', ''],
-        ['Generated:', new Date().toLocaleDateString(), '', ''],
+        ['Generated:', fmtDate(new Date()), '', ''],
         ['', '', '', ''],
         ['Energy Summary', '', '', ''],
         ['Source', 'Value', 'Percentage', ''],
@@ -135,7 +141,7 @@ const exportToPDF = () => {
         </head>
         <body>
             <h1>Total Energy Analytics Report</h1>
-            <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+            <p><strong>Generated:</strong> ${fmtDateTime(new Date())}</p>
             <p><strong>Blockchain Verified:</strong> ✓</p>
             
             <div class="summary">
@@ -192,13 +198,18 @@ const exportToPDF = () => {
 };
 
 // Color palette for per-building chart lines
-const BUILDING_COLORS = ['#22c55e','#ef4444','#3b82f6','#f97316','#8b5cf6','#ec4899','#14b8a6','#eab308','#06b6d4','#f43f5e'];
+const PRODUCE_COLORS = ['#22c55e','#16a34a','#15803d','#4ade80','#86efac','#65a30d','#166534','#a3e635','#047857','#059669'];
+const CONSUME_COLORS = ['#ef4444','#dc2626','#b91c1c','#f87171','#ea580c','#c2410c','#991b1b','#7f1d1d','#e11d48','#be123c'];
+const SOC_COLORS     = ['#3b82f6','#2563eb','#1d4ed8','#60a5fa','#6366f1','#4f46e5','#1e40af','#3730a3','#8b5cf6','#7c3aed'];
+// Different dash styles so each building is visually distinct
+const DASH_STYLES   = ['solid','dash','dot','dashdot','longdash','longdashdot','solid','dash','dot','dashdot'];
+const MARKER_SYMBOLS = ['circle','square','diamond','triangle-up','star','cross','x','hexagon','star-diamond','bowtie'];
 
 export default function Report() {
     const history = useHistory();
     const dispatch = useDispatch();
     const memberStore = useSelector((store) => store.member.all);
-    const [timeRange, setTimeRange] = useState('7days');
+    const [timeRange, setTimeRange] = useState('1week');
     const [customDateRange, setCustomDateRange] = useState([null, null]);
     const [customStart, customEnd] = customDateRange;
     const [chartData, setChartData] = useState(buildEmptyChartData(7));
@@ -213,9 +224,27 @@ export default function Report() {
     const [member, setMember] = useState(DEFAULT_MEMBER);
     const [selectedBuildings, setSelectedBuildings] = useState([]); // empty = all
     const [perBuildingChart, setPerBuildingChart] = useState({}); // { buildingName: [{day,pvProduction,consumption}] }
+    const [chartRev, setChartRev] = useState(0);
     const [chartToggle, setChartToggle] = useState({ showProduce: true, showConsume: true, showSoC: true });
+    const [reportGaps, setReportGaps] = useState([]);
+    const [reportGapRange, setReportGapRange] = useState({ start: null, end: null });
+
+    // Increment chart revision when data changes
+    useEffect(() => { setChartRev(r => r + 1); }, [chartData, perBuildingChart]);
+
+    // Fetch admin wallet balance
+    useEffect(() => {
+        getWalletByEmail('admin@nida.ac.th')
+            .then(res => {
+                const bal = res?.data?.tokenBalance ?? res?.tokenBalance ?? res?.balance;
+                if (bal != null) setAdminBalance(Number(bal));
+            })
+            .catch(() => setAdminBalance(null));
+    }, []);
     const [showExportModal, setShowExportModal] = useState(false);
     const [exportBuildings, setExportBuildings] = useState([]); // empty = all
+    const [exportTypes, setExportTypes] = useState({ consume: true, produce: true, battery: false });
+    const [adminBalance, setAdminBalance] = useState(null);
     const [exportStartDate, setExportStartDate] = useState(new Date());
     const [exportEndDate, setExportEndDate] = useState(new Date());
     const [exportFormat, setExportFormat] = useState('excel');
@@ -280,6 +309,8 @@ export default function Report() {
 
                     const batteryMeter = (meters || []).find(hasBatteryMeter);
                     const hasBattery = Boolean(batteryMeter);
+                    const producerMeter = (meters || []).find(hasProducerMeter);
+                    const hasProducer = Boolean(producerMeter);
                     const batteryValue = toNumeric(batteryMeter?.value ?? batteryMeter?.kwh ?? 0);
                     const batteryCap = toNumeric(batteryMeter?.capacity ?? 0);
                     const batteryPct = batteryCap > 0 ? Math.max(0, Math.min(100, Math.round((batteryValue / batteryCap) * 100))) : 0;
@@ -316,7 +347,8 @@ export default function Report() {
                         hasBattery,
                         batteryValue: Math.round(batteryValue),
                         batteryCap: Math.round(batteryCap),
-                        batteryPct
+                        batteryPct,
+                        hasProducer
                     }];
                 }));
 
@@ -369,7 +401,7 @@ export default function Report() {
                 const labels = Array.from({ length: days }, (_, index) => {
                     const date = new Date(startDate);
                     date.setDate(startDate.getDate() + index);
-                    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
                 });
 
                 console.log('[report] Buildings from API:', buildings.map(b => b?.name));
@@ -411,7 +443,7 @@ export default function Report() {
                                 labels.forEach((l) => { dailyMap[l] = { pv: 0, con: 0 }; });
                                 hdates.forEach((dt, i) => {
                                     const d = new Date(dt);
-                                    const dayLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                                    const dayLabel = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
                                     if (dailyMap[dayLabel] !== undefined) {
                                         dailyMap[dayLabel].pv += toNumeric(hpv[i]);
                                         dailyMap[dayLabel].con += toNumeric(hcon[i]);
@@ -456,15 +488,31 @@ export default function Report() {
                 energyResponses.forEach((response, idx) => {
                     const payload = response?.data || {};
                     const buildingName = payload?.building || buildings[idx]?.name || `unknown-${idx}`;
+                    const productionDatetimes = Array.isArray(payload?.production?.datetime) ? payload.production.datetime : [];
                     const productionValues = Array.isArray(payload?.production?.value) ? payload.production.value : [];
+                    const consumptionDatetimes = Array.isArray(payload?.consumption?.datetime) ? payload.consumption.datetime : [];
                     const consumptionValues = Array.isArray(payload?.consumption?.value) ? payload.consumption.value : [];
                     const pvSum = productionValues.reduce((s, v) => s + toNumeric(v), 0);
                     const conSum = consumptionValues.reduce((s, v) => s + toNumeric(v), 0);
                     console.log(`[report:agg] "${buildingName}" → prod=${pvSum} kWh, cons=${conSum} kWh, pvLen=${productionValues.length}`);
 
-                    labels.forEach((label, index) => {
-                        productionMap.set(label, toNumeric(productionMap.get(label)) + toNumeric(productionValues[index]));
-                        consumptionMap.set(label, toNumeric(consumptionMap.get(label)) + toNumeric(consumptionValues[index]));
+                    // Build date→value maps from API response (datetime and value are parallel arrays)
+                    const prodByDate = new Map();
+                    productionDatetimes.forEach((dt, i) => {
+                        if (dt) prodByDate.set(String(dt).slice(0, 10), toNumeric(productionValues[i]));
+                    });
+                    const consByDate = new Map();
+                    consumptionDatetimes.forEach((dt, i) => {
+                        if (dt) consByDate.set(String(dt).slice(0, 10), toNumeric(consumptionValues[i]));
+                    });
+
+                    // Map each label to the correct date-based value
+                    const dayCursor = new Date(startDate);
+                    labels.forEach((label) => {
+                        const dateKey = formatDateLocal(dayCursor); // YYYY-MM-DD
+                        productionMap.set(label, toNumeric(productionMap.get(label)) + (prodByDate.get(dateKey) || 0));
+                        consumptionMap.set(label, toNumeric(consumptionMap.get(label)) + (consByDate.get(dateKey) || 0));
+                        dayCursor.setDate(dayCursor.getDate() + 1);
                     });
                 });
 
@@ -474,6 +522,22 @@ export default function Report() {
                     consumption: toNumeric(consumptionMap.get(label)),
                     batterySoC: averageBatteryPct,
                 })));
+
+                // Detect data gaps for the report range
+                const firstBuilding = buildings[0];
+                if (firstBuilding) {
+                    try {
+                        const metersRes = await getMetersByBuilding(firstBuilding.id);
+                        const meters = Array.isArray(metersRes) ? metersRes : (metersRes?.data || []);
+                        const gapMeterId = meters[0]?.snid;
+                        if (gapMeterId) {
+                            getGaps({ meterId: gapMeterId, from: startDate.toISOString(), to: endDate.toISOString() }).then((g) => {
+                                setReportGaps(Array.isArray(g) ? g : []);
+                                setReportGapRange({ start: startDate.toISOString(), end: endDate.toISOString() });
+                            }).catch(() => {});
+                        }
+                    } catch (_) {}
+                }
             } catch (error) {
                 console.error('Failed to load report chart data:', error);
                 setChartData(buildEmptyChartData(getDaysForRange(timeRange, customStart, customEnd)));
@@ -510,7 +574,7 @@ export default function Report() {
             const labels = Array.from({ length: days }, (_, index) => {
                 const date = new Date(startDate);
                 date.setDate(startDate.getDate() + index);
-                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
             });
 
             const result = {};
@@ -554,7 +618,7 @@ export default function Report() {
                             labels.forEach((l) => { dailyMap[l] = { pv: 0, con: 0 }; });
                             hdates.forEach((dt, i) => {
                                 const d = new Date(dt);
-                                const dayLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                                const dayLabel = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
                                 if (dailyMap[dayLabel] !== undefined) {
                                     dailyMap[dayLabel].pv += toNumeric(hpv[i]);
                                     dailyMap[dayLabel].con += toNumeric(hcon[i]);
@@ -567,9 +631,10 @@ export default function Report() {
                         const pvSum = pv.reduce((s, v) => s + toNumeric(v), 0);
                         const conSum = con.reduce((s, v) => s + toNumeric(v), 0);
 
-                        // === Battery SoC: forward-accumulated from EARLIEST available data ===
-                        // Query from far-past date to accumulate the FULL SoC history,
-                        // not just within the selected time frame.
+                        // === Battery SoC: use the REAL SoC series from RunningMeter.kWH ===
+                        // The backend stores the integrated SoC (clamped to capacity) on each
+                        // battery RunningMeter row, so we query it directly per day instead of
+                        // forward-accumulating flow (which used to pile up to 100 and stick).
                         let batteryPct = null;
                         let batterySoCSeries = null;
                         let hasBattery = false;
@@ -585,48 +650,32 @@ export default function Report() {
                                     bCap = toNumeric(batteryMeter?.capacity ?? 0);
                                     batteryPct = bCap > 0 ? Math.max(0, Math.min(100, Math.round((bVal / bCap) * 100))) : null;
 
-                                    // Query from far-past date to get FULL accumulation
-                                    const farPast = '2024-01-01'; // earliest possible data
-                                    const batFlowRes = await searchBuildingEnergy({
-                                        building: backendName,
-                                        buildingId,
-                                        start: farPast,
-                                        end,
-                                        timeunit: 'day',
+                                    // Query the REAL SoC series (daily) from RunningMeter.kWH
+                                    const socRes = await axios.get(`${getApiBase()}/runningMeters/soc-series/${batteryMeter.snid}`, {
+                                        params: { start: '2024-01-01', end },
                                     }).catch(() => null);
-                                    const batPayload = batFlowRes?.data || {};
-                                    const batFlowDates = Array.isArray(batPayload?.battery?.datetime) ? batPayload.battery.datetime : [];
-                                    const batFlowVals = Array.isArray(batPayload?.battery?.value) ? batPayload.battery.value : [];
+                                    const socPayload = socRes?.data || {};
+                                    const socDates = Array.isArray(socPayload?.datetime) ? socPayload.datetime : [];
+                                    const socVals = Array.isArray(socPayload?.value) ? socPayload.value : [];
 
-                                    // Forward accumulate from earliest data
-                                    const fullMap = {}; // date string -> accumulated SoC%
-                                    if (bCap > 0 && batFlowVals.length > 0) {
-                                        let soc = 0;
-                                        for (let i = 0; i < batFlowDates.length; i++) {
-                                            const dt = batFlowDates[i];
-                                            const flowKwh = toNumeric(batFlowVals[i] || 0);
-                                            soc += (flowKwh / bCap) * 100;
-                                            soc = Math.min(100, Math.max(0, soc));
-                                            // Store the accumulated SoC at this date
-                                            fullMap[dt.substring(0, 10)] = Math.round(soc);
-                                        }
-                                    }
+                                    // Map date string -> SoC%
+                                    const fullMap = {}; // YYYY-MM-DD -> SoC%
+                                    socDates.forEach((dt, i) => {
+                                        if (socVals[i] != null) fullMap[String(dt).substring(0, 10)] = Number(socVals[i]);
+                                    });
 
                                     // Map accumulated SoC to chart labels
                                     batterySoCSeries = labels.map((label) => {
-                                        // labels are "MMM DD" format. Need to map to "YYYY-MM-DD"
-                                        // Find the matching accumulated SoC by date proximity
-                                        // Simple: iterate fullMap entries that match this label
+                                        // labels are "DD Mmm YYYY" format (e.g. "10 Jul 2026")
                                         const monthNames = { Jan:1, Feb:2, Mar:3, Apr:4, May:5, Jun:6, Jul:7, Aug:8, Sep:9, Oct:10, Nov:11, Dec:12 };
                                         const parts = label.split(' ');
-                                        const m = monthNames[parts[0]];
-                                        const d = parseInt(parts[1]);
-                                        if (!m || !d) return null;
-                                        // Try current year first, then previous year
-                                        for (const yr of [2026, 2025]) {
-                                            const key = `${yr}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                                            if (fullMap[key] !== undefined) return fullMap[key];
-                                        }
+                                        // parts: ["DD", "Mmm", "YYYY"]
+                                        const d = parseInt(parts[0]);
+                                        const m = monthNames[parts[1]];
+                                        const yr = parseInt(parts[2]);
+                                        if (!m || !d || !yr) return null;
+                                        const key = `${yr}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                                        if (fullMap[key] !== undefined) return fullMap[key];
                                         return null;
                                     });
                                 }
@@ -641,7 +690,7 @@ export default function Report() {
                                 day: label,
                                 pvProduction: toNumeric(pv[i]),
                                 consumption: toNumeric(con[i]),
-                                batterySoC: hasBattery && batterySoCSeries ? batterySoCSeries[i] : null, // forward accumulated
+                                batterySoC: hasBattery && batterySoCSeries ? batterySoCSeries[i] : null, // real SoC %
                             })),
                             hasBattery,
                             batterySoC: batteryPct,
@@ -733,7 +782,7 @@ export default function Report() {
 
         fetchComparisonData();
         return () => { mounted = false; };
-    }, [buildingStats]);
+    }, [buildingStats, timeRange, customStart, customEnd]);
 
     // Build { labels, solar, consumption, battery } from searchBuildingEnergy response
     // Aligns all arrays by timestamp (not by index) to handle mismatched lengths,
@@ -756,6 +805,27 @@ export default function Report() {
 
         if (!allLabels.length) return { labels: [], solar: [], consumption: [], battery: [] };
 
+        // Fill gaps for daily data: ensure all dates between min and max exist
+        const sortedLabels = allLabels.sort();
+        const firstLabel = String(sortedLabels[0] || '');
+        const lastLabel = String(sortedLabels[sortedLabels.length - 1] || '');
+        const isDaily = !firstLabel.includes(' ') && !firstLabel.includes('T');
+        
+        if (isDaily) {
+            const startD = new Date(firstLabel);
+            const endD = new Date(lastLabel);
+            if (!isNaN(startD.getTime()) && !isNaN(endD.getTime())) {
+                const filled = [];
+                const current = new Date(startD);
+                while (current <= endD) {
+                    const key = current.toISOString().split('T')[0];
+                    filled.push(key);
+                    current.setDate(current.getDate() + 1);
+                }
+                allLabels.splice(0, allLabels.length, ...filled);
+            }
+        }
+
         // Format labels: "2026-05-23" → "May 23", "2026-05-23 14:00" → "14:00"
         const labels = allLabels.map((label) => {
             const str = String(label || '');
@@ -766,7 +836,7 @@ export default function Report() {
             }
             const d = new Date(str);
             if (!isNaN(d.getTime())) {
-                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
             }
             return str;
         });
@@ -847,6 +917,15 @@ export default function Report() {
     const topConsumptionMax = Math.max(1, ...topConsumers.map((r) => Number(r.consumption || 0)));
     const memberRoleLabel = useMemo(() => normalizeRoleName(member), [member]);
     const memberInitials = useMemo(() => getMemberInitials(member), [member]);
+    
+    // Check if Only Produce / Only Battery filters are active
+    const producerBuildings = useMemo(() => buildingOptions.filter(n => buildingStats[n]?.hasProducer), [buildingOptions, buildingStats]);
+    const consumerBuildings = useMemo(() => buildingOptions.filter(n => buildingStats[n]?.hasConsumer), [buildingOptions, buildingStats]);
+    const batteryBuildings = useMemo(() => buildingOptions.filter(n => buildingStats[n]?.hasBattery), [buildingOptions, buildingStats]);
+    const isProducerActive = producerBuildings.length > 0 && selectedBuildings.length === producerBuildings.length && producerBuildings.every(n => selectedBuildings.includes(n));
+    const isConsumerActive = consumerBuildings.length > 0 && selectedBuildings.length === consumerBuildings.length && consumerBuildings.every(n => selectedBuildings.includes(n));
+    const isBatteryActive = batteryBuildings.length > 0 && selectedBuildings.length === batteryBuildings.length && batteryBuildings.every(n => selectedBuildings.includes(n));
+
     const batteryAssets = useMemo(() => (
         Object.values(buildingStats)
             .filter((entry) => entry.hasBattery)
@@ -939,9 +1018,16 @@ export default function Report() {
                 return;
             }
 
+            // Filter columns by selected export types
+            const cols = [];
+            if (exportTypes.produce) cols.push('production');
+            if (exportTypes.consume) cols.push('consumption');
+            if (exportTypes.battery) cols.push('battery');
+            if (cols.length === 0) cols.push('consumption'); // default
+
             if (exportFormat === 'excel') {
-                const header = 'Building,Date,Production (kWh),Consumption (kWh),Battery (kWh)';
-                const csv = [header, ...allRows.map(r => `${r.building},${r.date},${r.production},${r.consumption},${r.battery}`)].join('\n');
+                const header = ['Building', 'Date', ...cols.map(c => `${c.charAt(0).toUpperCase() + c.slice(1)} (kWh)`)].join(',');
+                const csv = [header, ...allRows.map(r => [r.building, r.date, ...cols.map(c => r[c])].join(','))].join('\n');
                 const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -950,11 +1036,12 @@ export default function Report() {
                 a.click();
                 URL.revokeObjectURL(url);
             } else {
-                const rowsHtml = allRows.map(r => `<tr><td>${r.building}</td><td>${r.date}</td><td>${r.production}</td><td>${r.consumption}</td><td>${r.battery}</td></tr>`).join('');
+                const thHtml = ['<th>Building</th>', '<th>Date</th>', ...cols.map(c => `<th>${c.charAt(0).toUpperCase() + c.slice(1)} (kWh)</th>`)].join('');
+                const rowsHtml = allRows.map(r => `<tr><td>${r.building}</td><td>${r.date}</td>${cols.map(c => `<td>${r[c]}</td>`).join('')}</tr>`).join('');
                 const html = `<html><head><title>Energy Report</title>
                     <style>body{font-family:Arial;padding:20px} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:8px} th{background:#f5f5f5}</style>
                     </head><body><h1>Energy Analytics Report</h1><p>${startStr} to ${endStr}</p>
-                    <table><tr><th>Building</th><th>Date</th><th>Production (kWh)</th><th>Consumption (kWh)</th><th>Battery (kWh)</th></tr>${rowsHtml}</table></body></html>`;
+                    <table><tr>${thHtml}</tr>${rowsHtml}</table></body></html>`;
                 const w = window.open('', '_blank');
                 w.document.write(html);
                 w.document.close();
@@ -1152,21 +1239,24 @@ export default function Report() {
         } else {
             // PER-BUILDING VIEW
             series.forEach((s, si) => {
-                const col = BUILDING_COLORS[si % BUILDING_COLORS.length];
+                const pCol = PRODUCE_COLORS[si % PRODUCE_COLORS.length];
+                const cCol = CONSUME_COLORS[si % CONSUME_COLORS.length];
+                const sCol = SOC_COLORS[si % SOC_COLORS.length];
+                const dash = DASH_STYLES[si % DASH_STYLES.length];
+                const mkr = MARKER_SYMBOLS[si % MARKER_SYMBOLS.length];
                 const bName = s.buildingName || `Building ${si + 1}`;
                 if (showProduce) {
                     traces.push({
                         x: labels, y: s.data.map((d) => toNumeric(d.pvProduction)),
-                        type: 'scatter', mode: 'lines+markers', name: `${bName} PV`,
-                        line: { color: col, width: 2.5 }, marker: { color: col, size: 4 },
+                        type: 'scatter', mode: 'lines+markers', name: `${bName} Produce`,
+                        line: { color: pCol, width: 2.5, dash }, marker: { color: pCol, size: 4, symbol: mkr },
                     });
                 }
                 if (showConsume) {
                     traces.push({
                         x: labels, y: s.data.map((d) => toNumeric(d.consumption)),
-                        type: 'scatter', mode: 'lines+markers', name: `${bName} Cons`,
-                        line: { color: col, width: 2, dash: 'dash' },
-                        marker: { color: 'white', size: 4, line: { color: col, width: 1.5 } },
+                        type: 'scatter', mode: 'lines+markers', name: `${bName} Consume`,
+                        line: { color: cCol, width: 2, dash }, marker: { color: 'white', size: 4, line: { color: cCol, width: 1.5 }, symbol: `${mkr}-open` },
                     });
                 }
                 if (showSoC && s.hasBattery && s.data.some((d) => d.batterySoC != null)) {
@@ -1175,14 +1265,14 @@ export default function Report() {
                         x: labels, y: s.data.map((d) => toNumeric(d.batterySoC)),
                         type: 'scatter', mode: 'lines+markers', name: `${bName} SoC`,
                         yaxis: 'y2',
-                        line: { color: col, width: 2, dash: 'dot' }, marker: { color: col, size: 5, symbol: 'diamond' },
+                        line: { color: sCol, width: 2, dash }, marker: { color: sCol, size: 5, symbol: mkr },
                     });
                 }
             });
         }
 
         const layout = {
-            autosize: true, height: 400,
+            autosize: true, height: hasSeries ? 500 : 400,
             margin: { l: 60, r: 20, t: 10, b: 50 },
             xaxis: { tickfont: { size: 11, color: '#6b7280' }, gridcolor: '#e5e7eb', automargin: true, nticks: 7 },
             yaxis: {
@@ -1192,8 +1282,9 @@ export default function Report() {
             },
             paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
             showlegend: hasSeries,
-            legend: { orientation: 'h', y: -0.2, font: { size: 10 } },
+            legend: { orientation: 'v', x: 1.02, y: 1, font: { size: 9 }, bgcolor: 'rgba(255,255,255,0.8)', bordercolor: '#e5e7eb', borderwidth: 1 },
             hovermode: 'x unified',
+            hoverlabel: { font: { size: 11 } },
         };
         if (yAxis2Traces.length > 0) {
             layout.yaxis2 = { title: { text: 'SoC (%)', font: { size: 12, color: '#f97316' } }, tickfont: { size: 11, color: '#f97316' }, overlaying: 'y', side: 'right', range: [0, 100] };
@@ -1206,7 +1297,7 @@ export default function Report() {
             traces.push({ x: safeLabels, y: safeLabels.map(() => 0), type: 'scatter', mode: 'lines', line: { color: 'transparent' }, showlegend: false });
         }
 
-        return <Plot data={traces} layout={layout} config={{ displayModeBar: false }} useResizeHandler style={{ width: '100%', height: 400 }} revision={dataLen} />;
+        return <Plot data={traces} layout={layout} config={{ displayModeBar: false }} useResizeHandler style={{ width: '100%', height: 400 }} revision={chartRev} />;
     };
 
     return (
@@ -1227,7 +1318,9 @@ export default function Report() {
                             <span className="text-purple-600 text-xl">💰</span>
                             <div>
                                 <p className="text-xs text-purple-700 font-medium">Admin Wallet</p>
-                                <p className="text-sm font-bold text-purple-900">12,450 <span className="text-xs font-normal">Tokens</span></p>
+                                <p className="text-sm font-bold text-purple-900">
+                                    {adminBalance != null ? adminBalance.toLocaleString() : '—'} <span className="text-xs font-normal">Tokens</span>
+                                </p>
                             </div>
                         </div>
                         <button
@@ -1261,34 +1354,34 @@ export default function Report() {
                         </div>
                         <div className="flex items-center gap-2">
                             <button
-                                onClick={() => setTimeRange('7days')}
+                                onClick={() => setTimeRange('1week')}
                                 className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
-                                    timeRange === '7days'
+                                    timeRange === '1week'
                                         ? 'bg-blue-600 text-white'
                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                 }`}
                             >
-                                7 Days
+                                1 Week
                             </button>
                             <button
-                                onClick={() => setTimeRange('30days')}
+                                onClick={() => setTimeRange('1month')}
                                 className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
-                                    timeRange === '30days'
+                                    timeRange === '1month'
                                         ? 'bg-blue-600 text-white'
                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                 }`}
                             >
-                                30 Days
+                                1 Month
                             </button>
                             <button
-                                onClick={() => setTimeRange('90days')}
+                                onClick={() => setTimeRange('1year')}
                                 className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
-                                    timeRange === '90days'
+                                    timeRange === '1year'
                                         ? 'bg-blue-600 text-white'
                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                 }`}
                             >
-                                90 Days
+                                1 Year
                             </button>
                             <button
                                 onClick={() => setTimeRange('custom')}
@@ -1309,6 +1402,7 @@ export default function Report() {
                                     maxDate={new Date()}
                                     onChange={(update) => { setCustomDateRange(update); }}
                                     isClearable={true}
+                                    dateFormat="dd MMM yyyy"
                                     placeholderText="Select date range"
                                     className="px-3 py-2 text-sm border border-gray-300 rounded-lg w-56"
                                 />
@@ -1332,19 +1426,21 @@ export default function Report() {
                         ) : (
                             <>
                                 {selectedBuildings.map((name, idx) => {
-                                    const col = BUILDING_COLORS[idx % BUILDING_COLORS.length];
+                                    const pCol = PRODUCE_COLORS[idx % PRODUCE_COLORS.length];
+                                    const cCol = CONSUME_COLORS[idx % CONSUME_COLORS.length];
+                                    const sCol = SOC_COLORS[idx % SOC_COLORS.length];
                                     const entry = perBuildingChart[name] || {};
                                     const hasBat = entry.hasBattery === true;
                                     return (
                                         <div key={`leg-${name}`} className="flex items-center gap-2">
-                                            <div className={`w-4 h-1 rounded transition-opacity ${chartToggle.showProduce ? 'opacity-100' : 'opacity-30'}`} style={{ backgroundColor: col }}></div>
+                                            <div className={`w-4 h-1 rounded transition-opacity ${chartToggle.showProduce ? 'opacity-100' : 'opacity-30'}`} style={{ backgroundColor: pCol }}></div>
                                             <span className={`text-xs font-medium transition-opacity ${chartToggle.showProduce ? 'text-gray-700 opacity-100' : 'text-gray-400 opacity-30'}`}>{name} (Produce)</span>
-                                            <div className={`w-4 h-1 rounded border-2 border-dashed transition-opacity ${chartToggle.showConsume ? 'opacity-100' : 'opacity-30'}`} style={{ borderColor: col, backgroundColor: 'transparent' }}></div>
+                                            <div className={`w-4 h-1 rounded border-2 border-dashed transition-opacity ${chartToggle.showConsume ? 'opacity-100' : 'opacity-30'}`} style={{ borderColor: cCol, backgroundColor: 'transparent' }}></div>
                                             <span className={`text-xs font-medium transition-opacity ${chartToggle.showConsume ? 'text-gray-700 opacity-100' : 'text-gray-400 opacity-30'}`}>(Consume)</span>
                                             {hasBat && (
                                                 <span className={`text-xs ml-1 flex items-center gap-1 transition-opacity ${chartToggle.showSoC ? 'text-gray-500 opacity-100' : 'text-gray-300 opacity-30'}`}>
-                                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[6px] font-bold border" style={{ borderColor: col, color: col, backgroundColor: `${col}15` }}>SoC</span>
-                                                    <span>State of Charge (SoC) <span style={{ color: col }}>{entry.batterySoC ?? '?'}%</span></span>
+                                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[6px] font-bold border" style={{ borderColor: sCol, color: sCol, backgroundColor: `${sCol}15` }}>SoC</span>
+                                                    <span>State of Charge (SoC) <span style={{ color: sCol }}>{entry.batterySoC ?? '?'}%</span></span>
                                                 </span>
                                             )}
                                         </div>
@@ -1354,34 +1450,99 @@ export default function Report() {
                         )}
                     </div>
 
-                    {/* Building filter toggle */}
-                    <div className="flex items-center gap-2 mb-4 justify-center flex-wrap">
-                        <button
-                            onClick={() => setSelectedBuildings([])}
-                            className={`px-3 py-1.5 rounded-lg font-semibold text-xs transition-colors ${selectedBuildings.length === 0 ? 'bg-blue-600 text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                        >
-                            🌐 All Buildings
-                        </button>
-                        {buildingOptions.map((name) => {
-                            const active = selectedBuildings.includes(name);
-                            return (
-                                <button
-                                    key={`bld-${name}`}
-                                    onClick={() => {
-                                        if (active) {
-                                            const next = selectedBuildings.filter((n) => n !== name);
-                                            setSelectedBuildings(next);
-                                        } else {
-                                            setSelectedBuildings([...selectedBuildings, name]);
-                                        }
-                                    }}
-                                    className={`px-3 py-1.5 rounded-lg font-semibold text-xs transition-colors ${active ? 'bg-blue-600 text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    {/* Building filter — polished card */}
+                    <div className="flex items-center gap-3 mb-4 justify-center">
+                        <div className="inline-flex items-center rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                            <button
+                                onClick={() => {
+                                    setSelectedBuildings([]);
+                                    setChartToggle({ showProduce: true, showConsume: true, showSoC: true });
+                                }}
+                                className={`px-4 py-2 text-xs font-semibold transition-colors border-r border-gray-200 ${selectedBuildings.length === 0 ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+                            >
+                                🌐 All
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setSelectedBuildings(producerBuildings);
+                                    setChartToggle({ showProduce: true, showConsume: false, showSoC: false });
+                                }}
+                                className={`px-4 py-2 text-xs font-semibold transition-colors border-r border-gray-200 ${isProducerActive ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-green-50'}`}
+                            >
+                                ☀️ Produce
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setSelectedBuildings(consumerBuildings);
+                                    setChartToggle({ showProduce: false, showConsume: true, showSoC: false });
+                                }}
+                                className={`px-4 py-2 text-xs font-semibold transition-colors border-r border-gray-200 ${isConsumerActive ? 'bg-red-500 text-white' : 'bg-white text-gray-600 hover:bg-red-50'}`}
+                            >
+                                🏠 Consume
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setSelectedBuildings(batteryBuildings);
+                                    setChartToggle({ showProduce: false, showConsume: false, showSoC: true });
+                                }}
+                                className={`px-4 py-2 text-xs font-semibold transition-colors ${isBatteryActive ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-orange-50'}`}
+                            >
+                                🔋 Battery
+                            </button>
+                        </div>
+                        <div className="inline-flex items-center rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                            <select
+                                value=""
+                                onChange={(e) => {
+                                    const v = e.target.value;
+                                    if (!v) return;
+                                    if (v === '__produce__') {
+                                        setSelectedBuildings(producerBuildings);
+                                        setChartToggle({ showProduce: true, showConsume: false, showSoC: false });
+                                    } else if (v === '__battery__') {
+                                        setSelectedBuildings(batteryBuildings);
+                                        setChartToggle({ showProduce: false, showConsume: false, showSoC: true });
+                                    } else if (v === '__consume__') {
+                                        setSelectedBuildings(consumerBuildings);
+                                        setChartToggle({ showProduce: false, showConsume: true, showSoC: false });
+                                    } else if (!selectedBuildings.includes(v)) {
+                                        setSelectedBuildings([...selectedBuildings, v]);
+                                    }
+                                    e.target.value = '';
+                                }}
+                                className="px-3 py-2 bg-white text-xs font-medium text-gray-600 cursor-pointer focus:outline-none"
+                            >
+                                <option value="">+ Add Building</option>
+                                <option value="__produce__">☀️ All Produce</option>
+                                <option value="__consume__">🏠 All Consume</option>
+                                <option value="__battery__">🔋 All Battery</option>
+                                <option disabled>──────────</option>
+                                {buildingOptions.filter(n => !selectedBuildings.includes(n)).map(name => (
+                                    <option key={name} value={name}>🏢 {name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                    {selectedBuildings.length > 0 && (
+                        <div className="flex items-center gap-2 mb-4 justify-center flex-wrap">
+                            {selectedBuildings.map(name => (
+                                <span
+                                    key={`chip-${name}`}
+                                    className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 text-xs font-semibold text-blue-700 shadow-sm"
                                 >
                                     🏢 {name}
-                                </button>
-                            );
-                        })}
-                    </div>
+                                    <button
+                                        onClick={() => setSelectedBuildings(selectedBuildings.filter(n => n !== name))}
+                                        className="w-5 h-5 inline-flex items-center justify-center rounded-full bg-blue-100 text-blue-500 hover:bg-blue-200 hover:text-blue-700 text-xs leading-none transition-colors"
+                                    >×</button>
+                                </span>
+                            ))}
+                            <button
+                                onClick={() => setSelectedBuildings([])}
+                                className="text-[11px] text-gray-400 hover:text-gray-600 font-medium transition-colors"
+                            >clear all</button>
+                        </div>
+                    )}
 
                     {/* Data Toggle Filters */}
                     <div className="flex items-center gap-3 mb-4 justify-center flex-wrap">
@@ -1430,7 +1591,8 @@ export default function Report() {
                                     const entry = perBuildingChart[name] || { data: buildEmptyChartData(getDaysForRange(timeRange, customStart, customEnd)), hasBattery: false, batterySoC: null };
                                     return {
                                         name,
-                                        data: entry.data || entry, // entry could be old format (array) or new format ({data,hasBattery,batterySoC})
+                                        buildingName: name,
+                                        data: entry.data || entry,
                                         hasBattery: entry.hasBattery === true,
                                         batterySoC: entry.batterySoC != null ? entry.batterySoC : null,
                                     };
@@ -1443,6 +1605,7 @@ export default function Report() {
                             showSoC={chartToggle.showSoC}
                         />
                     </div>
+                    <GapBar gaps={reportGaps} rangeStart={reportGapRange.start} rangeEnd={reportGapRange.end} />
                 </div>
 
                 {/* Energy Source Breakdown & Top Consumers */}
@@ -1836,13 +1999,13 @@ export default function Report() {
                             const toX = (i) => padL + (hourlyLen > 1 ? (i / (hourlyLen - 1)) * plotW : plotW / 2);
                             const toY = (v) => padT + plotH - ((v - yMin) / yRange) * plotH;
                             const points = netFlow.map((v, i) => `${toX(i)},${toY(v)}`).join(' ');
-                            const yTicks = [Math.round(yMin), Math.round(yMin / 2), 0, Math.round(yMax / 2), Math.round(yMax)];
+                            const yTicks = [...new Set([Math.round(yMin), Math.round(yMin / 2), 0, Math.round(yMax / 2), Math.round(yMax)])].sort((a,b) => a-b);
                             const xTickInterval = Math.max(1, Math.floor(hourlyLen / 5));
                             return (
                                 <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: '100%', height: 350 }}>
                                     {/* Grid lines */}
-                                    {yTicks.map((tick) => (
-                                        <line key={`yg-${tick}`} x1={padL} y1={toY(tick)} x2={padL + plotW} y2={toY(tick)}
+                                    {yTicks.map((tick, ti) => (
+                                        <line key={`yg-${ti}-${tick}`} x1={padL} y1={toY(tick)} x2={padL + plotW} y2={toY(tick)}
                                             stroke="#e5e7eb" strokeWidth="1" />
                                     ))}
                                     {/* Zero line bold */}
@@ -1855,8 +2018,8 @@ export default function Report() {
                                         <circle key={`dot-${i}`} cx={toX(i)} cy={toY(v)} r="3" fill="#2563eb" />
                                     ))}
                                     {/* Y-axis labels */}
-                                    {yTicks.map((tick) => (
-                                        <text key={`yl-${tick}`} x={padL - 5} y={toY(tick) + 4}
+                                    {yTicks.map((tick, ti) => (
+                                        <text key={`yl-${ti}-${tick}`} x={padL - 5} y={toY(tick) + 4}
                                             textAnchor="end" fontSize="10" fill="#6b7280">{tick}</text>
                                     ))}
                                     {/* X-axis labels */}
@@ -2075,27 +2238,39 @@ export default function Report() {
                         {/* Building Selection */}
                         <div className="mb-4">
                             <label className="block text-sm font-medium text-gray-700 mb-2">Buildings</label>
-                            <div className="max-h-32 overflow-y-auto border rounded-lg p-2 space-y-1">
-                                {(() => {
-                                    const blds = Object.values(buildingStats);
-                                    return (
-                                        <>
-                                            <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded font-semibold">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={exportBuildings.length === 0}
-                                                    onChange={() => setExportBuildings([])}
-                                                />
-                                                <span className="text-sm">All Buildings</span>
-                                            </label>
-                                            <hr className="my-1" />
-                                            {blds.map(b => (
-                                                <label key={b.name} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={exportBuildings.length === 0 || exportBuildings.includes(b.name)}
-                                                        onChange={() => {
-                                                            if (exportBuildings.length === 0) {
+                            {(() => {
+                                const blds = Object.values(buildingStats);
+                                const allSelected = exportBuildings.length === 0;
+                                return (
+                                    <div className="space-y-3">
+                                        {/* Quick select */}
+                                        <div className="flex gap-2 flex-wrap">
+                                            {[
+                                                { key: 'all', label: '🌐 All', active: allSelected, onClick: () => setExportBuildings([]) },
+                                                { key: 'produce', label: '☀️ Produce', active: !allSelected && blds.filter(b => b.hasProducer).every(b => exportBuildings.includes(b.name)), onClick: () => setExportBuildings(blds.filter(b => b.hasProducer).map(b => b.name)) },
+                                                { key: 'consume', label: '🏠 Consume', active: !allSelected && blds.filter(b => b.hasConsumer).every(b => exportBuildings.includes(b.name)), onClick: () => setExportBuildings(blds.filter(b => b.hasConsumer).map(b => b.name)) },
+                                                { key: 'battery', label: '🔋 Battery', active: !allSelected && blds.filter(b => b.hasBattery).every(b => exportBuildings.includes(b.name)), onClick: () => setExportBuildings(blds.filter(b => b.hasBattery).map(b => b.name)) },
+                                            ].map(btn => (
+                                                <button
+                                                    key={btn.key}
+                                                    type="button"
+                                                    onClick={btn.onClick}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border ${btn.active ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}
+                                                >
+                                                    {btn.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        {/* Individual buildings */}
+                                        <div className="flex flex-wrap gap-2">
+                                            {blds.map(b => {
+                                                const active = allSelected || exportBuildings.includes(b.name);
+                                                return (
+                                                    <button
+                                                        key={b.name}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (allSelected) {
                                                                 setExportBuildings(blds.filter(x => x.name !== b.name).map(x => x.name));
                                                             } else if (exportBuildings.includes(b.name)) {
                                                                 const next = exportBuildings.filter(n => n !== b.name);
@@ -2105,14 +2280,19 @@ export default function Report() {
                                                                 setExportBuildings(next.length === blds.length ? [] : next);
                                                             }
                                                         }}
-                                                    />
-                                                    <span className="text-sm">{b.name}</span>
-                                                </label>
-                                            ))}
-                                        </>
-                                    );
-                                })()}
-                            </div>
+                                                        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition border ${active ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-sm' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}
+                                                    >
+                                                        <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center text-[8px] ${active ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300'}`}>
+                                                            {active ? '✓' : ''}
+                                                        </span>
+                                                        🏢 {b.name}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
 
                         {/* Time Range */}
@@ -2126,7 +2306,7 @@ export default function Report() {
                         </div>
 
                         {/* Format */}
-                        <div className="mb-6">
+                        <div className="mb-4">
                             <label className="block text-sm font-medium text-gray-700 mb-2">Format</label>
                             <div className="flex gap-3">
                                 <label className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border-2 cursor-pointer ${exportFormat === 'excel' ? 'border-green-500 bg-green-50' : 'border-gray-200'}`}>
@@ -2137,6 +2317,31 @@ export default function Report() {
                                     <input type="radio" name="fmt" value="pdf" checked={exportFormat === 'pdf'} onChange={() => setExportFormat('pdf')} className="sr-only" />
                                     <span>📄</span><span className="text-sm font-semibold">PDF</span>
                                 </label>
+                            </div>
+                        </div>
+
+                        {/* Data Types to Export */}
+                        <div className="mb-6">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Data to Export</label>
+                            <div className="flex gap-3">
+                                {[
+                                    { key: 'consume', label: '🏠 Consumption', color: 'border-red-200 bg-red-50 text-red-700' },
+                                    { key: 'produce', label: '☀️ Production', color: 'border-green-200 bg-green-50 text-green-700' },
+                                    { key: 'battery', label: '🔋 Battery', color: 'border-orange-200 bg-orange-50 text-orange-700' },
+                                ].map(t => (
+                                    <label
+                                        key={t.key}
+                                        className={`flex-1 flex items-center justify-center gap-1.5 p-2.5 rounded-lg border-2 cursor-pointer text-xs font-semibold transition ${exportTypes[t.key] ? t.color : 'border-gray-200 text-gray-400'}`}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={exportTypes[t.key]}
+                                            onChange={() => setExportTypes(prev => ({ ...prev, [t.key]: !prev[t.key] }))}
+                                            className="sr-only"
+                                        />
+                                        {t.label}
+                                    </label>
+                                ))}
                             </div>
                         </div>
 

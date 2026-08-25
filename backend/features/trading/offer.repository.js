@@ -13,7 +13,31 @@ const {
 // ---- Offer CRUD ----
 
 async function getOffers() {
-    return await prisma.energyOffer.findMany();
+    const [energyOffers, marketOrders] = await Promise.all([
+        prisma.energyOffer.findMany(),
+        prisma.marketOrder.findMany({ where: { side: 'OFFER' } }),
+    ]);
+    // Merge MarketOrders not already covered by energyOffers
+    const merged = [...energyOffers];
+    for (const mo of marketOrders) {
+        const existing = energyOffers.find(o => String(o.id) === String(mo.id));
+        if (!existing) {
+            merged.push({
+                id: mo.id,
+                sellerWalletId: mo.walletId,
+                kWH: Number(mo.quantity),
+                kWHSold: Number(mo.filled || 0),
+                ratePerkWH: mo.price != null ? Number(mo.price) : 0,
+                totalPrice: (Number(mo.quantity) * (mo.price != null ? Number(mo.price) : 0)),
+                status: mo.status === 'FILLED' ? 'SOLD' : mo.status === 'PARTIAL' ? 'AVAILABLE' : mo.status,
+                marketType: mo.marketType || 'INTRADAY',
+                targetDate: mo.targetDate,
+                createdAt: mo.createdAt,
+                sourceType: mo.metadata?.sourceType || 'produce',
+            });
+        }
+    }
+    return merged;
 }
 
 async function getAvailableOffers() {
@@ -201,7 +225,10 @@ async function createOffer({ sellerWalletId, kwh, ratePerKwh, sourceType = 'prod
                 const currentKwh = Number(selectedMeter.kWH || 0);
                 let availableEnergy = Math.max(currentValue, currentKwh);
                 let sellAmount = Number(kwh);
+                const isDayAhead = String(marketType || '').toUpperCase() === 'DAY_AHEAD';
 
+                // For Day-Ahead: skip energy availability check (energy is for tomorrow)
+                if (!isDayAhead) {
                 // For produce/solar source, also check against total generation from DailyEnergy
                 if (isSolarSource && sellAmount > availableEnergy) {
                     try {
@@ -272,6 +299,7 @@ async function createOffer({ sellerWalletId, kwh, ratePerKwh, sourceType = 'prod
                         timestamp: new Date(),
                     },
                 });
+                } // end if (!isDayAhead) — Day-Ahead skips energy check & meter deduction
 
                 await syncBuildingEnergyForBuilding(building.name, tx);
             }
@@ -315,7 +343,31 @@ async function createBid({ buyerWalletId, kwh, ratePerKwh, marketType = 'MANUAL'
 }
 
 async function getBids() {
-    return await prisma.energyBid.findMany({ orderBy: { createdAt: 'desc' } });
+    const [energyBids, marketOrders] = await Promise.all([
+        prisma.energyBid.findMany({ orderBy: { createdAt: 'desc' } }),
+        prisma.marketOrder.findMany({ where: { side: 'BID' }, orderBy: { createdAt: 'desc' } }),
+    ]);
+    const merged = [...energyBids];
+    for (const mo of marketOrders) {
+        const existing = energyBids.find(b => String(b.id) === String(mo.id));
+        if (!existing) {
+            merged.push({
+                id: mo.id,
+                buyerWalletId: mo.walletId,
+                kWH: Number(mo.quantity),
+                kWHBought: Number(mo.filled || 0),
+                ratePerkWH: mo.price != null ? Number(mo.price) : null,
+                status: mo.status === 'FILLED' ? 'FULFILLED' : mo.status,
+                marketType: mo.marketType || 'INTRADAY',
+                targetDate: mo.targetDate,
+                createdAt: mo.createdAt,
+                buildingName: mo.buildingName,
+            });
+        }
+    }
+    // Sort by createdAt desc
+    merged.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    return merged;
 }
 
 async function cancelBid(id) {

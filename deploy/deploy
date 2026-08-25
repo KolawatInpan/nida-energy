@@ -10,8 +10,70 @@ docker push diaboliccz/nida-blockchain:latest
 docker push diaboliccz/nida-backend:latest
 docker push diaboliccz/nida-frontend:latest
 
+
+
 docker build -t diaboliccz/nida-backend:latest -f backend/Dockerfile .
 docker build -t diaboliccz/nida-frontend:latest -f frontend-vite/Dockerfile frontend-vite/
 docker push diaboliccz/nida-backend:latest
 docker push diaboliccz/nida-frontend:latest
 
+
+# ============================================================
+# OFFLINE DEPLOY (when VM has no internet)
+# ============================================================
+
+# ─── Step 1: Build ALL images (PowerShell / Windows) ───────────
+cd C:\Users\KolawatLT\workspace\nida-dashboard-ui
+docker build -t diaboliccz/nida-database:latest -f database/Dockerfile database/
+docker build -t diaboliccz/nida-blockchain:latest -f blockchain/Dockerfile blockchain/
+docker build -t diaboliccz/nida-backend:latest -f backend/Dockerfile .
+docker build -t diaboliccz/nida-frontend:latest -f frontend-vite/Dockerfile frontend-vite/
+
+
+# ─── Step 2: Save ALL as .tar (PowerShell) ────────────────────
+docker save diaboliccz/nida-database:latest -o deploy/nida-database.tar
+docker save diaboliccz/nida-blockchain:latest -o deploy/nida-blockchain.tar
+docker save diaboliccz/nida-backend:latest -o deploy/nida-backend.tar
+docker save diaboliccz/nida-frontend:latest -o deploy/nida-frontend.tar
+
+
+# ─── Step 3: gzip + scp to jump host (WSL) ────────────────────
+cd /mnt/c/Users/KolawatLT/workspace/nida-dashboard-ui/deploy
+gzip nida-database.tar
+gzip nida-blockchain.tar
+gzip nida-backend.tar
+gzip nida-frontend.tar
+scp nida-database.tar.gz nida-blockchain.tar.gz nida-backend.tar.gz nida-frontend.tar.gz ssa@10.10.161.239:~/
+
+Obfhk2565
+
+# OR send directly through jump host (from deploy/):
+scp -o ProxyJump=ssa@10.10.161.239 deploy/nida-database.tar.gz ubuntu@192.168.100.221:~/nida/
+scp -o ProxyJump=ssa@10.10.161.239 deploy/nida-blockchain.tar.gz ubuntu@192.168.100.221:~/nida/
+scp -o ProxyJump=ssa@10.10.161.239 deploy/nida-backend.tar.gz ubuntu@192.168.100.221:~/nida/
+scp -o ProxyJump=ssa@10.10.161.239 deploy/nida-frontend.tar.gz ubuntu@192.168.100.224:~/nida/
+
+# ─── Step 4: scp from jump host to targets (on ssa@compute3) ──
+ssh ssa@10.10.161.239
+scp nida-database.tar.gz ubuntu@192.168.100.221:~/nida/
+scp nida-blockchain.tar.gz ubuntu@192.168.100.221:~/nida/
+scp nida-backend.tar.gz ubuntu@192.168.100.221:~/nida/
+scp nida-frontend.tar.gz ubuntu@192.168.100.224:~/nida/
+
+
+# ─── Step 5: Load + Deploy ─────────────────────────────────────
+# Full node (database + blockchain + backend):
+ssh ubuntu@192.168.100.221
+cd ~/nida
+gunzip -c nida-database.tar.gz | sudo docker load
+gunzip -c nida-blockchain.tar.gz | sudo docker load
+gunzip -c nida-backend.tar.gz | sudo docker load
+sudo docker compose --profile fullnode down
+sudo docker compose --profile fullnode up -d --pull never --force-recreate
+
+# Web proxy (frontend):
+ssh ubuntu@192.168.100.224
+cd ~/nida
+gunzip -c nida-frontend.tar.gz | sudo docker load
+sudo docker compose --profile proxy down
+sudo docker compose --profile proxy up -d --pull never --force-recreate frontend

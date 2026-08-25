@@ -1,4 +1,5 @@
 import { formatEntityId } from './formatters';
+import { fmtDate } from './dateFormat';
 
 export function toNumber(value) {
   const numeric = Number(value);
@@ -11,15 +12,7 @@ export function formatBillingPeriod(invoice) {
   const start = new Date(invoice.year, invoice.month - 1, 1);
   const end = new Date(invoice.year, invoice.month, 0);
 
-  return `${start.toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })} - ${end.toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })}`;
+  return `${fmtDate(start)} - ${fmtDate(end)}`;
 }
 
 export function getCustomerType(owner) {

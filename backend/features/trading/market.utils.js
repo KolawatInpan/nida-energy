@@ -128,18 +128,24 @@ function assertDayAheadOfferMax(marketType, ratePerKwh) {
 
 async function getLatestEnergyRatePrice() {
     try {
-        await prisma.$executeRawUnsafe(`
-            CREATE TABLE IF NOT EXISTS "EnergyRateRule" (
-                id INTEGER PRIMARY KEY,
-                display_id TEXT UNIQUE NOT NULL,
-                rate_type TEXT NOT NULL,
-                price NUMERIC(12,4) NOT NULL,
-                effective_start DATE NOT NULL,
-                effective_end DATE NULL,
-                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-            )
+        // Check if table exists first to avoid pg_type duplicate key error
+        const exists = await prisma.$queryRawUnsafe(`
+            SELECT to_regclass('"EnergyRateRule"') IS NOT NULL AS exists
         `);
+        if (!exists?.[0]?.exists) {
+            await prisma.$executeRawUnsafe(`
+                CREATE TABLE "EnergyRateRule" (
+                    id INTEGER PRIMARY KEY,
+                    display_id TEXT UNIQUE NOT NULL,
+                    rate_type TEXT NOT NULL,
+                    price NUMERIC(12,4) NOT NULL,
+                    effective_start DATE NOT NULL,
+                    effective_end DATE NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            `);
+        }
         const rows = await prisma.$queryRawUnsafe(`
             SELECT price FROM "EnergyRateRule"
             WHERE effective_end IS NULL OR effective_end >= CURRENT_DATE

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useHistory, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from "react-redux";
+import { message, Modal } from 'antd';
 import { validateAuth } from "../../store/auth/auth.action";
 import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/register';
-import { updateBuilding } from '../../core/data_connecter/building';
+import { updateBuilding, assignUserToBuilding, removeUserFromBuilding } from '../../core/data_connecter/building';
+import { getUsers } from '../../core/data_connecter/user';
 import { searchBuildingEnergy } from '../../core/data_connecter/dashboard';
 import { getWalletByEmail, getWalletBalance } from '../../core/data_connecter/wallet';
 import { normalizeRoleName } from '../../utils/authSession';
@@ -12,19 +14,15 @@ import Key from '../../global/key';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import TORDashboard from '../../components/TOR/TORDashboard';
+import { fmtDate, fmtDateTime, fmtISO } from '../../utils/dateFormat';
 
-const formatDateLocal = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-};
+const formatDateLocal = (date) => fmtISO(date);
 
 const formatBuildingId = (id) => {
-    if (id === null || id === undefined || id === '') return 'BLD-000';
+    if (id === null || id === undefined || id === '') return 'BUILDING-000';
     const raw = String(id).trim();
-    if (/^BLD-/i.test(raw)) return raw.toUpperCase();
-    return `BLD-${raw.padStart(3, '0')}`;
+    if (/^BLD-/i.test(raw) || /^BUILDING-/i.test(raw)) return raw.toUpperCase();
+    return `BUILDING-${raw}`;
 };
 
 const toNumeric = (value) => {
@@ -35,17 +33,9 @@ const toNumeric = (value) => {
 
 const formatLastReading = (value) => {
     if (!value) return 'No reading yet';
-
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
-
-    return date.toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+    return fmtDateTime(date);
 };
 
 const extractTokenBalance = (response) => {
@@ -197,6 +187,14 @@ export default function Building() {
     const [tradeMeterType, setTradeMeterType] = useState('produce');
     const [batterySellThreshold, setBatterySellThreshold] = useState(80);
     const [isSavingTrade, setIsSavingTrade] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editForm, setEditForm] = useState({});
+    const [assignModalOpen, setAssignModalOpen] = useState(false);
+    const [assignEmail, setAssignEmail] = useState('');
+    const [userSearch, setUserSearch] = useState('');
+    const [allUsers, setAllUsers] = useState([]);
+    const [userBuildings, setUserBuildings] = useState({}); // email → [building names]
+    const [showUnassignedOnly, setShowUnassignedOnly] = useState(false);
 
     const member = useMemo(() => {
         if (Array.isArray(memberStore) && memberStore.length > 0) return memberStore[0];
@@ -295,10 +293,11 @@ export default function Building() {
                             status: found.status || 'Active',
                             address: found.address || found.mapURL || '',
                             location: found.province || '',
-                            email: found.email || '',
-                            phone: found.phone || '',
+                            email: found.owner?.email || found.email || '',
+                            phone: found.owner?.telNum || '',
+                            hasAssignedPerson: !!(found.owner?.email),
                             capacity: found.capacity || 'N/A',
-                            registeredDate: found.createdAt ? new Date(found.createdAt).toLocaleDateString() : 'N/A',
+                            registeredDate: found.createdAt ? fmtDate(new Date(found.createdAt)) : 'N/A',
                             serviceUnits: 0,
                             connectivity: '0/0',
                             connectedStatus: 'Unknown',
@@ -731,10 +730,57 @@ export default function Building() {
                                 <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
                                     <span className="text-2xl">🏢</span>
                                 </div>
-                                <div>
+                                <div className="flex-1">
                                     <h2 className="text-lg font-bold text-gray-900">Building Information</h2>
                                     <p className="text-sm text-gray-600">General details and configuration</p>
                                 </div>
+                                {isEditing ? (
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    await updateBuilding(building.dbId, editForm);
+                                                    // Refresh building data
+                                                    const updated = { ...building, ...editForm };
+                                                    if (editForm.address !== undefined) updated.address = editForm.address;
+                                                    if (editForm.location !== undefined) updated.location = editForm.location;
+                                                    if (editForm.campus !== undefined) updated.campus = editForm.campus;
+                                                    if (editForm.email !== undefined) updated.email = editForm.email;
+                                                    setBuilding(updated);
+                                                    setIsEditing(false);
+                                                    message.success('Building updated successfully');
+                                                } catch (err) {
+                                                    console.error('Update building failed:', err);
+                                                    message.error('Failed to update building: ' + (err?.response?.data?.error || err?.message || 'Unknown error'));
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors"
+                                        >
+                                            💾 Save
+                                        </button>
+                                        <button
+                                            onClick={() => { setIsEditing(false); setEditForm({}); }}
+                                            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-300 transition-colors"
+                                        >
+                                            ✖ Cancel
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={() => {
+                                            setEditForm({
+                                                campus: building.campus,
+                                                address: building.address,
+                                                location: building.location,
+                                                email: building.email,
+                                            });
+                                            setIsEditing(true);
+                                        }}
+                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors flex items-center gap-1"
+                                    >
+                                        ✏️ Edit
+                                    </button>
+                                )}
                             </div>
 
                             <div className="space-y-4">
@@ -758,7 +804,16 @@ export default function Building() {
                                         <span className="text-lg">🏫</span>
                                         <div className="flex-1">
                                             <div className="text-xs text-gray-600 mb-1">Campus</div>
-                                            <div className="font-bold text-gray-900">{building.campus}</div>
+                                            {isEditing ? (
+                                                <input
+                                                    type="text"
+                                                    value={editForm.campus || ''}
+                                                    onChange={(e) => setEditForm(prev => ({ ...prev, campus: e.target.value }))}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm font-bold text-gray-900"
+                                                />
+                                            ) : (
+                                                <div className="font-bold text-gray-900">{building.campus}</div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -768,14 +823,111 @@ export default function Building() {
                                     <span className="text-lg">📍</span>
                                     <div className="flex-1">
                                         <div className="text-xs text-gray-600 mb-1">Physical Address</div>
-                                        <div className="font-bold text-gray-900">{building.address}</div>
-                                        <div className="text-sm text-gray-600">{building.location}</div>
+                                        {isEditing ? (
+                                            <>
+                                                <input
+                                                    type="text"
+                                                    value={editForm.address || ''}
+                                                    onChange={(e) => setEditForm(prev => ({ ...prev, address: e.target.value }))}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm font-bold text-gray-900 mb-1"
+                                                    placeholder="Address"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={editForm.location || ''}
+                                                    onChange={(e) => setEditForm(prev => ({ ...prev, location: e.target.value }))}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-gray-600"
+                                                    placeholder="Province/Location"
+                                                />
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="font-bold text-gray-900">{building.address}</div>
+                                                <div className="text-sm text-gray-600">{building.location}</div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
 
                                 {/* Contact Information Header */}
                                 <div className="pt-4 border-t-2 border-gray-200">
-                                    <h3 className="font-bold text-gray-900 mb-3">Contact Information</h3>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h3 className="font-bold text-gray-900">Contact Information</h3>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={async () => {
+                                                    try {
+                                                        // Fetch users and buildings in parallel
+                                                        const [u, blds] = await Promise.all([getUsers(), getBuildings(true)]);
+                                                        const users = Array.isArray(u?.data) ? u.data : Array.isArray(u) ? u : [];
+                                                        const buildings = Array.isArray(blds?.data) ? blds.data : Array.isArray(blds) ? blds : [];
+                                                        
+                                                        // Build user → building names map
+                                                        const ubMap = {};
+                                                        buildings.forEach(b => {
+                                                            if (b.owner?.email) {
+                                                                if (!ubMap[b.owner.email]) ubMap[b.owner.email] = [];
+                                                                ubMap[b.owner.email].push(b.name);
+                                                            }
+                                                        });
+                                                        setUserBuildings(ubMap);
+                                                        
+                                                        setAllUsers(users.filter(x => x.status === 'approved').map(x => ({
+                                                            label: `${x.name || 'No Name'} (${x.email || ''})`,
+                                                            email: x.email,
+                                                            name: x.name,
+                                                            buildings: ubMap[x.email] || [],
+                                                        })));
+                                                    } catch { setAllUsers([]); setUserBuildings({}); }
+                                                    setAssignEmail(''); setUserSearch(''); setShowUnassignedOnly(false);
+                                                    setAssignModalOpen(true);
+                                                }}
+                                                className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-colors flex items-center gap-1"
+                                                title="Assign Person"
+                                            >
+                                                👤 Add Person
+                                            </button>
+                                            {building.hasAssignedPerson && (
+                                                <button
+                                                    onClick={async () => {
+                                                        Modal.confirm({
+                                                            title: 'Remove Assigned Person',
+                                                            content: (
+                                                                <div className="space-y-2">
+                                                                    <p className="text-sm text-gray-600">Remove the assigned person from <strong>{building.name}</strong>?</p>
+                                                                    <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-gray-500">📧</span>
+                                                                            <span className="font-semibold">{building.email || '—'}</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-gray-500">📞</span>
+                                                                            <span>{building.phone || '—'}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ),
+                                                            okText: 'Remove',
+                                                            okType: 'danger',
+                                                            onOk: async () => {
+                                                                try {
+                                                                    await removeUserFromBuilding(building.dbId, building.email);
+                                                                    message.success('Person removed');
+                                                                    window.location.reload();
+                                                                } catch (e) {
+                                                                    message.error(e?.response?.data?.error || 'Failed to remove person');
+                                                                }
+                                                            },
+                                                        });
+                                                    }}
+                                                    className="px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-semibold hover:bg-red-100 transition-colors flex items-center gap-1"
+                                                    title="Remove Person"
+                                                >
+                                                    ✕ Remove
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {/* Email and Phone Row */}
@@ -785,7 +937,17 @@ export default function Building() {
                                         <span className="text-lg">📧</span>
                                         <div className="flex-1">
                                             <div className="text-xs text-gray-600 mb-1">Email</div>
-                                            <div className="font-bold text-gray-900">{building.email}</div>
+                                            {isEditing ? (
+                                                <input
+                                                    type="email"
+                                                    value={editForm.email || ''}
+                                                    onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
+                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm font-bold text-gray-900"
+                                                    placeholder="email@example.com"
+                                                />
+                                            ) : (
+                                                <div className="font-bold text-gray-900">{building.hasAssignedPerson ? building.email : '—'}</div>
+                                            )}
                                         </div>
                                     </div>
 
@@ -794,9 +956,22 @@ export default function Building() {
                                         <span className="text-lg">📞</span>
                                         <div className="flex-1">
                                             <div className="text-xs text-gray-600 mb-1">Phone</div>
-                                            <div className="font-bold text-gray-900">{building.phone}</div>
+                                            <div className="font-bold text-gray-900">{building.hasAssignedPerson ? (building.phone || '—') : '—'}</div>
                                         </div>
                                     </div>
+                                </div>
+
+                                {/* Assigned Person Status */}
+                                <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+                                    {building.hasAssignedPerson ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 rounded text-xs font-semibold">
+                                            ✅ Person Assigned
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-500 rounded text-xs">
+                                            👤 No person assigned
+                                        </span>
+                                    )}
                                 </div>
 
                                 {/* Technical Specifications Header */}
@@ -1165,6 +1340,63 @@ export default function Building() {
                     </div>
                 </div>
             )}
+
+            {/* Assign Person Modal */}
+            <Modal title={`Assign Person to ${building?.name || ''}`} open={assignModalOpen}
+                onOk={async () => {
+                    if (!assignEmail || !building) return;
+                    try {
+                        await assignUserToBuilding(building.dbId, assignEmail, 'owner');
+                        message.success('User assigned to building');
+                        setAssignModalOpen(false);
+                        window.location.reload();
+                    } catch (e) {
+                        message.error(e?.response?.data?.error || 'Failed to assign user');
+                    }
+                }}
+                onCancel={() => setAssignModalOpen(false)}
+                okText="Assign" okButtonProps={{ className: '!bg-blue-600', disabled: !assignEmail }}>
+                <div className="py-2">
+                    <label className="text-sm font-semibold text-gray-700 mb-2 block">Select User</label>
+                    <div className="flex items-center gap-2 mb-2">
+                        <input className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            placeholder="Search user..." value={userSearch}
+                            onChange={e => setUserSearch(e.target.value)} />
+                        <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer whitespace-nowrap">
+                            <input
+                                type="checkbox"
+                                checked={showUnassignedOnly}
+                                onChange={e => setShowUnassignedOnly(e.target.checked)}
+                                className="rounded"
+                            />
+                            Unassigned only
+                        </label>
+                    </div>
+                    <div className="border border-gray-200 rounded-lg max-h-56 overflow-y-auto">
+                        {allUsers
+                            .filter(u => !userSearch || (u.label || '').toLowerCase().includes(userSearch.toLowerCase()))
+                            .filter(u => !showUnassignedOnly || u.buildings.length === 0)
+                            .map(u => (
+                            <div key={u.email}
+                                onClick={() => { setAssignEmail(u.email); setUserSearch(u.label); }}
+                                className={`px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm ${assignEmail === u.email ? 'bg-blue-100 font-semibold' : ''}`}>
+                                <div className="flex items-center gap-2">
+                                    <span>👤</span>
+                                    <span>{u.label}</span>
+                                </div>
+                                {u.buildings.length > 0 && (
+                                    <div className="ml-6 mt-0.5 text-xs text-gray-400">
+                                        🏢 {u.buildings.join(', ')}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                        {allUsers.length === 0 && (
+                            <div className="px-3 py-4 text-sm text-gray-400 text-center">No users found</div>
+                        )}
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 }

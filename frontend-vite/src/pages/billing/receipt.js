@@ -1,32 +1,24 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+﻿import React, { useEffect, useMemo, useState, useRef } from 'react';
 import axios from 'axios';
 import { useHistory, useParams } from 'react-router-dom';
 import { formatEnergy, formatEntityId, formatToken } from '../../utils/formatters';
 import { buildReceiptView } from '../../utils/invoiceReceiptMappers';
 import { getApiBase } from '../../core/data_connecter/apiBase';
+import { fmtDate, fmtDateTime, fmtTime } from '../../utils/dateFormat';
 
 function formatDate(value) {
   if (!value) return '-';
-  return new Date(value).toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  return fmtDate(new Date(value));
 }
 
 function formatTime(value) {
   if (!value) return '-';
-  return new Date(value).toLocaleTimeString('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
+  return fmtTime(new Date(value));
 }
 
 function formatDateTime(value) {
   if (!value) return '-';
-  return new Date(value).toLocaleString('en-GB');
+  return fmtDateTime(new Date(value));
 }
 
 export default function ReceiptDetail() {

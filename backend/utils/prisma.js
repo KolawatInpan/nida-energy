@@ -26,30 +26,15 @@ const demoPrisma = new PrismaClient({
 // ============================================================
 // TABLE ROUTING
 // ============================================================
-// Shared tables → always realPrisma (synced on write)
-// Mode-specific tables → mode-dependent Prisma
+// All tables are mode-specific — REAL and DEMO are completely independent.
+// No data is shared or synced between modes.
 // ============================================================
 
-/** Tables that are shared across modes (always read from real, synced on write) */
-const SHARED_TABLES = new Set([
-  'user',
-  'userCredential',
-  'building',
-  'meterInfo',
-  'battery',
-  'energyRateRule',
-  'tokenRateRule',
-  'notification',
-  'activityLog',
-]);
+/** No shared tables — each mode has its own complete dataset */
+const SHARED_TABLES = new Set([]);
 
-/** Tables that exist in both DBs but should be synced when written to shared */
-const SYNC_ON_WRITE = new Set([
-  'user',
-  'userCredential',
-  'building',
-  'meterInfo',
-]);
+/** No cross-mode syncing */
+const SYNC_ON_WRITE = new Set([]);
 
 // ============================================================
 // MODE HELPERS (must come before proxy)

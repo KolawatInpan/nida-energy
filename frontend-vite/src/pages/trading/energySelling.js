@@ -687,11 +687,13 @@ export default function EnergySelling() {
       // Round both to 2 decimals to match display — prevents false positives from e.g. 1.995 showing as "2.00"
       const availRounded = Math.round(effectiveAvailable * 100) / 100;
       const amountRounded = Math.round(amount * 100) / 100;
-      if (sourceEnergyStatus && amountRounded > availRounded) {
+      // Skip energy check for Day-Ahead (orders are for tomorrow)
+      const isDayAhead = String(marketType || '').toUpperCase() === 'DAY_AHEAD';
+      if (!isDayAhead && sourceEnergyStatus && amountRounded > availRounded) {
             message.warning(`Not enough energy. ${selectedSourceLabel}: ${availRounded.toFixed(2)} kWh, Requested: ${amountRounded.toFixed(2)} kWh`);
             return;
         }
-        if (sourceEnergyStatus && !selectedSourceStatus.available) {
+        if (!isDayAhead && sourceEnergyStatus && !selectedSourceStatus.available) {
             message.warning(`No energy available to sell from the ${selectedSourceLabel}.`);
             return;
         }

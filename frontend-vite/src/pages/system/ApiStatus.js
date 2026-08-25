@@ -1,37 +1,51 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { fmtDateTime, fmtTime } from '../../utils/dateFormat';
 import {
   getSimulatorInfo,
   listMeters,
   getMeterLogs,
   getSimulatedPower,
   triggerEnergyFeedSync,
+  getSyncStatus,
   getPairingData,
   saveDeviceMapping,
   saveBuildingMap,
 } from '../../core/data_connecter/powerSimulator';
+import OpenApiViewer from './OpenApiViewer';
 
 // ─── Constants ───────────────────────────────────────────────────
 
 const FEED_URL = 'http://10.10.161.239:8089';
+const MOCK_URL = 'http://localhost:8089';
 const REFRESH_INTERVAL = 30_000; // 30s auto-refresh
 const LOG_LIMIT = 50; // fetch last 50 logs
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-/** Map meter "S-XXX-TYPE-NNNN" → "XXX" (building code) */
+/** Map meter "S-XXX-TYPE-NNNN" → "XXX" or "XXX-TYPE-NNNN" → "XXX" (building code) */
 function buildingCode(meterId) {
   const parts = (meterId || '').split('-');
-  return parts[1] || '—';
+  if (parts[0] === 'S') return parts[1] || '—';   // S-XXX-TYPE-NNNN
+  return parts[0] || '—';                           // XXX-TYPE-NNNN
 }
 
 /** Map meter type: PRD=Producer, CON=Consumer, BAT=Battery */
 function meterTypeLabel(meterId) {
   const parts = (meterId || '').split('-');
-  const t = parts[2] || '';
+  const t = parts[0] === 'S' ? (parts[2] || '') : (parts[1] || '');
   if (t === 'PRD') return '☀️ Producer';
   if (t === 'CON') return '🏠 Consumer';
   if (t === 'BAT') return '🔋 Battery';
   return t;
+}
+
+function typeBadge(meterId) {
+  const parts = (meterId || '').split('-');
+  const t = parts[0] === 'S' ? (parts[2] || '') : (parts[1] || '');
+  if (t === 'PRD') return { icon: '☀️', label: 'Producer', bg: '#dcfce7', color: '#166534', border: '#bbf7d0' };
+  if (t === 'CON') return { icon: '🏠', label: 'Consumer', bg: '#dbeafe', color: '#1e40af', border: '#bfdbfe' };
+  if (t === 'BAT') return { icon: '🔋', label: 'Battery', bg: '#f3e8ff', color: '#6b21a8', border: '#d8b4fe' };
+  return { icon: '❓', label: t || 'Unknown', bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
 }
 
 // ─── Status Badge ────────────────────────────────────────────────
@@ -67,17 +81,21 @@ function StatusBadge({ online }) {
 
 function LogRow({ log }) {
   const ts = log.DataDateTime
-    ? new Date(log.DataDateTime).toLocaleString('en-GB')
+    ? fmtDateTime(new Date(log.DataDateTime))
     : log.createAt
-      ? new Date(log.createAt * 1000).toLocaleString('en-GB')
+      ? fmtDateTime(new Date(log.createAt * 1000))
       : '—';
-  const type = meterTypeLabel(log.Device);
+  const tb = typeBadge(log.Device);
   const bld = buildingCode(log.Device);
   return (
     <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
       <td style={{ padding: '6px 8px', fontSize: 11, fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'nowrap' }}>{ts}</td>
       <td style={{ padding: '6px 8px', fontSize: 11, fontFamily: 'monospace', color: '#334155' }}>{log.Device}</td>
-      <td style={{ padding: '6px 8px', fontSize: 11, color: '#64748b' }}>{type}</td>
+      <td style={{ padding: '6px 8px', fontSize: 10 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: tb.bg, color: tb.color, border: `1px solid ${tb.border}` }}>
+          {tb.icon} {tb.label}
+        </span>
+      </td>
       <td style={{ padding: '6px 8px', fontSize: 11, fontFamily: 'monospace', color: '#64748b' }}>{bld}</td>
       <td style={{ padding: '6px 8px', fontSize: 12, fontFamily: 'monospace', textAlign: 'right', color: '#2563eb', fontWeight: 500 }}>
         {log.kW != null ? Number(log.kW).toFixed(2) : '—'}
@@ -105,12 +123,28 @@ export default function ApiStatus() {
   const [selectedDevice, setSelectedDevice] = useState('');
   const [syncResult, setSyncResult] = useState(null);
   const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(null); // { latestRunningMeter, totalRunningMeterRows, ... }
+  const [importLogsFile, setImportLogsFile] = useState(null); // meterlog_all.json
+  const [importMetersFile, setImportMetersFile] = useState(null); // vmeter.json
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState(null);
   const [syncPreview, setSyncPreview] = useState(null); // { meters, logs, topKwh, lowKwh, topDevice, lowDevice }
   const [previewLoading, setPreviewLoading] = useState(false);
   const [hiddenMeters, setHiddenMeters] = useState(() => {
     try { return JSON.parse(localStorage.getItem('apiStatusHiddenMeters') || '[]'); } catch { return []; }
   });
   const [showHidden, setShowHidden] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('apiStatusAutoRefresh') ?? 'true'); } catch { return true; }
+  });
+
+  const toggleAutoRefresh = () => {
+    setAutoRefresh(prev => {
+      const next = !prev;
+      localStorage.setItem('apiStatusAutoRefresh', JSON.stringify(next));
+      return next;
+    });
+  };
 
   const toggleHideMeter = (meterId) => {
     setHiddenMeters(prev => {
@@ -151,14 +185,19 @@ export default function ApiStatus() {
     setSelectedSystemMeter(null); // clear meter selection
   };
 
-  const onPairBuilding = (code) => {
+  const onPairBuilding = async (code) => {
     if (!selectedSystemBuilding) return;
-    handleBuildingPair(code, selectedSystemBuilding);
+    const updated = { ...buildingMap, [code]: selectedSystemBuilding };
+    setBuildingMap(updated);
     setSelectedSystemBuilding(null);
+    try { await saveBuildingMap(updated); } catch (_) {}
   };
 
-  const unpairBuilding = (code) => {
-    handleBuildingPair(code, null);
+  const unpairBuilding = async (code) => {
+    const updated = { ...buildingMap };
+    delete updated[code];
+    setBuildingMap(updated);
+    try { await saveBuildingMap(updated); } catch (_) {}
   };
 
   const cancelSelection = () => {
@@ -185,18 +224,19 @@ export default function ApiStatus() {
     setSelectedSystemBuilding(null); // clear building selection
   };
 
-  const onPairMeter = (sourceDevice) => {
+  const onPairMeter = async (sourceDevice) => {
     if (!selectedSystemMeter) return;
-    const updated = { ...deviceMapping };
-    updated[sourceDevice] = selectedSystemMeter;
+    const updated = { ...deviceMapping, [sourceDevice]: selectedSystemMeter };
     setDeviceMapping(updated);
     setSelectedSystemMeter(null);
+    try { await saveDeviceMapping(updated); } catch (_) {}
   };
 
-  const unpairMeter = (sourceDevice) => {
+  const unpairMeter = async (sourceDevice) => {
     const updated = { ...deviceMapping };
     delete updated[sourceDevice];
     setDeviceMapping(updated);
+    try { await saveDeviceMapping(updated); } catch (_) {}
   };
 
   const saveMapping = async () => {
@@ -222,12 +262,51 @@ export default function ApiStatus() {
   };
 
   // ─── Manual Sync ──────────────────────────────────
+  // ─── Import production data to local mock-simulator ──
+  const handleImportFiles = async () => {
+    if (!importLogsFile || !importMetersFile) {
+      setImportMsg({ ok: false, text: 'Please select both meterlog_all.json and vmeter.json' });
+      return;
+    }
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const readJson = (file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          try { resolve(JSON.parse(reader.result)); } catch (e) { reject(new Error(`${file.name} is not valid JSON`)); }
+        };
+        reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+        reader.readAsText(file);
+      });
+      const logs = await readJson(importLogsFile);
+      const meters = await readJson(importMetersFile);
+      if (!Array.isArray(logs) || !Array.isArray(meters)) throw new Error('Both files must be JSON arrays');
+
+      const res = await fetch(`${MOCK_URL}/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meters, logs }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result?.error || `HTTP ${res.status}`);
+      setImportMsg({ ok: true, text: `Imported ${result.meters} meters + ${result.logs} logs into local mock-simulator` });
+    } catch (e) {
+      console.error('[ApiStatus] Import failed:', e);
+      setImportMsg({ ok: false, text: `Import failed: ${e.message}` });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // ─── Manual Sync ──────────────────────────────────
   const manualSync = async () => {
     setSyncing(true);
     setSyncResult(null);
     try {
       const result = await triggerEnergyFeedSync();
       setSyncResult(result);
+      getSyncStatus().then(s => setSyncStatus(s)).catch(() => {});
     } catch (e) {
       setSyncResult({ success: false, error: e.message, logs: [] });
     }
@@ -328,7 +407,16 @@ export default function ApiStatus() {
         const params = { limit: LOG_LIMIT };
         if (selectedDevice) params.device = selectedDevice;
         const logData = await getMeterLogs(params);
-        const logArr = Array.isArray(logData) ? logData : logData?.logs ?? [];
+        let logArr = Array.isArray(logData) ? logData : logData?.logs ?? [];
+        // Show the LATEST 50 logs (newest first)
+        logArr = logArr
+          .slice()
+          .sort((a, b) => {
+            const ta = a.DataDateTime ? new Date(a.DataDateTime).getTime() : (a.createAt || 0) * 1000;
+            const tb = b.DataDateTime ? new Date(b.DataDateTime).getTime() : (b.createAt || 0) * 1000;
+            return tb - ta;
+          })
+          .slice(0, LOG_LIMIT);
         setLogs(logArr);
         setCachedLogs(logArr);
         setCachedAt(new Date());
@@ -337,6 +425,7 @@ export default function ApiStatus() {
       }
 
       loadPairing().catch(() => {});
+      getSyncStatus().then(s => setSyncStatus(s)).catch(() => {});
     } catch (e) {
       setOnline(false);
       const msg = String(e.message || '');
@@ -354,9 +443,14 @@ export default function ApiStatus() {
 
   useEffect(() => {
     refresh();
+    loadPairing(); // auto-load building/meter pairing on mount
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!autoRefresh) return;
     const id = setInterval(refresh, REFRESH_INTERVAL);
     return () => clearInterval(id);
-  }, [refresh]);
+  }, [autoRefresh, refresh]);
 
   // Group logs by Device → latest kWh per meter, sorted by kWh descending
   const latestKwhByDevice = useMemo(() => {
@@ -384,15 +478,48 @@ export default function ApiStatus() {
             Energy Feed · {FEED_URL}
             {!online && cachedMeters.length > 0 && cachedAt && (
               <span style={{ marginLeft: 8, color: '#f59e0b', fontSize: 11 }}>
-                ⚠️ Showing cached data from {cachedAt.toLocaleTimeString()}
+                ⚠️ Showing cached data from {fmtTime(cachedAt)}
               </span>
             )}
           </p>
+          {syncStatus && (
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#475569' }}>
+              📡 Synced to:{' '}
+              <strong style={{ color: '#0f172a' }}>
+                {syncStatus.latestRunningMeter
+                  ? fmtDateTime(new Date(syncStatus.latestRunningMeter))
+                  : syncStatus.fileCursor
+                    ? `File cursor: ${syncStatus.fileCursor}`
+                    : 'Not started'}
+              </strong>
+              <span style={{ marginLeft: 10, color: '#94a3b8', fontSize: 11 }}>
+                ({syncStatus.totalRunningMeterRows?.toLocaleString() || 0} records · every {syncStatus.syncIntervalSec}s)
+              </span>
+            </p>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {online !== null && <StatusBadge online={online} />}
+          <button
+            onClick={toggleAutoRefresh}
+            title={autoRefresh ? 'Auto-refresh ON — click to pause' : 'Auto-refresh OFF — click to resume'}
+            style={{
+              padding: '6px 14px', borderRadius: 6, border: '1px solid #d1d5db', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+              background: autoRefresh ? '#dcfce7' : '#fee2e2',
+              color: autoRefresh ? '#166534' : '#991b1b',
+            }}
+          >
+            {autoRefresh ? '🟢 Auto' : '⏸ Paused'}
+          </button>
           <button onClick={refresh} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 500, color: '#374151' }}>
             🔄 Refresh
+          </button>
+          <button
+            onClick={() => window.open('/mock-energy', '_blank')}
+            title="Open Mock Energy Generator"
+            style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #06b6d4', background: '#ecfeff', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#0891b2' }}
+          >
+            ⚡ Mock Energy
           </button>
           <button
             onClick={openSyncPreview}
@@ -405,8 +532,55 @@ export default function ApiStatus() {
           >
             {previewLoading ? '⏳ Loading…' : '⚡ Manual Fetch'}
           </button>
+          <label
+            title="Import production meterlog_all.json + vmeter.json into local mock-simulator"
+            style={{
+              padding: '6px 14px', borderRadius: 6, border: '1px solid #a78bfa', background: '#f5f3ff',
+              cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#7c3aed',
+            }}
+          >
+            📥 Import
+            <input
+              type="file"
+              accept=".json"
+              multiple
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                const logs = files.find(f => /meterlog/i.test(f.name));
+                const meters = files.find(f => /vmeter/i.test(f.name));
+                if (logs) setImportLogsFile(logs);
+                if (meters) setImportMetersFile(meters);
+              }}
+              style={{ display: 'none' }}
+            />
+          </label>
+          {(importLogsFile || importMetersFile) && (
+            <button
+              onClick={handleImportFiles}
+              disabled={importing}
+              style={{
+                padding: '6px 14px', borderRadius: 6, border: '1px solid #7c3aed', background: '#7c3aed',
+                cursor: importing ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600, color: '#fff',
+                opacity: importing ? 0.6 : 1,
+              }}
+            >
+              {importing ? '⏳ Importing…' : `⬆️ Upload (${[importLogsFile?.name, importMetersFile?.name].filter(Boolean).length} files)`}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* ── Import Result ──────────────────────────── */}
+      {importMsg && (
+        <div style={{
+          padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13,
+          background: importMsg.ok ? '#f0fdf4' : '#fef2f2',
+          border: `1px solid ${importMsg.ok ? '#bbf7d0' : '#fecaca'}`,
+          color: importMsg.ok ? '#166534' : '#991b1b',
+        }}>
+          {importMsg.ok ? '✅ ' : '❌ '}{importMsg.text}
+        </div>
+      )}
 
       {/* ── Error Banner ───────────────────────────── */}
       {error && (
@@ -443,6 +617,9 @@ export default function ApiStatus() {
           )}
         </div>
       )}
+
+      {/* ── OpenAPI Documentation ──────────────────── */}
+      <OpenApiViewer />
 
       {/* ── Building Pairing ──────────────────────── */}
       <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '16px 20px', marginBottom: 16 }}>
@@ -507,7 +684,8 @@ export default function ApiStatus() {
                 const codes = new Set();
                 for (const m of pairingData.sourceMeters || []) {
                   const parts = (m.meter_id || '').split('-');
-                  if (parts[1]) codes.add(parts[1]);
+                  const code = parts[0] === 'S' ? parts[1] : parts[0];
+                  if (code) codes.add(code);
                 }
                 if (codes.size === 0) return <p style={{ fontSize: 11, color: '#94a3b8' }}>No source meters — source API may be unreachable.</p>;
                 return [...codes].sort().map(code => {
@@ -601,7 +779,18 @@ export default function ApiStatus() {
                         }}>
                           <span>
                             <span>{m.snid}</span>
-                            <span style={{ color: isSelected ? '#bfdbfe' : '#94a3b8', marginLeft: 6 }}>{m.type}</span>
+                            {(() => {
+                              const t = (m.type || '').toLowerCase();
+                              const cols = t.includes('produc') ? { icon: '☀️', bg: '#dcfce7', color: '#166534' }
+                                : t.includes('consum') ? { icon: '🏠', bg: '#dbeafe', color: '#1e40af' }
+                                : t.includes('batt') ? { icon: '🔋', bg: '#f3e8ff', color: '#6b21a8' }
+                                : { icon: '', bg: '#f1f5f9', color: '#64748b' };
+                              return (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 4, padding: '1px 5px', borderRadius: 3, fontSize: 9, fontWeight: 600, background: cols.bg, color: cols.color }}>
+                                  {cols.icon} {m.type}
+                                </span>
+                              );
+                            })()}
                           </span>
                           {paired && <span style={{ fontSize: 10, color: isSelected ? '#bfdbfe' : '#16a34a' }}>← {paired[0]}</span>}
                         </div>
@@ -621,7 +810,7 @@ export default function ApiStatus() {
                 const byCode = {};
                 for (const m of pairingData.sourceMeters || []) {
                   const parts = (m.meter_id || '').split('-');
-                  const code = parts[1] || '?';
+                  const code = parts[0] === 'S' ? parts[1] : parts[0] || '?';
                   if (!byCode[code]) byCode[code] = [];
                   byCode[code].push(m);
                 }
@@ -643,6 +832,11 @@ export default function ApiStatus() {
                           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                         }} title={pairedSnid ? 'Click to unpair' : (selectedSystemMeter ? 'Click to pair' : 'Select a meter first')}>
                           <span style={{ fontFamily: 'monospace' }}>{m.meter_id}
+                            {(() => { const tb = typeBadge(m.meter_id); return (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 4, padding: '1px 5px', borderRadius: 3, fontSize: 9, fontWeight: 600, background: tb.bg, color: tb.color, border: `1px solid ${tb.border}` }}>
+                                {tb.icon} {tb.label}
+                              </span>
+                            );})()}
                             <span style={{ color: '#94a3b8', marginLeft: 6, fontSize: 10 }}>{m.kwh != null ? Number(m.kwh).toLocaleString('en-US', {maximumFractionDigits: 0}) + ' kWh' : ''}</span>
                           </span>
                           {pairedSnid ? (
@@ -662,6 +856,89 @@ export default function ApiStatus() {
           </div>
         )}
       </div>
+
+      {/* ── SNID Mismatch Check ───────────────────── */}
+      {(() => {
+        if (!pairingData) return null;
+        const sourceIds = new Set((pairingData.sourceMeters || []).map(m => m.meter_id));
+        const systemSnids = new Set((pairingData.systemMeters || []).map(m => m.snid));
+        const mappedSourceIds = new Set(Object.keys(deviceMapping));
+        const mappedSystemSnids = new Set(Object.values(deviceMapping));
+
+        // Source meters not paired to any system meter
+        const unpairedSource = [...sourceIds].filter(id => !mappedSourceIds.has(id) && !systemSnids.has(id));
+        // System meters not paired to any source meter
+        const unpairedSystem = (pairingData.systemMeters || []).filter(m => !mappedSystemSnids.has(m.snid));
+        // System meters where SNID doesn't directly match any source meter
+        const sourceButNoSystem = [...sourceIds].filter(id => !systemSnids.has(id) && !mappedSourceIds.has(id));
+        // Total mismatches
+        const totalMismatch = unpairedSource.length + sourceButNoSystem.length;
+
+        if (totalMismatch === 0 && unpairedSystem.length === 0) return null;
+
+        return (
+          <div style={{ background: '#fffbf0', borderRadius: 10, border: '1px solid #fde68a', padding: '16px 20px', marginBottom: 16 }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 600, color: '#92400e' }}>
+              ⚠️ SNID Mismatches ({totalMismatch + unpairedSystem.length})
+            </h3>
+
+            {sourceButNoSystem.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <h4 style={{ fontSize: 12, fontWeight: 600, color: '#b45309', margin: '0 0 4px' }}>
+                  🔴 Source meters not in system ({sourceButNoSystem.length})
+                </h4>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {sourceButNoSystem.sort().map(id => (
+                    <span key={id} style={{
+                      padding: '2px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
+                      background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca',
+                    }}>
+                      {id}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {unpairedSource.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <h4 style={{ fontSize: 12, fontWeight: 600, color: '#b45309', margin: '0 0 4px' }}>
+                  🟡 Unpaired source meters ({unpairedSource.length})
+                </h4>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {unpairedSource.sort().map(id => (
+                    <span key={id} style={{
+                      padding: '2px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
+                      background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a',
+                    }}>
+                      {id}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {unpairedSystem.length > 0 && (
+              <div>
+                <h4 style={{ fontSize: 12, fontWeight: 600, color: '#b45309', margin: '0 0 4px' }}>
+                  🟠 System meters not paired ({unpairedSystem.length})
+                </h4>
+                {unpairedSystem.sort((a,b) => (a.buildingName||'').localeCompare(b.buildingName||'')).map(m => (
+                  <div key={m.snid} style={{ display: 'inline-flex', gap: 6, margin: '2px 6px 2px 0', alignItems: 'center' }}>
+                    <span style={{
+                      padding: '2px 8px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace',
+                      background: '#ffedd5', color: '#9a3412', border: '1px solid #fed7aa',
+                    }}>
+                      {m.snid}
+                    </span>
+                    <span style={{ fontSize: 10, color: '#78716c' }}>{m.buildingName}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── kWh by Meter (Summary) ─────────────────── */}
       <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '16px 20px', marginBottom: 16 }}>
@@ -687,7 +964,13 @@ export default function ApiStatus() {
                 <tr key={dev} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: selectedDevice === dev ? '#eff6ff' : undefined }}
                   onClick={() => setSelectedDevice(selectedDevice === dev ? '' : dev)}>
                   <td style={{ padding: '8px 12px', fontSize: 12, fontFamily: 'monospace', color: '#0f172a', fontWeight: 500 }}>{dev}</td>
-                  <td style={{ padding: '8px 12px', fontSize: 12 }}>{d.type}</td>
+                  <td style={{ padding: '8px 12px', fontSize: 10 }}>
+                    {(() => { const tb = typeBadge(dev); return (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 4, fontWeight: 600, background: tb.bg, color: tb.color, border: `1px solid ${tb.border}` }}>
+                        {tb.icon} {tb.label}
+                      </span>
+                    );})()}
+                  </td>
                   <td style={{ padding: '8px 12px', fontSize: 12, fontFamily: 'monospace', color: '#64748b' }}>{d.building}</td>
                   <td style={{ padding: '8px 12px', fontSize: 13, fontFamily: 'monospace', textAlign: 'right', color: '#2563eb', fontWeight: 500 }}>
                     {d.kW != null ? Number(d.kW).toFixed(2) : '—'}
@@ -744,7 +1027,13 @@ export default function ApiStatus() {
                 <tr key={mid} style={{ borderBottom: '1px solid #f1f5f9', opacity: isHidden ? 0.4 : 1 }}>
                   <td style={{ padding: '6px 12px', fontSize: 12, fontFamily: 'monospace', color: '#0f172a' }}>{mid}</td>
                   <td style={{ padding: '6px 12px', fontSize: 12, color: '#334155' }}>{m.name ?? '—'}</td>
-                  <td style={{ padding: '6px 12px', fontSize: 12 }}>{meterTypeLabel(mid)}</td>
+                  <td style={{ padding: '6px 12px', fontSize: 12 }}>
+                    {(() => { const tb = typeBadge(mid); return (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600, background: tb.bg, color: tb.color, border: `1px solid ${tb.border}` }}>
+                        {tb.icon} {tb.label}
+                      </span>
+                    );})()}
+                  </td>
                   <td style={{ padding: '6px 12px', fontSize: 13, fontFamily: 'monospace', textAlign: 'right', color: '#16a34a', fontWeight: 600 }}>
                     {m.kwh != null ? Number(m.kwh).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                   </td>
@@ -860,8 +1149,10 @@ export default function ApiStatus() {
 
       {/* ── Footer ─────────────────────────────────── */}
       <p style={{ textAlign: 'center', fontSize: 11, color: '#94a3b8', marginTop: 12 }}>
-        Auto-refresh every {REFRESH_INTERVAL / 1000}s
-        {lastRefresh && ` · Last: ${lastRefresh.toLocaleTimeString('en-GB')}`}
+        {autoRefresh
+          ? `Auto-refresh every ${REFRESH_INTERVAL / 1000}s`
+          : '⏸ Auto-refresh paused'}
+        {lastRefresh && ` · Last: ${fmtTime(lastRefresh)}`}
       </p>
 
       {/* ── Sync Preview Modal ─────────────────────── */}
@@ -935,15 +1226,11 @@ export default function ApiStatus() {
                 setSyncPreview(null);
                 await manualSync();
               }}
-                disabled={syncPreview.unpairedSource?.length > 0}
                 style={{
                   padding: '8px 20px', borderRadius: 8, border: 'none',
-                  background: syncPreview.unpairedSource?.length > 0 ? '#d1d5db' : '#fbbf24',
-                  cursor: syncPreview.unpairedSource?.length > 0 ? 'not-allowed' : 'pointer',
-                  fontSize: 13, fontWeight: 700,
-                  color: syncPreview.unpairedSource?.length > 0 ? '#9ca3af' : '#92400e',
-                }}
-                title={syncPreview.unpairedSource?.length > 0 ? 'Pair all source meters before syncing' : ''}>
+                  background: '#fbbf24', cursor: 'pointer',
+                  fontSize: 13, fontWeight: 700, color: '#92400e',
+                }}>
                 ⚡ Confirm & Sync
               </button>
             </div>

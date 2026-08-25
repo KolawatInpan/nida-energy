@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { getApiBase } from '../../core/data_connecter/apiBase';
+import { fmtTime } from '../../utils/dateFormat';
 
 const API = getApiBase();
 
@@ -232,7 +233,7 @@ function DemoFlow() {
 
       {/* Bottom stats bar */}
       <div style={{ display: 'flex', gap: 20, marginTop: 12, fontSize: 12, color: '#64748b' }}>
-        <span>🔄 Last refresh: {new Date().toLocaleTimeString()}</span>
+        <span>🔄 Last refresh: {fmtTime(new Date())}</span>
         <span>📊 Active Offers: <b style={{ color: '#fbbf24' }}>{data.offers.length || 0}</b></span>
         <span>📥 Active Bids: <b style={{ color: '#38bdf8' }}>{data.bids.length || 0}</b></span>
         <span>🤝 Matches: <b style={{ color: '#10b981' }}>{data.matches.length || 0}</b></span>

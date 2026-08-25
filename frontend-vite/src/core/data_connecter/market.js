@@ -71,6 +71,11 @@ export function triggerClearing() {
     return axios.post(`${base}/market/trigger-clearing`).then(res => res.data);
 }
 
+export function triggerMatching() {
+    const base = getApiBase();
+    return axios.post(`${base}/market/trigger-matching`).then(res => res.data);
+}
+
 /**
  * Create a new energy bid (POST /api/offers/bids)
  * @param {Object} bid - The bid data { buyerWalletId, kwh, ratePerKwh, marketType, targetDate }

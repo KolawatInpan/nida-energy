@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { getInvoiceById, payInvoice } from '../../core/data_connecter/invoice';
@@ -8,6 +8,7 @@ import { formatEnergy, formatToken } from '../../utils/formatters';
 import { normalizeRoleName } from '../../utils/authSession';
 import { NoBuildingAssignedPage } from '../../components/shared';
 import Key from '../../global/key';
+import { fmtDate, fmtTime } from '../../utils/dateFormat';
 
 function toNumber(value) {
   const numeric = Number(value);
@@ -18,12 +19,12 @@ function formatPeriod(invoice) {
   if (!invoice?.month || !invoice?.year) return '-';
   const start = new Date(invoice.year, invoice.month - 1, 1);
   const end = new Date(invoice.year, invoice.month, 0);
-  return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
+  return `${fmtDate(start)} - ${fmtDate(end)}`;
 }
 
 function formatTime(value) {
   if (!value) return '-';
-  return new Date(value).toLocaleTimeString();
+  return fmtTime(new Date(value));
 }
 
 export default function InvoicePayment() {
@@ -228,7 +229,7 @@ export default function InvoicePayment() {
             </div>
             <div className="text-right">
               <div className="text-xs text-gray-500">Today</div>
-              <div className="text-sm font-semibold text-gray-900">{new Date().toLocaleDateString()}</div>
+              <div className="text-sm font-semibold text-gray-900">{fmtDate(new Date())}</div>
             </div>
           </div>
         </div>
@@ -463,7 +464,7 @@ export default function InvoicePayment() {
                 </div>
                 <div className="rounded-2xl bg-gray-50 p-4">
                   <div className="text-sm text-gray-400">Payment Date</div>
-                  <div className="text-lg font-bold text-gray-900 mt-1">{paymentResult?.receipt?.timestamp ? new Date(paymentResult.receipt.timestamp).toLocaleDateString() : '-'}</div>
+                  <div className="text-lg font-bold text-gray-900 mt-1">{paymentResult?.receipt?.timestamp ? fmtDate(new Date(paymentResult.receipt.timestamp)) : '-'}</div>
                 </div>
                 <div className="rounded-2xl bg-gray-50 p-4">
                   <div className="text-sm text-gray-400">Payment Time</div>
@@ -511,7 +512,7 @@ export default function InvoicePayment() {
                   <div className="text-sm text-gray-400 mb-2">Payment Details</div>
                   <div className="space-y-2 text-gray-700">
                     <div>Payment Method: Digital Wallet</div>
-                    <div>Transaction Date: {paymentResult?.receipt?.timestamp ? new Date(paymentResult.receipt.timestamp).toLocaleDateString() : '-'}</div>
+                    <div>Transaction Date: {paymentResult?.receipt?.timestamp ? fmtDate(new Date(paymentResult.receipt.timestamp)) : '-'}</div>
                     <div>Status: <span className="font-semibold text-green-600">Completed</span></div>
                   </div>
                 </div>

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Badge, List, Spin, message } from 'antd';
 import { BellOutlined } from '@ant-design/icons';
 import { getApiBase } from '../core/data_connecter/apiBase';
+import { fmtDateTime } from '../utils/dateFormat';
 
 const API_BASE = getApiBase();
 const NOTIFICATION_API = `${API_BASE}/notifications`;
@@ -201,7 +202,7 @@ const NotificationBell = ({ userId }) => {
                         {item.body || item.title || '(no message)'}
                       </div>
                       <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                        {new Date(item.createdAt).toLocaleString('th-TH')}
+                        {fmtDateTime(new Date(item.createdAt))}
                       </div>
                     </div>
                   </List.Item>

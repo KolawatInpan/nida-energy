@@ -67,6 +67,84 @@ async function getInvoices(filter = {}) {
     if (filter.status) where.status = String(filter.status).toLowerCase();
     if (filter.buildingName) where.buildingName = String(filter.buildingName);
 
+    // Auto-detect overdue: backfill dueDate + mark late
+    // 1. Set dueDate for old invoices that don't have one (timestamp + 15 days)
+    await prisma.$executeRawUnsafe(`
+        UPDATE "Invoice"
+        SET "dueDate" = COALESCE("dueDate", "timestamp" + INTERVAL '15 days')
+        WHERE "status" = 'unpaid' AND "dueDate" IS NULL
+    `);
+
+    // 2. Find invoices that will become overdue (before updating status)
+    const becomingLate = await prisma.invoice.findMany({
+        where: { status: 'unpaid', dueDate: { not: null, lt: new Date() } },
+        select: { id: true, buildingName: true, tokenAmount: true, dueDate: true, month: true, year: true, lastNotifiedAt: true },
+    });
+
+    // 3. Mark unpaid invoices as 'late' if dueDate has passed
+    await prisma.$executeRawUnsafe(`
+        UPDATE "Invoice"
+        SET "status" = 'late'
+        WHERE "status" = 'unpaid' AND "dueDate" IS NOT NULL AND "dueDate" < NOW()
+    `);
+
+    // 4. Send Telegram notifications at intervals: 7 days, 15 days, new month
+    if (becomingLate.length > 0) {
+        const { dispatchNotification } = require('../notification/notification.service');
+        const now = new Date();
+        for (const inv of becomingLate) {
+            const dueDate = new Date(inv.dueDate);
+            const overdueDays = Math.floor((now - dueDate) / (1000 * 60 * 60 * 24));
+            const lastNotified = inv.lastNotifiedAt ? new Date(inv.lastNotifiedAt) : null;
+            
+            // Check if we should notify: 7 days, 15 days, or new month since last notify
+            let shouldNotify = false;
+            if (!lastNotified) {
+                shouldNotify = overdueDays >= 7;
+            } else {
+                const daysSinceLastNotify = Math.floor((now - lastNotified) / (1000 * 60 * 60 * 24));
+                // Notify if: 15 days reached, or new month started (and at least 7 days since last notify)
+                if (overdueDays >= 15 && (!lastNotified || daysSinceLastNotify >= 8)) {
+                    shouldNotify = true;
+                } else if (now.getMonth() !== lastNotified.getMonth() && daysSinceLastNotify >= 7) {
+                    shouldNotify = true;
+                }
+            }
+
+            if (shouldNotify) {
+                const monthName = new Date(inv.year, (inv.month || 1) - 1).toLocaleString('en-US', { month: 'short' });
+                const due = fmtDue(inv.dueDate);
+                const amount = inv.tokenAmount ? Number(inv.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '0';
+                const label = overdueDays >= 15 ? `🔴 ${overdueDays} days overdue!` : `⚠️ ${overdueDays} days overdue`;
+                
+                // Resolve building owner email for per-user prefs/delivery
+                let ownerEmail = null;
+                try {
+                    const owner = await prisma.building.findUnique({ where: { name: inv.buildingName }, select: { email: true } });
+                    ownerEmail = owner?.email || null;
+                } catch (_) {}
+                dispatchNotification({
+                    type: 'invoice',
+                    message: `${label}\n🏢 ${inv.buildingName}\n📅 ${monthName} ${inv.year}\n💰 ${amount} Token\n📆 Due: ${due}\n\nPlease pay to avoid service interruption.`,
+                    email: ownerEmail,
+                    userId: null,
+                }).catch(() => {});
+                
+                // Update lastNotifiedAt
+                await prisma.invoice.update({
+                    where: { id: inv.id },
+                    data: { lastNotifiedAt: now },
+                }).catch(() => {});
+            }
+        }
+    }
+    
+    // Helper for due date formatting
+    function fmtDue(d) {
+        if (!d) return 'N/A';
+        return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
     const invoices = await prisma.invoice.findMany({
         where,
         include: {
@@ -330,6 +408,7 @@ async function createMonthlyInvoices({ year, month, buildingName }) {
                 id: randomUUID(),
                 ...invoiceData,
                 status: 'unpaid',
+                dueDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000), // +15 days
             },
             include: {
                 receipt: true,
@@ -352,11 +431,26 @@ async function markInvoicePaid({ invoiceId }) {
         where: { id: String(invoiceId) },
         data: {
             status: 'paid',
+            paidAt: new Date(),
         },
-        include: {
-            receipt: true,
-        },
+        include: { receipt: true },
     });
+
+    // Telegram + Email notification (respects user prefs)
+    const { dispatchNotification } = require('../notification/notification.service');
+    const amount = invoice.tokenAmount ? Number(invoice.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '0';
+    const monthName = new Date(invoice.year, (invoice.month || 1) - 1).toLocaleString('en-US', { month: 'short' });
+    let ownerEmail = null;
+    try {
+        const owner = await prisma.building.findUnique({ where: { name: invoice.buildingName }, select: { email: true } });
+        ownerEmail = owner?.email || null;
+    } catch (_) {}
+    dispatchNotification({
+        type: 'invoice',
+        message: `✅ *Invoice Paid*\n🏢 ${invoice.buildingName}\n📅 ${monthName} ${invoice.year}\n💰 ${amount} Token\n\nThank you for your payment!`,
+        email: ownerEmail,
+        userId: null,
+    }).catch(() => {});
 
     return normalizeInvoice(invoice);
 }

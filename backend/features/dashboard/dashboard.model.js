@@ -150,6 +150,64 @@ async function getMonthlyEnergy(filter = {}) {
     }));
 }
 
+/**
+ * Detect time gaps (>1h) in RunningMeter data for a given meter and date.
+ * Returns periods where no meter logs were received.
+ */
+async function getGaps({ meterId, date, from, to }) {
+  const where = { snid: meterId };
+  
+  if (date) {
+    const d = new Date(date);
+    const start = new Date(d); start.setHours(0, 0, 0, 0);
+    const end = new Date(d); end.setHours(23, 59, 59, 999);
+    where.timestamp = { gte: start, lte: end };
+  } else if (from && to) {
+    where.timestamp = { gte: new Date(from), lte: new Date(to) };
+  }
+
+  const rows = await prisma.runningMeter.findMany({
+    where,
+    select: { timestamp: true },
+    orderBy: { timestamp: 'asc' },
+  });
+
+  if (rows.length < 2) {
+    // If no data at all, the whole period is a gap
+    if (rows.length === 0) {
+      const rangeStart = where.timestamp?.gte || new Date(date);
+      const rangeEnd = where.timestamp?.lte || new Date();
+      return [{
+        from: rangeStart.toISOString(),
+        to: rangeEnd.toISOString(),
+        durationHours: Math.round((rangeEnd - rangeStart) / (1000 * 60 * 60)),
+        label: 'No data available for this period',
+      }];
+    }
+    return [];
+  }
+
+  const gaps = [];
+  const MIN_GAP_HOURS = 1; // gaps > 1 hour are considered "no data" periods
+
+  for (let i = 1; i < rows.length; i++) {
+    const prev = rows[i - 1].timestamp;
+    const curr = rows[i].timestamp;
+    const diffHours = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60);
+
+    if (diffHours > MIN_GAP_HOURS) {
+      gaps.push({
+        from: prev.toISOString(),
+        to: curr.toISOString(),
+        durationHours: Math.round(diffHours * 10) / 10,
+        label: `No logs for ${Math.round(diffHours)}h ${Math.round((diffHours % 1) * 60)}m`,
+      });
+    }
+  }
+
+  return gaps;
+}
+
 async function searchBuildingEnergy({ building, buildingId, start, end, timeunit = 'day' }) {
 
     if (!building && !buildingId) throw new Error('building or buildingId is required');
@@ -443,6 +501,7 @@ module.exports = {
     getWeeklyEnergy,
     getMonthlyEnergy,
     searchBuildingEnergy,
+    getGaps,
 }
 
 

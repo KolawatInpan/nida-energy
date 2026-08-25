@@ -56,6 +56,7 @@ async function autoPostBatterySurplusOffer(buildingName) {
     // ---- Track results from both solar and battery checks ----
     let createdOffer = null;
     let batteryOffersCreated = 0;
+    let batchSize = 0;
     let solarAutoApplicable = (produceMeters.length > 0 && solarMode === TRADE_MODES.AUTO_BATTERY_THRESHOLD);
     let batteryAutoApplicable = (batteryMeter && batteryCapacity > 0 && batteryMode === TRADE_MODES.AUTO_BATTERY_THRESHOLD);
 
@@ -121,7 +122,7 @@ async function autoPostBatterySurplusOffer(buildingName) {
         }
 
         // Calculate average daily consumption to use as batch size for splitting offers
-        let batchSize = 0;
+        batchSize = 0;
         if (sellableKwh >= 0.01) {
             try {
                 const consumeSnids = meterRows.filter((m) => isConsumeMeter(m.type)).map((m) => m.snid);

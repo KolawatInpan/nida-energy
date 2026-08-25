@@ -1,7 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory } from 'react-router-dom';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import { ReloadOutlined, HistoryOutlined, LinkOutlined, SearchOutlined } from '@ant-design/icons';
 import { getAllTransactions } from '../../core/data_connecter/api_caller';
+import { fmtDateTime } from '../../utils/dateFormat';
 import {
   formatEntityId,
   formatToken,
@@ -25,15 +28,7 @@ function normalizeTradingRows(rows) {
       return {
         id: String(item?.txid || ''),
         timestamp,
-        timestampLabel: timestamp
-          ? timestamp.toLocaleString('en-GB', {
-              day: '2-digit',
-              month: 'short',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            })
-          : '-',
+        timestampLabel: timestamp ? fmtDateTime(timestamp) : '-',
         tradeType: TRADE_LABELS[rawType] || getTransactionDisplayType(item),
         tokenAmount: Number(item?.tokenAmount || 0),
         buildingName: item?.buildingName || 'N/A',
@@ -120,21 +115,26 @@ export default function TradingHistory() {
 
           <div className="flex flex-nowrap gap-4 overflow-x-auto">
             <label className="block min-w-[240px] flex-1">
-              <div className="mb-2 text-sm font-semibold text-slate-700">Start Date</div>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
+              <div className="mb-2 text-sm font-semibold text-slate-700">Start Date (dd-mm-yyyy)</div>
+              <DatePicker
+                selected={startDate ? new Date(startDate + 'T00:00:00') : null}
+                onChange={(date) => setStartDate(date ? date.toISOString().slice(0, 10) : '')}
+                dateFormat="dd-MM-yyyy"
+                placeholderText="dd-mm-yyyy"
+                maxDate={endDate ? new Date(endDate + 'T00:00:00') : new Date()}
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </label>
 
             <label className="block min-w-[240px] flex-1">
-              <div className="mb-2 text-sm font-semibold text-slate-700">End Date</div>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(event) => setEndDate(event.target.value)}
+              <div className="mb-2 text-sm font-semibold text-slate-700">End Date (dd-mm-yyyy)</div>
+              <DatePicker
+                selected={endDate ? new Date(endDate + 'T00:00:00') : null}
+                onChange={(date) => setEndDate(date ? date.toISOString().slice(0, 10) : '')}
+                dateFormat="dd-MM-yyyy"
+                placeholderText="dd-mm-yyyy"
+                minDate={startDate ? new Date(startDate + 'T00:00:00') : null}
+                maxDate={new Date()}
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </label>

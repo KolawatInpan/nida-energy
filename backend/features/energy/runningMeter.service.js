@@ -151,12 +151,77 @@ async function getBatteryChargeSources(req, res) {
 	}
 }
 
+/**
+ * GET /api/runningMeters/soc-series/:snid?start=YYYY-MM-DD&end=YYYY-MM-DD
+ * Returns the battery's REAL State-of-Charge series (daily) from RunningMeter.kWH.
+ * kWH for battery meters is already the integrated SoC (clamped to capacity),
+ * so we return it directly — NOT a flow sum. Groups to one value per day
+ * (last reading of the day) so charts show the actual SoC.
+ */
+async function getBatterySocSeries(req, res) {
+	try {
+		const { snid } = req.params;
+		const { start, end, timeunit = 'day' } = req.query;
+		if (!snid) return res.status(400).json({ error: 'snid is required' });
+
+		const { prisma } = require('../../utils/prisma');
+
+		const meter = await prisma.meterInfo.findUnique({
+			where: { snid: String(snid) },
+			select: { snid: true, capacity: true, value: true, kWH: true },
+		});
+		if (!meter) return res.status(404).json({ error: 'Meter not found' });
+
+		const capacity = Number(meter.capacity || 0);
+
+		const since = start ? new Date(start) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+		const until = end ? new Date(end) : new Date();
+
+		const rows = await prisma.runningMeter.findMany({
+			where: { snid: String(snid), timestamp: { gte: since, lte: until } },
+			select: { timestamp: true, kWH: true },
+			orderBy: { timestamp: 'asc' },
+		});
+
+		// Group into daily buckets: keep the LAST reading of each day as the day's SoC
+		const dayMap = new Map(); // YYYY-MM-DD -> kWH (SoC)
+		for (const r of rows) {
+			const dayKey = r.timestamp.toISOString().slice(0, 10);
+			dayMap.set(dayKey, Number(r.kWH ?? 0));
+		}
+
+		const days = [...dayMap.keys()].sort();
+		const value = days.map((d) => {
+			const socKwh = dayMap.get(d);
+			if (capacity > 0) {
+				return Math.max(0, Math.min(100, Math.round((socKwh / capacity) * 100)));
+			}
+			return Math.round(socKwh);
+		});
+
+		res.json({
+			snid,
+			capacity,
+			timeunit,
+			datetime: days,
+			value,
+			// current snapshot
+			currentKwh: Number(meter.kWH ?? 0),
+			currentPct: capacity > 0 ? Math.max(0, Math.min(100, Math.round((Number(meter.kWH ?? 0) / capacity) * 100))) : null,
+		});
+	} catch (err) {
+		console.error('getBatterySocSeries error', err);
+		res.status(500).json({ error: err.message });
+	}
+}
+
 module.exports = {
 	createRunningEntry,
 	generateHourlyEntries,
 	insertRunningLog,
 	insertRunningLogsBulk,
 	getBatteryChargeSources,
+	getBatterySocSeries,
 	resetEnergyLogs,
 	getStatus: async (req, res) => {
  		try {

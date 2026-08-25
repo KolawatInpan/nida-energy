@@ -21,4 +21,7 @@ router.get('/matches', MarketController.listMatches);
 // POST /api/market/trigger-clearing — ⚡ Force Day-Ahead Clearing (matching + force distribution)
 router.post('/trigger-clearing', MarketController.triggerClearing);
 
+// POST /api/market/trigger-matching — ⚡ 00:00 Matching only (no battery required, highest bid wins)
+router.post('/trigger-matching', MarketController.triggerMatching);
+
 module.exports = router;

@@ -23,13 +23,23 @@ async function seedAdminToDb(db, label) {
         }
 
         const passwordHash = await bcrypt.hash(admin.password, 10);
-        const { randomUUID } = require('crypto');
-        const credId = randomUUID();
+        const credId = require('crypto').randomUUID();
 
+        const maxSeq = await db.user.aggregate({ _max: { userId: true } });
+        const seqId = (maxSeq._max.userId || 0) + 1;
         await db.user.create({
-            data: { credId, name: admin.name, email: admin.email, passwordHash, role: 'ADMIN' },
+            data: { credId, userId: seqId, name: admin.name, email: admin.email, passwordHash, role: 'ADMIN' },
         });
         console.log(`[SEED] ${label} Admin created: ${admin.email}`);
+    }
+
+    // Shared admin treasury wallet — all admins use this one wallet
+    const ADMIN_WALLET_EMAIL = 'admin@nida.ac.th';
+    const wallet = await db.wallet.findUnique({ where: { email: ADMIN_WALLET_EMAIL } });
+    if (!wallet) {
+        const { randomUUID } = require('crypto');
+        await db.wallet.create({ data: { id: randomUUID(), email: ADMIN_WALLET_EMAIL, tokenBalance: 0 } });
+        console.log(`[SEED] ${label} Shared admin wallet created: ${ADMIN_WALLET_EMAIL}`);
     }
 }
 

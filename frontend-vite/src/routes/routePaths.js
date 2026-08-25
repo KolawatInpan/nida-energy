@@ -13,7 +13,7 @@ export const ROUTE_PATHS = {
   building: '/building/:buildingId',
   meter: '/meter/:meterId',
   approvedRequest: '/approved-request',
-  approvedRequestDetail: '/approved-request/:id',
+  approvedRequestDetail: '/approved-request/:type/:id',
   meterRegistration: '/meter-registration',
   energySelling: '/energy-selling',
   mockEnergy: '/mock-energy',
@@ -39,6 +39,8 @@ export const ROUTE_PATHS = {
   testing: '/admin/testing',
   patchNotes: '/patch-notes',
   apiStatus: '/api-status',
+  policy: '/policy',
+  settings: '/settings',
 };
 
 export const routeToBuilding = (slug = ':buildingId') => `/building/${slug}`;

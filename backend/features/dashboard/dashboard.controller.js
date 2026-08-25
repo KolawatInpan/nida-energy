@@ -151,6 +151,17 @@ async function searchBuildingEnergy(req, res) {
         }
 }
 
+async function getGaps(req, res) {
+    try {
+        const { meterId, date, from, to } = req.query;
+        const gaps = await DashBoardModel.getGaps({ meterId, date, from, to });
+        res.json(gaps);
+    } catch (err) {
+        console.error('Error fetching gaps:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+}
+
 
 module.exports = {
     getBuildingByMeterId,
@@ -165,6 +176,7 @@ module.exports = {
     getWeeklyEnergy,
     getMonthlyEnergy,
     searchBuildingEnergy,
+    getGaps,
 }
 
 

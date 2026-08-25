@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useHistory, useParams } from 'react-router-dom';
 import { getBlockchainTransactionByHash } from '../../core/data_connecter/blockExplorer';
 import { formatEntityId, formatToken, formatVerificationMethod, getTransactionDisplayType, toSafeNumber } from '../../utils/formatters';
+import { fmtDateTime } from '../../utils/dateFormat';
 
 function formatDateTime(value) {
   if (!value) return '-';
-  return new Date(value).toLocaleString();
+  return fmtDateTime(new Date(value));
 }
 
 function formatGasFeeEth(gasUsed, effectiveGasPrice) {

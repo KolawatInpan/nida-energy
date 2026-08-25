@@ -10,7 +10,9 @@ import ApiStatus from "../pages/system/ApiStatus";
 import { BlockExplorer, BlockExplorerTransactionDetail, BlockchainValidators, TransactionBlockchainCompare } from "../pages/blockchain";
 import UserGuide from "../pages/userGuide/UserGuide";
 import PatchNotes from "../pages/patchNotes/PatchNotes";
+import SettingsPage from "../pages/settings/SettingsPage";
 import { NoBuildingAssignedPage } from "../components/shared";
+import PolicyPage from "../pages/policy/PolicyPage";
 import { ROUTE_PATHS } from "./routePaths";
 
 export const publicRoutes = [
@@ -56,4 +58,6 @@ export const authenticatedRoutes = [
   { path: ROUTE_PATHS.apiStatus, exact: true, component: ApiStatus },
   { path: ROUTE_PATHS.userGuide, exact: true, component: UserGuide },
   { path: ROUTE_PATHS.patchNotes, exact: true, component: PatchNotes },
+  { path: ROUTE_PATHS.settings, exact: true, component: SettingsPage },
+  { path: ROUTE_PATHS.policy, exact: true, component: PolicyPage },
 ];

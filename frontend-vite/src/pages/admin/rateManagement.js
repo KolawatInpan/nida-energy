@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useDispatch } from 'react-redux';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import { validateAuth } from '../../store/auth/auth.action';
 import { createEnergyRate, createTokenRate, getEnergyRates, getTokenRates } from '../../core/data_connecter/rate';
+import { fmtDate } from '../../utils/dateFormat';
 
 const RATE_TYPES = {
   energy: [
@@ -19,7 +22,7 @@ const RATE_TYPES = {
 
 function formatDate(value) {
   if (!value) return 'Ongoing';
-  return new Date(value).toLocaleDateString();
+  return fmtDate(new Date(value));
 }
 
 function getStatusPill(status) {
@@ -221,12 +224,25 @@ export default function RateManagement() {
 
               <div className="flex min-w-0 flex-1 flex-col">
                 <label className="block text-sm font-semibold text-slate-700 mb-2">Effective Start Date</label>
-                <input type="date" value={form.effectiveStart} onChange={handleChange('effectiveStart')} className="w-full h-12 rounded-2xl border border-gray-300 px-4 bg-white" />
+                <DatePicker
+                  selected={form.effectiveStart ? new Date(form.effectiveStart + 'T00:00:00') : null}
+                  onChange={(date) => handleChange('effectiveStart')({ target: { value: date ? date.toISOString().slice(0, 10) : '' } })}
+                  dateFormat="dd-MM-yyyy"
+                  placeholderText="dd-mm-yyyy"
+                  className="w-full h-12 rounded-2xl border border-gray-300 px-4 bg-white"
+                />
               </div>
 
               <div className="flex min-w-0 flex-1 flex-col">
                 <label className="block text-sm font-semibold text-slate-700 mb-2">Effective End Date</label>
-                <input type="date" value={form.effectiveEnd} onChange={handleChange('effectiveEnd')} className="w-full h-12 rounded-2xl border border-gray-300 px-4 bg-white" />
+                <DatePicker
+                  selected={form.effectiveEnd ? new Date(form.effectiveEnd + 'T00:00:00') : null}
+                  onChange={(date) => handleChange('effectiveEnd')({ target: { value: date ? date.toISOString().slice(0, 10) : '' } })}
+                  dateFormat="dd-MM-yyyy"
+                  placeholderText="dd-mm-yyyy (leave blank if ongoing)"
+                  isClearable
+                  className="w-full h-12 rounded-2xl border border-gray-300 px-4 bg-white"
+                />
                 <div className="text-xs text-slate-400 mt-2">Leave blank if ongoing</div>
               </div>
             </div>

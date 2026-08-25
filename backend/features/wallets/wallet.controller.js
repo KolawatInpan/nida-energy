@@ -1,6 +1,6 @@
 const walletService = require('./wallet.service');
 const { sendTelegramMessage } = require('../../utils/telegram');
-const { createNotification } = require('../notification/notification.service');
+const { createNotification, dispatchNotification } = require('../notification/notification.service');
 
 async function getWallets(req, res) {
     try {
@@ -72,7 +72,7 @@ async function addBalance(req, res) {
         const updatedWallet = await walletService.addBalance(email, amount, rate);
         res.json(updatedWallet);
 
-        // Notify via Telegram (fire-and-forget)
+        // Notify via Telegram + Email (respects user notification prefs)
         (async () => {
             try {
                 let buildingName = email;
@@ -84,9 +84,14 @@ async function addBalance(req, res) {
                 const tokenAmount = Number(amount || 0);
                 const currentBalance = Number(updatedWallet?.tokenBalance ?? 0);
                 const text = `✅ เติมเงินเข้าอาคาร ${buildingName}\n+${tokenAmount.toLocaleString('en-US')} Token\nยอดคงเหลือ: ${currentBalance.toLocaleString('en-US')} Token`;
-                await sendTelegramMessage({ text });
+                await dispatchNotification({
+                    type: 'addBalance',
+                    message: text,
+                    email, // used to resolve the user (prefs) + email delivery
+                    userId: null,
+                });
             } catch (e) {
-                console.error('Telegram notify (addBalance) failed:', e?.message || e);
+                console.error('Notification (addBalance) failed:', e?.message || e);
             }
         })();
     } catch (e) {
@@ -101,7 +106,7 @@ async function topupByEmail(req, res) {
         const result = await walletService.topupWalletByEmail(email, amount, snid);
                 res.status(201).json(result);
 
-                // Fire-and-forget: Telegram + DB notification
+                // Fire-and-forget: in-app + Telegram + Email (respects user prefs)
                 (async () => {
                     try {
                         let buildingName = result?.transaction?.buildingName;
@@ -120,21 +125,12 @@ async function topupByEmail(req, res) {
                     const formattedAmount = tokenAmount.toLocaleString('en-US');
                     const formattedBalance = currentBalance.toLocaleString('en-US');
                     const text = `✅ เติมเงินเข้าอาคาร ${buildingName}\n+${formattedAmount} Token\nยอดคงเหลือ: ${formattedBalance} Token`;
-                    await sendTelegramMessage({ text });
-                    } catch (e) {
-                        console.error('Telegram notify (topup) failed:', e?.message || e);
-                    }
-                })();
-
-                // Create in-app notification
-                (async () => {
-                    try {
-                        const tokenAmount = Number((result?.transaction?.tokenAmount ?? amount) || 0);
-                        await createNotification({
-                            type: 'topup',
-                            email: email,  // send to building owner
-                            message: `เติมเงิน +${tokenAmount.toLocaleString()} Token — ยอดคงเหลือ ${Number(result?.wallet?.tokenBalance ?? 0).toLocaleString()} Token`,
-                        });
+                    await dispatchNotification({
+                        type: 'topup',
+                        message: text,
+                        email, // resolve user prefs + email delivery
+                        userId: null,
+                    });
                     } catch (e) {
                         console.error('Notification (topup) failed:', e?.message || e);
                     }

@@ -3,10 +3,24 @@ const { randomUUID } = require('crypto');
 
 // Helper: create MarketOrder mapping for an existing energyBid or energyOffer
 async function ensureMarketOrderForBid(txOrClient, bid) {
-    // bid: energyBid row
     const key = `energyBid:${bid.id}`;
-    // create a MarketOrder with metadata referencing energyBid
-    const created = await txOrClient.marketOrder.create({
+    // Find existing MarketOrder that references this energyBid
+    const existing = await txOrClient.marketOrder.findFirst({
+        where: { side: 'BID', marketType: bid.marketType || 'DAY_AHEAD', walletId: String(bid.buyerWalletId) },
+        orderBy: { createdAt: 'desc' },
+    });
+    if (existing) {
+        return await txOrClient.marketOrder.update({
+            where: { id: existing.id },
+            data: {
+                quantity: Number(bid.kWH),
+                filled: Number(bid.kWHBought || 0),
+                price: bid.ratePerkWH != null ? Number(bid.ratePerkWH) : null,
+                metadata: { energyBidId: bid.id },
+            },
+        });
+    }
+    return await txOrClient.marketOrder.create({
         data: {
             side: 'BID',
             marketType: bid.marketType || 'DAY_AHEAD',
@@ -19,11 +33,25 @@ async function ensureMarketOrderForBid(txOrClient, bid) {
             metadata: { energyBidId: bid.id }
         }
     });
-    return created;
 }
 
 async function ensureMarketOrderForOffer(txOrClient, offer) {
-    const created = await txOrClient.marketOrder.create({
+    const existing = await txOrClient.marketOrder.findFirst({
+        where: { side: 'OFFER', marketType: offer.marketType || 'DAY_AHEAD', walletId: String(offer.sellerWalletId) },
+        orderBy: { createdAt: 'desc' },
+    });
+    if (existing) {
+        return await txOrClient.marketOrder.update({
+            where: { id: existing.id },
+            data: {
+                quantity: Number(offer.kWH),
+                filled: Number(offer.kWHSold || 0),
+                price: Number(offer.ratePerkWH),
+                metadata: { energyOfferId: offer.id },
+            },
+        });
+    }
+    return await txOrClient.marketOrder.create({
         data: {
             side: 'OFFER',
             marketType: offer.marketType || 'DAY_AHEAD',
@@ -36,23 +64,24 @@ async function ensureMarketOrderForOffer(txOrClient, offer) {
             metadata: { energyOfferId: offer.id }
         }
     });
-    return created;
 }
 
 /**
  * 1. Intra-building Matching (จับคู่ภายในตึกเดียวกันก่อน)
  */
 async function processIntraBuildingMatching(targetDate) {
-    console.log(`[Market] Starting Intra-building matching for ${targetDate.toISOString()}`);
+    console.log(`[Market] Starting Intra-building matching for ${targetDate?.toISOString() || 'ALL dates'}`);
     
-    // หา Bids และ Offers ของ Day Ahead ที่ยังเปิดอยู่
-    const bids = await prisma.energyBid.findMany({
-        where: { marketType: 'DAY_AHEAD', targetDate, status: 'OPEN' }
-    });
+    // Handle null targetDate = match all DAY_AHEAD orders
+    const bidWhere = targetDate
+        ? { marketType: 'DAY_AHEAD', targetDate, status: 'OPEN' }
+        : { marketType: 'DAY_AHEAD', status: 'OPEN' };
+    const offerWhere = targetDate
+        ? { marketType: 'DAY_AHEAD', targetDate, status: 'AVAILABLE' }
+        : { marketType: 'DAY_AHEAD', status: 'AVAILABLE' };
     
-    const offers = await prisma.energyOffer.findMany({
-        where: { marketType: 'DAY_AHEAD', targetDate, status: 'AVAILABLE' }
-    });
+    const bids = await prisma.energyBid.findMany({ where: bidWhere });
+    const offers = await prisma.energyOffer.findMany({ where: offerWhere });
 
     let matchedKwh = 0;
     // create a run placeholder map so that matches can be linked later
@@ -137,20 +166,26 @@ async function processIntraBuildingMatching(targetDate) {
 /**
  * 2. Cross-building Matching & Fallback to Intraday
  */
-async function processDayAheadClearing(targetDate) {
-    console.log(`[Market] Clearing Day-Ahead market for ${targetDate.toISOString()}`);
+async function processDayAheadClearing(targetDate, requireBattery = true) {
+    console.log(`[Market] Clearing Day-Ahead market targetDate=${targetDate?.toISOString() || 'ALL'} requireBattery=${requireBattery}`);
 
     // Pricing baseline rules
-    // Day-Ahead: Bid ≥ 3.85, Offer < 4.0, Baseline = 3.5
     const BASELINE_PRICE = Number(process.env.MARKET_BASELINE_PRICE || 3.5);
-    const BID_MIN_PRICE = Number(process.env.MARKET_BID_MIN_PRICE || 3.85); // bids below 3.85 ignored (unless null = market order)
-    const OFFER_MAX_PRICE = Number(process.env.MARKET_OFFER_MAX_PRICE || 4.0); // offers priced ≥ 4.0 are out of Day-Ahead
+    const BID_MIN_PRICE = Number(process.env.MARKET_BID_MIN_PRICE || 3.85);
+    const OFFER_MAX_PRICE = Number(process.env.MARKET_OFFER_MAX_PRICE || 4.0);
     const PENALTY_PRICE = Number(process.env.MARKET_PENALTY_PRICE || 3.5);
     const FORCE_DISTRIBUTION_ENABLED = (process.env.MARKET_FORCE_DISTRIBUTE || 'true') === 'true';
 
-    // ดึง Bid/Offer ที่ยังเปิดอยู่ — จากทั้ง energyBid/energyOffer และ MarketOrder
-    let bidsRaw = await prisma.energyBid.findMany({ where: { marketType: 'DAY_AHEAD', targetDate, status: 'OPEN' } });
-    let offersRaw = await prisma.energyOffer.findMany({ where: { marketType: 'DAY_AHEAD', targetDate, status: 'AVAILABLE' } });
+    // If targetDate is null → match ALL DAY_AHEAD orders (manual trigger)
+    const dayAheadWhere = targetDate
+        ? { marketType: 'DAY_AHEAD', targetDate, status: 'OPEN' }
+        : { marketType: 'DAY_AHEAD', status: 'OPEN' };
+    const dayAheadOfferWhere = targetDate
+        ? { marketType: 'DAY_AHEAD', targetDate, status: 'AVAILABLE' }
+        : { marketType: 'DAY_AHEAD', status: 'AVAILABLE' };
+
+    let bidsRaw = await prisma.energyBid.findMany({ where: dayAheadWhere });
+    let offersRaw = await prisma.energyOffer.findMany({ where: dayAheadOfferWhere });
 
     // Also fetch MarketOrder records that aren't already in energyBid/energyOffer
     const marketOrders = await prisma.marketOrder.findMany({
@@ -170,6 +205,7 @@ async function processDayAheadClearing(targetDate) {
                     status: 'OPEN',
                     marketType: 'DAY_AHEAD',
                     targetDate: mo.targetDate,
+                    _isMarketOrder: true,
                 });
             }
         } else {
@@ -183,6 +219,7 @@ async function processDayAheadClearing(targetDate) {
                     ratePerkWH: mo.price != null ? Number(mo.price) : 0,
                     status: 'AVAILABLE',
                     marketType: 'DAY_AHEAD',
+                    _isMarketOrder: true,
                     targetDate: mo.targetDate,
                 });
             }
@@ -220,21 +257,35 @@ async function processDayAheadClearing(targetDate) {
     }
 
     // Filter bids by BID_MIN_PRICE (allow null as market order -> accept)
-    // AND require battery meter — bidder must be able to receive energy
     const bids = [];
     for (const b of bidsRaw) {
-        if (b.ratePerkWH != null && Number(b.ratePerkWH) < BID_MIN_PRICE) continue; // skip low bids
+        if (b.ratePerkWH != null && Number(b.ratePerkWH) < BID_MIN_PRICE) continue;
         const buyerBuilding = await getBuildingForWallet(b.buyerWalletId);
-        // Only buildings with battery meter can receive purchased energy
-        const buyerBatteryMeter = buyerBuilding?.name ? await prisma.meterInfo.findFirst({
-            where: { buildingName: buyerBuilding.name, type: { contains: 'battery', mode: 'insensitive' } },
-        }) : null;
-        if (!buyerBatteryMeter) {
-            console.log(`[Market] Skip bid from ${buyerBuilding?.name || b.buyerWalletId} — no battery meter`);
-            continue;
+        // Battery meter check: skip only when requireBattery=true
+        if (requireBattery) {
+            const buyerBatteryMeter = buyerBuilding?.name ? await prisma.meterInfo.findFirst({
+                where: { buildingName: buyerBuilding.name, type: { contains: 'battery', mode: 'insensitive' } },
+            }) : null;
+            if (!buyerBatteryMeter) {
+                console.log(`[Market] Skip bid from ${buyerBuilding?.name || b.buyerWalletId} — no battery meter`);
+                continue;
+            }
+            bids.push({ ...b, buyerBuilding, buyerBatteryKwh: Number(buyerBatteryMeter?.kWH || 0), buyerBatteryMeter });
+        } else {
+            bids.push({ ...b, buyerBuilding, buyerBatteryKwh: 0, buyerBatteryMeter: null });
         }
-        const buyerBatteryKwh = Number(buyerBatteryMeter.kWH || 0);
-        bids.push({ ...b, buyerBuilding, buyerBatteryKwh, buyerBatteryMeter });
+    }
+
+    // Deduplicate by walletId
+    const seenBidWallets = new Set();
+    for (let i = bids.length - 1; i >= 0; i--) {
+        if (seenBidWallets.has(bids[i].buyerWalletId)) bids.splice(i, 1);
+        else seenBidWallets.add(bids[i].buyerWalletId);
+    }
+    const seenOfferWallets = new Set();
+    for (let i = offers.length - 1; i >= 0; i--) {
+        if (seenOfferWallets.has(offers[i].sellerWalletId)) offers.splice(i, 1);
+        else seenOfferWallets.add(offers[i].sellerWalletId);
     }
 
     // Sort bids: price desc, tie-breaker: buyerBatteryKwh asc (lower battery gets priority)
@@ -285,7 +336,8 @@ async function processDayAheadClearing(targetDate) {
             if (remainingOfferKwh <= 0) continue;
 
             const matchAmount = Math.min(remainingBidKwh, remainingOfferKwh);
-            const clearingPrice = offerRate; // ใช้ราคาเสนอขาย (Pay-as-bid)
+            // Pay-as-bid: buyer pays their bid price, seller receives bid price minus fee
+            const clearingPrice = bidRate === Infinity ? offerRate : bidRate;
             const totalCost = matchAmount * clearingPrice;
             const adminFee = totalCost * ADMIN_FEE_RATE;
             const sellerRevenue = totalCost - adminFee;
@@ -312,37 +364,60 @@ async function processDayAheadClearing(targetDate) {
 
                 // 1. อัปเดตยอดของคนซื้อ และ คนขาย
                 const bidIdStr = String(bid.id);
-                const bidIsInt = !bidIdStr.includes('-');
-                if (bidIsInt) {
-                    await tx.energyBid.update({
-                        where: { id: parseInt(bidIdStr, 10) },
+                const newBidStatus = (remainingBidKwh - matchAmount) <= 0.001 ? 'FULFILLED' : 'OPEN';
+                const newOfferStatus = (remainingOfferKwh - matchAmount) <= 0.001 ? 'SOLD' : 'AVAILABLE';
+                console.log(`[Market] Match: bid=${bidIdStr} status→${newBidStatus} kwhBought+=${matchAmount}, offer=${String(offer.id)} status→${newOfferStatus} kwhSold+=${matchAmount} isMO=${!!offer._isMarketOrder}`);
+
+                // Update bid: if MarketOrder, update MarketOrder table; else update EnergyBid
+                if (bid._isMarketOrder) {
+                    await tx.marketOrder.update({
+                        where: { id: bidIdStr },
                         data: {
-                            kWHBought: { increment: matchAmount },
-                            status: (remainingBidKwh - matchAmount) <= 0.001 ? 'FULFILLED' : 'OPEN'
-                        }
+                            filled: { increment: matchAmount },
+                            status: newBidStatus === 'FULFILLED' ? 'FILLED' : 'PARTIAL',
+                        },
                     });
                 } else {
-                    await tx.$executeRawUnsafe(
-                        `UPDATE "EnergyBid" SET "kWHBought" = COALESCE("kWHBought",0) + $1, "status" = $2::text::"EnergyBidStatus" WHERE "id"::text = $3`,
-                        matchAmount, (remainingBidKwh - matchAmount) <= 0.001 ? 'FULFILLED' : 'OPEN', bidIdStr
-                    );
+                    const bidIsInt = !bidIdStr.includes('-');
+                    if (bidIsInt) {
+                        await tx.energyBid.update({
+                            where: { id: parseInt(bidIdStr, 10) },
+                            data: { kWHBought: { increment: matchAmount }, status: newBidStatus }
+                        });
+                    } else {
+                        await tx.$executeRawUnsafe(
+                            `UPDATE "EnergyBid" SET "kWHBought" = COALESCE("kWHBought",0) + $1, "status" = $2::text::"EnergyBidStatus" WHERE "id"::text = $3`,
+                            matchAmount, newBidStatus, bidIdStr
+                        );
+                    }
                 }
 
+                // Update offer: if MarketOrder, update MarketOrder table; else update EnergyOffer
                 const offerIdStr = String(offer.id);
-                const offerIsInt = !offerIdStr.includes('-');
-                if (offerIsInt) {
-                    await tx.energyOffer.update({
-                        where: { id: parseInt(offerIdStr, 10) },
+                if (offer._isMarketOrder) {
+                    await tx.marketOrder.update({
+                        where: { id: offerIdStr },
                         data: {
-                            kWHSold: { increment: matchAmount },
-                            status: (remainingOfferKwh - matchAmount) <= 0.001 ? 'SOLD' : 'AVAILABLE'
-                        }
+                            filled: { increment: matchAmount },
+                            status: newOfferStatus === 'SOLD' ? 'FILLED' : 'PARTIAL',
+                        },
                     });
                 } else {
-                    await tx.$executeRawUnsafe(
-                        `UPDATE "EnergyOffer" SET "kWHSold" = COALESCE("kWHSold",0) + $1, "status" = $2::text::"EnergyOfferStatus" WHERE "id"::text = $3`,
-                        matchAmount, (remainingOfferKwh - matchAmount) <= 0.001 ? 'SOLD' : 'AVAILABLE', offerIdStr
-                    );
+                    const offerIsInt = !offerIdStr.includes('-');
+                    if (offerIsInt) {
+                        await tx.energyOffer.update({
+                            where: { id: parseInt(offerIdStr, 10) },
+                            data: {
+                                kWHSold: { increment: matchAmount },
+                                status: newOfferStatus
+                            }
+                        });
+                    } else {
+                        await tx.$executeRawUnsafe(
+                            `UPDATE "EnergyOffer" SET "kWHSold" = COALESCE("kWHSold",0) + $1, "status" = $2::text::"EnergyOfferStatus" WHERE "id"::text = $3`,
+                            matchAmount, newOfferStatus, offerIdStr
+                        );
+                    }
                 }
 
                 // 2. หักเงินผู้ซื้อ
@@ -402,7 +477,7 @@ async function processDayAheadClearing(targetDate) {
                     const now = new Date();
                     const buyerBuildingName = bid.buyerBuilding?.name || `Building-${bid.buyerWalletId}`;
                     const matchInvoice = await tx.invoice.create({
-                        data: { id: randomUUID(), buildingName: String(buyerBuildingName), fromWId: String(offer.sellerWalletId), toWId: String(bid.buyerWalletId), timestamp: now, kWH: take, tokenAmount: totalCost, status: 'paid', month: now.getMonth() + 1, year: now.getFullYear(), dailyAvg: take, peakDate: now, peakkWH: take }
+                        data: { id: randomUUID(), buildingName: String(buyerBuildingName), fromWId: String(offer.sellerWalletId), toWId: String(bid.buyerWalletId), timestamp: now, kWH: matchAmount, tokenAmount: totalCost, status: 'paid', month: now.getMonth() + 1, year: now.getFullYear(), dailyAvg: matchAmount, peakDate: now, peakkWH: matchAmount }
                     });
                     await tx.receipt.create({ data: { id: randomUUID(), invoiceId: String(matchInvoice.id), timestamp: new Date(), walletTxId: String(buyerWalletTxId) } });
                 } catch (invErr) { console.warn('[Market] Match invoice/receipt creation failed:', invErr.message || invErr); }
@@ -849,6 +924,39 @@ async function executeMarketClearing(targetDate) {
     };
 }
 
+/**
+ * Matching-only (00:00) — no battery requirement, no force distribution.
+ * Simple rule: highest bid price wins. Orders stay open after matching.
+ */
+async function executeMarketMatching(targetDate) {
+    // Manual trigger: match ALL DAY_AHEAD orders regardless of targetDate
+    console.log(`=== STARTING MARKET MATCHING (00:00) ===`);
+
+    const run = await prisma.marketRun.create({ data: { marketType: 'DAY_AHEAD', runTime: new Date(), status: 'running', startAt: new Date() } });
+
+    try {
+        await processIntraBuildingMatching(null); // match all dates
+        const result = await processDayAheadClearing(null, false); // match all dates, no battery
+        if (result && Array.isArray(result.matches)) {
+            for (const m of result.matches) {
+                try { await prisma.marketMatch.update({ where: { id: m.id }, data: { runId: run.id } }); } catch (e) {}
+            }
+        }
+        await prisma.marketRun.update({ where: { id: run.id }, data: { status: 'completed', endAt: new Date() } });
+        console.log(`=== MATCHING DONE: ${result?.matched || 0} kWh matched ===`);
+        return {
+            ...run,
+            matched: result?.matched || 0,
+            matches: result?.matches || [],
+            matchLog: result?.matchLog || [],
+            forceDistribution: null,
+        };
+    } catch (err) {
+        await prisma.marketRun.update({ where: { id: run.id }, data: { status: 'failed', endAt: new Date() } });
+        throw err;
+    }
+}
+
 // Lifecycle helpers for cron jobs
 async function preMatchLock(targetDate) {
     // create a MarketRun in locked state to prevent late submissions (informational)
@@ -1229,5 +1337,6 @@ module.exports = {
     processIntraBuildingMatching,
     processDayAheadClearing,
     processIntradayClearing,
-    executeMarketClearing
+    executeMarketClearing,
+    executeMarketMatching,
 };

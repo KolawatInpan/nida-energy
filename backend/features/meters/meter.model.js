@@ -169,6 +169,35 @@ async function updateMeter(snid, updates = {}) {
     data.mockProfile = String(updates.mockProfile || '').trim();
   }
 
+  // SNID rename — cascade across all energy tables in a transaction
+  const newSnid = updates.newSnid !== undefined ? String(updates.newSnid || '').trim() : '';
+  if (newSnid && newSnid !== String(snid)) {
+    // Check for conflict
+    const conflict = await prisma.meterInfo.findUnique({ where: { snid: newSnid } });
+    if (conflict) throw new Error(`Meter with SNID "${newSnid}" already exists`);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`UPDATE "RunningMeter" SET snid = $1 WHERE snid = $2`, newSnid, snid);
+      await tx.$executeRawUnsafe(`UPDATE "HourlyEnergy" SET "meterSnid" = $1 WHERE "meterSnid" = $2`, newSnid, snid);
+      await tx.$executeRawUnsafe(`UPDATE "DailyEnergy" SET "meterSnid" = $1 WHERE "meterSnid" = $2`, newSnid, snid);
+      await tx.$executeRawUnsafe(`UPDATE "WeeklyEnergy" SET "meterSnid" = $1 WHERE "meterSnid" = $2`, newSnid, snid);
+      await tx.$executeRawUnsafe(`UPDATE "MonthlyEnergy" SET "meterSnid" = $1 WHERE "meterSnid" = $2`, newSnid, snid);
+      await tx.$executeRawUnsafe(`UPDATE "MeterInfo" SET snid = $1 WHERE snid = $2`, newSnid, snid);
+    });
+
+    // Return updated record with new snid
+    return prisma.meterInfo.findUnique({
+      where: { snid: newSnid },
+      include: {
+        building: {
+          include: {
+            owner: { select: { name: true, email: true } },
+          },
+        },
+      },
+    });
+  }
+
   return prisma.meterInfo.update({
     where: { snid: String(snid) },
     data,

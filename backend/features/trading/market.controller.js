@@ -245,11 +245,91 @@ async function listMatches(req, res) {
   }
 }
 
+async function triggerMatching(req, res) {
+  try {
+    const targetDate = req.body?.targetDate || null;
+    const result = await marketService.executeMarketMatching(targetDate ? new Date(targetDate) : undefined);
+
+    const matchDetails = [];
+    const bidMap = new Map();
+    // Prefer matchLog (has walletId directly), fallback to matches (MarketMatch records)
+    const matchSource = (Array.isArray(result?.matchLog) && result.matchLog.length > 0)
+      ? result.matchLog
+      : (Array.isArray(result?.matches) && result.matches.length > 0) ? result.matches : [];
+
+    const resolveName = async (walletId) => {
+      if (!walletId) return 'Unknown';
+      const w = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { email: true } }).catch(() => null);
+      if (w?.email) {
+        const b = await prisma.building.findFirst({ where: { email: w.email }, select: { name: true } }).catch(() => null);
+        if (b?.name) return b.name;
+      }
+      return 'Unknown';
+    };
+
+    for (const m of matchSource) {
+      let buyerWalletId = m.buyerWalletId;
+      let sellerWalletId = m.sellerWalletId;
+      let bidPrice = m.ratePerkWH != null ? Number(m.ratePerkWH) : null;
+
+      // If no walletId directly, resolve from MarketOrder
+      if (!buyerWalletId && m.buyerOrderId) {
+        const bo = await prisma.marketOrder.findUnique({ where: { id: m.buyerOrderId }, select: { walletId: true, price: true } }).catch(() => null);
+        if (bo) { buyerWalletId = bo.walletId; if (bidPrice == null) bidPrice = bo.price != null ? Number(bo.price) : null; }
+      }
+      if (!sellerWalletId && m.sellerOrderId) {
+        const so = await prisma.marketOrder.findUnique({ where: { id: m.sellerOrderId }, select: { walletId: true } }).catch(() => null);
+        if (so) sellerWalletId = so.walletId;
+      }
+
+      const buyerName = await resolveName(buyerWalletId);
+      const sellerName = await resolveName(sellerWalletId);
+
+      // Resolve bid price from buyer's MarketOrder if not in matchLog
+      if (bidPrice == null && buyerWalletId) {
+        const buyerBid = await prisma.marketOrder.findFirst({
+          where: { walletId: String(buyerWalletId), side: 'BID', marketType: 'DAY_AHEAD' },
+          orderBy: { createdAt: 'desc' },
+          select: { price: true },
+        }).catch(() => null);
+        if (buyerBid?.price != null) bidPrice = Number(buyerBid.price);
+      }
+
+      const matchKwh = Math.round(Number(m.quantity || 0) * 100) / 100;
+      const clearedPrice = Number(m.price || 0);
+
+      if (!bidMap.has(buyerName)) bidMap.set(buyerName, { price: bidPrice, name: buyerName });
+
+      matchDetails.push({
+        seller: sellerName, buyer: buyerName, buyerPrice: bidPrice,
+        kwh: matchKwh, clearedPrice,
+        totalCost: Math.round(matchKwh * clearedPrice * 100) / 100,
+      });
+    }
+
+    const bidRanking = [...bidMap.values()]
+      .sort((a, b) => (b.price || 0) - (a.price || 0))
+      .map((b, i) => ({ rank: i + 1, building: b.name, price: b.price, reason: i === 0 ? '🥇 Highest Bid Price — Matched' : 'Lower bid price' }));
+
+    res.json({
+      success: true,
+      runId: result?.id || null,
+      matchCount: result?.matched || 0,
+      matches: matchDetails,
+      bidRanking,
+    });
+  } catch (err) {
+    console.error('triggerMatching error', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   createOrder,
   listOrders,
   cancelOrder,
   triggerClearing,
+  triggerMatching,
   listMatches,
   sellToBid,
 };

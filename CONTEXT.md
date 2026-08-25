@@ -36,21 +36,19 @@ NIDA Smart Grid is a full-stack web application that manages energy production/c
 | **Charts** | Recharts | Data visualization |
 | **Blockchain** | Hardhat (local) | Smart contract deployment & verification |
 | **Email** | Nodemailer + Gmail SMTP | OTP delivery |
-| **Infrastructure** | Docker Compose | Container orchestration across 3 VMs |
+| **Infrastructure** | Docker Compose | Container orchestration across 2 VMs |
 
 ### Infrastructure Map
 
 ```
 Your PC (dev)          Compute3 (jump host)          VMs
-┌──────────┐   VPN    ┌──────────────────┐    ┌─────────────────┐
+┌──────────┐   VPN    ┌──────────────────┐    ┌─────────────────────────┐
 │ WSL/Docker│ ──────→ │ 10.10.161.239     │ ──→│ 192.168.100.221 │ fullnode
-│ localhost │         │ (NAT forward)     │    │ 192.168.100.222 │ database
-└──────────┘          └──────────────────┘    │ 192.168.100.224 │ webproxy
-                                               └─────────────────┘
+│ localhost │         │ (NAT forward)     │    │ 192.168.100.224 │ webproxy
+└──────────┘          └──────────────────┘    └─────────────────────────┘
 ```
 
-- **fullnode (192.168.100.221)**: Blockchain node + Backend API + Prisma
-- **database (192.168.100.222)**: PostgreSQL 16 + pgAdmin (port 5050)
+- **fullnode (192.168.100.221)**: Blockchain node + Backend API + Prisma + PostgreSQL 16 + pgAdmin (port 5050)
 - **webproxy (192.168.100.224)**: Frontend nginx (port 80) + Backend (port 8000)
 
 ---
@@ -65,7 +63,7 @@ Your PC (dev)          Compute3 (jump host)          VMs
 | **Solar + Battery trade modes independent** | A building may want auto-sell solar but manual battery (or vice versa). Single `tradeMode` was legacy. | New mode values must be added to `TRADE_MODES` in `market.utils.js` |
 | **Custom SVG chart (report page)** | Recharts couldn't handle per-building colored series + diamond SoC markers. SVG gives full control. | New chart types → add new component, don't change EnergyChart |
 | **Day-Ahead + Intraday split** | Day-Ahead: planned, cheaper (≥฿3.50). Intraday: instant, penalty price (≥฿4.00). Two distinct use-cases. | Market clearing logic is in `market.service.js` — don't duplicate |
-| **2-VM deployment** | fullnode (221) runs backend+blockchain, webproxy (224) runs frontend. Compute3 is jump host + NAT. | Any new service → assign to the correct profile (`node` or `proxy`) |
+| **2-VM deployment** | fullnode (221) runs backend+blockchain+database, webproxy (224) runs frontend. Compute3 is jump host + NAT. | Any new service → assign to the correct profile (`fullnode` or `proxy`) |
 | **`pull_policy: always` in docker-compose** | Ensures VMs auto-pull latest image without manual `docker pull`. | Don't remove unless you want manual pull |
 | **compute3 as nginx reverse proxy** | VMs on 192.168.100.x aren't directly accessible from 10.10.161.x. compute3 bridges both networks. | If network changes, update `nginx` configs on compute3 |
 | **Gmail SMTP for OTP** | Simple, no extra infra. App password required (not regular password). | If Gmail blocks, switch to SendGrid or SES |
@@ -559,10 +557,10 @@ Local machine (PowerShell):
   docker push diaboliccz/nida-backend:latest
   docker push diaboliccz/nida-frontend:latest
 
-Fullnode VM (192.168.100.221):
-  sudo COMPOSE_PROFILES=node docker compose up -d --force-recreate backend
+Fullnode VM (192.168.100.221) — blockchain + backend + database:
+  sudo COMPOSE_PROFILES=fullnode docker compose up -d --force-recreate
 
-Webproxy VM (192.168.100.224):
+Webproxy VM (192.168.100.224) — frontend:
   sudo COMPOSE_PROFILES=proxy docker compose up -d --force-recreate frontend
 ```
 
@@ -976,17 +974,21 @@ formatDateLocal(date)  // defined in utils/energyAnalytics.js
 ## 4. ⚡ Deployment Guide
 
 ### Docker Compose Profiles
-- `data` — database VM: `db`, `pgadmin`, `prisma`
-- `node` — fullnode VM: `blockchain`, `backend`
-- `proxy` — webproxy VM: `frontend`
+- `fullnode` — fullnode VM (192.168.100.221): `db`, `pgadmin`, `prisma`, `blockchain`, `backend`
+- `proxy` — webproxy VM (192.168.100.224): `frontend`
 
 ### Build & Deploy Flow
 ```powershell
 docker compose build backend --no-cache
+docker compose build frontend --no-cache
 docker push diaboliccz/nida-backend:latest
-# On VM:
-sudo docker pull diaboliccz/nida-backend:latest
-sudo COMPOSE_PROFILES=node docker compose up -d --force-recreate backend
+docker push diaboliccz/nida-frontend:latest
+
+# Fullnode VM (192.168.100.221) — blockchain + backend + database:
+sudo COMPOSE_PROFILES=fullnode docker compose up -d --force-recreate
+
+# Webproxy VM (192.168.100.224) — frontend:
+sudo COMPOSE_PROFILES=proxy docker compose up -d --force-recreate frontend
 ```
 
 ### Compute3 Recovery (After Reboot)
@@ -1012,10 +1014,19 @@ sudo systemctl restart nginx
 ### Image Transfer (when VM can't pull from Docker Hub)
 ```powershell
 docker save diaboliccz/nida-backend:latest -o nida-backend.tar
+docker save diaboliccz/nida-frontend:latest -o nida-frontend.tar
+
+# Transfer to fullnode (192.168.100.221):
 scp -i "C:\path\to\key.pem" nida-backend.tar ubuntu@192.168.100.221:~
-# On VM:
+# On fullnode:
 sudo docker load -i nida-backend.tar
-sudo COMPOSE_PROFILES=node docker compose up -d --force-recreate backend
+sudo COMPOSE_PROFILES=fullnode docker compose up -d --force-recreate
+
+# Transfer to webproxy (192.168.100.224):
+scp -i "C:\path\to\key.pem" nida-frontend.tar ubuntu@192.168.100.224:~
+# On webproxy:
+sudo docker load -i nida-frontend.tar
+sudo COMPOSE_PROFILES=proxy docker compose up -d --force-recreate frontend
 ```
 
 ### Important: Env Var Propagation

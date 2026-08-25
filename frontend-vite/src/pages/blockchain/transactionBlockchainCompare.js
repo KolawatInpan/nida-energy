@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useHistory, useParams } from 'react-router-dom';
 import { getAllTransactions } from '../../core/data_connecter/api_caller';
 import { getBlockchainTransactionByHash } from '../../core/data_connecter/blockExplorer';
@@ -10,6 +10,7 @@ import {
   getTransactionDisplayType,
 } from '../../utils/formatters';
 import { buildTransactionCompareRows, buildTransactionCompareSummary } from '../../utils/transactionMappers';
+import { fmtDateTime } from '../../utils/dateFormat';
 
 function shortenValue(value, start = 10, end = 8) {
   if (!value) return '-';
@@ -22,7 +23,7 @@ function formatDateTime(value) {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString();
+  return fmtDateTime(new Date(value));
 }
 
 function CompareCard({ title, subtitle, children }) {
@@ -70,7 +71,7 @@ export default function TransactionBlockchainCompare() {
         setListLoading(true);
         const response = await getAllTransactions();
         if (!mounted) return;
-        const items = Array.isArray(response?.data) ? response.data : [];
+        const items = Array.isArray(response) ? response : (response?.data || []);
         const sorted = [...items].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
         setTransactions(sorted);
       } catch (err) {

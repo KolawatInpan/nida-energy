@@ -120,6 +120,14 @@ export async function triggerEnergyFeedSync() {
   return res.json();
 }
 
+/** GET /api/energy-feed/status — current sync cursor date and stats */
+export async function getSyncStatus() {
+  const apiBase = (await import('./apiBase')).getApiBase();
+  const res = await fetch(`${apiBase}/energy-feed/status`);
+  if (!res.ok) throw new Error(`Status failed: HTTP ${res.status}`);
+  return res.json();
+}
+
 /** GET /api/energy-feed/pairing-data — system + source meters for pairing UI */
 export async function getPairingData() {
   const apiBase = (await import('./apiBase')).getApiBase();

@@ -67,6 +67,13 @@ router.post('/sync', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+/** GET /api/energy-feed/status — current sync cursor date and stats */
+router.get('/status', asyncHandler(async (req, res) => {
+  const { getSyncStatus } = require('./energyFeed.cron');
+  const status = await getSyncStatus();
+  res.json(status);
+}));
+
 /** GET /api/energy-feed/mapping — read current device→snid mapping */
 router.get('/mapping', asyncHandler(async (req, res) => {
   res.json(readMapping());
@@ -146,20 +153,59 @@ router.put('/building-map', asyncHandler(async (req, res) => {
   res.json({ success: true, buildingMap });
 }));
 
-/** GET /api/energy-feed/proxy — proxy requests to energy feed API (avoids CORS) */
-router.get('/proxy', asyncHandler(async (req, res) => {
-  const targetPath = req.query.path || '/';
-  const FEED_URL = (process.env.ENERGY_FEED_URL || 'http://10.10.161.239:8089').replace(/\/+$/, '');
-  const url = `${FEED_URL}${targetPath}`;
+const FEED_URL = (process.env.ENERGY_FEED_URL || 'http://10.10.161.239:8089').replace(/\/+$/, '');
 
+/** GET /api/energy-feed/openapi — returns the OpenAPI spec from power simulator */
+router.get('/openapi', asyncHandler(async (req, res) => {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
-    const resp = await fetch(url, { signal: controller.signal });
+    const resp = await fetch(`${FEED_URL}/openapi.json`, { signal: controller.signal });
     clearTimeout(timeout);
-
     const data = await resp.json();
     res.json(data);
+  } catch (e) {
+    res.status(502).json({ error: `Energy feed unreachable: ${e.message}` });
+  }
+}));
+
+/** ALL /api/energy-feed/proxy — proxy any HTTP method to energy feed API (avoids CORS) */
+router.all('/proxy', asyncHandler(async (req, res) => {
+  const targetPath = req.query.path || '/';
+  const url = `${FEED_URL}${targetPath}`;
+  const method = req.method.toUpperCase();
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    
+    const fetchOpts = {
+      method,
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    
+    // Forward query params from proxy to target (strip 'path' param)
+    const targetUrl = new URL(url);
+    Object.entries(req.query).forEach(([k, v]) => {
+      if (k !== 'path') targetUrl.searchParams.set(k, String(v));
+    });
+
+    // Forward request body for methods that have one
+    if (['POST', 'PUT', 'PATCH'].includes(method) && req.body && Object.keys(req.body).length > 0) {
+      fetchOpts.body = JSON.stringify(req.body);
+    }
+
+    const resp = await fetch(targetUrl.toString(), fetchOpts);
+    clearTimeout(timeout);
+
+    const contentType = resp.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const data = await resp.json();
+      return res.status(resp.status).json(data);
+    }
+    const text = await resp.text();
+    res.status(resp.status).type(contentType || 'text/plain').send(text);
   } catch (e) {
     res.status(502).json({ error: `Energy feed unreachable: ${e.message}` });
   }

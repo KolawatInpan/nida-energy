@@ -4,7 +4,7 @@ import { useDispatch, useSelector } from "react-redux";
 import axios from 'axios';
 import { validateAuth } from "../../store/auth/auth.action";
 import TORMeter from '../../components/TOR/TORMeter';
-import { getHourlyEnergyByMeter, getDailyEnergyByMeter, getMeters, getMeterBySnid } from '../../core/data_connecter/register';
+import { getHourlyEnergyByMeter, getDailyEnergyByMeter, getGaps, getMeters, getMeterBySnid } from '../../core/data_connecter/register';
 import { getEnergyRates } from '../../core/data_connecter/rate';
 import { buildHourlyTrend, buildTrailingDailyTrend, formatLocalDate } from '../../utils/meterAnalytics';
 import Plot from 'react-plotly.js';
@@ -12,6 +12,7 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
 import { getApiBase } from '../../core/data_connecter/apiBase';
+import GapBar from '../../components/charts/GapBar';
 
 const slugify = (name) => {
     if (!name) return '';
@@ -294,6 +295,8 @@ export default function Meter() {
     const [selectedBuildingName, setSelectedBuildingName] = useState('');
     const [trendMode, setTrendMode] = useState('today');
     const [customDateRange, setCustomDateRange] = useState([null, null]);
+    const [meterGaps, setMeterGaps] = useState([]);
+    const [meterGapRange, setMeterGapRange] = useState({ start: null, end: null });
     const [startDate, endDate] = customDateRange;
     const [hourlyTrend, setHourlyTrend] = useState({
         labels: Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`),
@@ -382,7 +385,10 @@ export default function Meter() {
         if (!value) return 'Unknown';
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return 'Unknown';
-        return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        const d = String(date.getDate()).padStart(2, '0');
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const y = date.getFullYear();
+        return `${d}-${m}-${y}`;
     };
 
     const buildMeterViewModel = (source) => {
@@ -652,6 +658,44 @@ export default function Meter() {
         loadTrend();
         return () => { mounted = false; };
     }, [meter?.id, trendMode, startDate, endDate]);
+
+    // Detect data gaps for the current meter and time range
+    useEffect(() => {
+        if (!meter?.id) return;
+        let mounted = true;
+        const energyMeterId = String(meter?.raw?.snid || meter?.id || meterId || '');
+
+        const now = new Date();
+        let rangeStart, rangeEnd;
+
+        if (trendMode === 'custom' && startDate && endDate) {
+            rangeStart = new Date(startDate); rangeStart.setHours(0, 0, 0, 0);
+            rangeEnd = new Date(endDate); rangeEnd.setHours(23, 59, 59, 999);
+        } else if (trendMode === 'week') {
+            rangeEnd = new Date(now);
+            rangeStart = new Date(now); rangeStart.setDate(now.getDate() - 7);
+            rangeStart.setHours(0, 0, 0, 0);
+        } else if (trendMode === 'month') {
+            rangeEnd = new Date(now);
+            rangeStart = new Date(now); rangeStart.setDate(now.getDate() - 30);
+            rangeStart.setHours(0, 0, 0, 0);
+        } else {
+            // today
+            rangeStart = new Date(now); rangeStart.setHours(0, 0, 0, 0);
+            rangeEnd = new Date(now); rangeEnd.setHours(23, 59, 59, 999);
+        }
+
+        getGaps({ meterId: energyMeterId, from: rangeStart.toISOString(), to: rangeEnd.toISOString() })
+            .then((g) => {
+                if (mounted) {
+                    setMeterGaps(Array.isArray(g) ? g : []);
+                    setMeterGapRange({ start: rangeStart.toISOString(), end: rangeEnd.toISOString() });
+                }
+            })
+            .catch(() => {});
+
+        return () => { mounted = false; };
+    }, [meter?.id, trendMode, startDate, endDate, meterId]);
 
     const buildingOptions = useMemo(() => {
         const seen = new Set();
@@ -1160,6 +1204,8 @@ export default function Meter() {
                             style={{ width: '100%', height: '100%' }}
                         />
                     </div>
+
+                    <GapBar gaps={meterGaps} rangeStart={meterGapRange.start} rangeEnd={meterGapRange.end} />
 
                     {/* Chart controls */}
                     <div className="text-right mt-3">

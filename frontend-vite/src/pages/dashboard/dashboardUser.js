@@ -1,5 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useHistory } from 'react-router-dom';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import { useSelector } from 'react-redux';
 import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/register';
 import { getWalletByEmail } from '../../core/data_connecter/wallet';
@@ -11,6 +13,7 @@ import { SummaryCard, UserEnergyBreakdownSection, UserInsightCards } from './com
 import { NoBuildingAssignedPage } from '../../components/shared';
 import Key from '../../global/key';
 import { getStoredMemberFallback, normalizeRoleName } from '../../utils/authSession';
+import { fmtDate, fmtDateTime } from '../../utils/dateFormat';
 
 function formatDateLocal(date) {
   const year = date.getFullYear();
@@ -42,7 +45,7 @@ function latestRateDate(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return '-';
   const sorted = [...rows].sort((a, b) => new Date(b.effectiveStart || 0) - new Date(a.effectiveStart || 0));
   const value = sorted[0]?.effectiveStart;
-  return value ? new Date(value).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '-';
+  return value ? new Date(value).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : '-';
 }
 
 function getMeterGroup(meters = []) {
@@ -218,11 +221,15 @@ export default function DashboardUser() {
     return [...monthlyInvoices].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))[0] || null;
   }, [monthlyInvoices]);
   const unpaidInvoice = useMemo(() => {
-    return monthlyInvoices.find((item) => String(item?.status || '').toLowerCase() !== 'paid') || null;
+    return monthlyInvoices.find((item) => {
+      const s = String(item?.status || '').toLowerCase();
+      return s === 'unpaid' || s === 'late';
+    }) || null;
   }, [monthlyInvoices]);
+
   const unpaidInvoiceAlert = useMemo(() => {
-    if (!unpaidInvoice?.timestamp) return null;
-    const dueDate = new Date(unpaidInvoice.timestamp);
+    if (!unpaidInvoice?.dueDate) return null;
+    const dueDate = new Date(unpaidInvoice.dueDate);
     if (Number.isNaN(dueDate.getTime())) return null;
 
     const today = new Date();
@@ -233,10 +240,8 @@ export default function DashboardUser() {
     const overdueDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
     if (overdueDays <= 0) return null;
-    if (overdueDays > 14) {
-      return `Overdue by ${overdueDays} days. Please pay immediately.`;
-    }
-    return `Payment is overdue by ${overdueDays} day${overdueDays > 1 ? 's' : ''}.`;
+    if (overdueDays > 14) return `🔴 Overdue by ${overdueDays} days. Please pay immediately.`;
+    return `⚠️ Overdue by ${overdueDays} day${overdueDays > 1 ? 's' : ''}.`;
   }, [unpaidInvoice]);
   const totalProduction = useMemo(() => hourlyProduction.reduce((sum, value) => sum + value, 0), [hourlyProduction]);
   const totalConsumption = useMemo(() => hourlyConsumption.reduce((sum, value) => sum + value, 0), [hourlyConsumption]);
@@ -348,10 +353,10 @@ export default function DashboardUser() {
       if (energyRange === 'custom' && customStart) {
         const d = new Date(customStart);
         d.setDate(d.getDate() + index);
-        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
       }
       const base = shiftDate(new Date(), -((energySeriesLength - 1) - index));
-      return base.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return base.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
     });
 
     const tickIndexes = energyRange === '1D'
@@ -434,7 +439,7 @@ export default function DashboardUser() {
             </div>
             <div className="text-right">
               <div className="text-xs text-gray-500">Today</div>
-              <div className="text-xs font-semibold text-gray-900">{new Date().toLocaleDateString()}</div>
+              <div className="text-xs font-semibold text-gray-900">{fmtDate(new Date())}</div>
             </div>
           </div>
         </div>
@@ -500,7 +505,7 @@ export default function DashboardUser() {
               </div>
               <div>
                 <div className="text-xs text-gray-500">Last Reading</div>
-                <div className="font-semibold text-gray-900">{consumer?.timestamp ? new Date(consumer.timestamp).toLocaleString() : '-'}</div>
+                <div className="font-semibold text-gray-900">{consumer?.timestamp ? fmtDateTime(new Date(consumer.timestamp)) : '-'}</div>
               </div>
             </div>
           </div>
@@ -545,7 +550,7 @@ export default function DashboardUser() {
               </div>
               <div className="mt-2 flex items-center justify-between text-xs">
                 <span className="text-white/80">Due Date</span>
-                <span className="font-semibold">{unpaidInvoice?.timestamp ? new Date(unpaidInvoice.timestamp).toLocaleDateString() : '-'}</span>
+                <span className="font-semibold">{unpaidInvoice?.dueDate ? fmtDate(new Date(unpaidInvoice.dueDate)) : '-'}</span>
               </div>
               {unpaidInvoiceAlert ? (
                 <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
@@ -587,20 +592,22 @@ export default function DashboardUser() {
               </div>
               {energyRange === 'custom' && (
                 <div className="flex items-center gap-1 text-xs">
-                  <input
-                    type="date"
-                    value={customStart ? formatDateLocal(customStart) : ''}
-                    max={customEnd ? formatDateLocal(customEnd) : formatDateLocal(new Date())}
-                    onChange={(e) => setCustomDateRange([e.target.value ? new Date(e.target.value) : null, customEnd])}
+                  <DatePicker
+                    selected={customStart}
+                    onChange={(date) => setCustomDateRange([date, customEnd])}
+                    dateFormat="dd-MM-yyyy"
+                    placeholderText="dd-mm-yyyy"
+                    maxDate={customEnd || new Date()}
                     className="px-2 py-1.5 border border-gray-300 rounded-lg w-36"
                   />
                   <span className="text-gray-400">→</span>
-                  <input
-                    type="date"
-                    value={customEnd ? formatDateLocal(customEnd) : ''}
-                    min={customStart ? formatDateLocal(customStart) : ''}
-                    max={formatDateLocal(new Date())}
-                    onChange={(e) => setCustomDateRange([customStart, e.target.value ? new Date(e.target.value) : null])}
+                  <DatePicker
+                    selected={customEnd}
+                    onChange={(date) => setCustomDateRange([customStart, date])}
+                    dateFormat="dd-MM-yyyy"
+                    placeholderText="dd-mm-yyyy"
+                    minDate={customStart || null}
+                    maxDate={new Date()}
                     className="px-2 py-1.5 border border-gray-300 rounded-lg w-36"
                   />
                 </div>

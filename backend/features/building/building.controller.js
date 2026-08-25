@@ -2,7 +2,8 @@ const BuildingModel = require('./building.service');
 
 async function getBuildings(req, res) {
   try {
-    const list = await BuildingModel.getBuildings();
+    const includeAll = req.query.all === 'true' || req.query.all === '1';
+    const list = await BuildingModel.getBuildings(includeAll);
     res.json(list);
   } catch (err) {
     console.error('getBuildings error', err);
@@ -59,7 +60,7 @@ async function createBuilding(req, res) {
     res.status(201).json(newBuilding);
   } catch (err) {
     console.error('createBuilding error', err);
-    if (err && err.message === 'All fields are required') {
+    if (err && err.message === 'Required fields: name, address, province, postalCode') {
       return res.status(400).json({ error: err.message });
     }
     res.status(500).json({ error: err.message });
@@ -109,6 +110,71 @@ async function deleteBuilding(req, res) {
   }
 }
 
+// ---- Building Approval ----
+
+async function getPendingBuildings(req, res) {
+  try {
+    const list = await BuildingModel.getPendingBuildings();
+    res.json(list);
+  } catch (err) {
+    console.error('getPendingBuildings error', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function approveBuilding(req, res) {
+  try {
+    const building = await BuildingModel.approveBuilding(req.params.id);
+    res.json(building);
+  } catch (err) {
+    console.error('approveBuilding error', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function rejectBuilding(req, res) {
+  try {
+    const building = await BuildingModel.rejectBuilding(req.params.id);
+    res.json(building);
+  } catch (err) {
+    console.error('rejectBuilding error', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ---- User Assignment ----
+
+async function assignUserToBuilding(req, res) {
+  try {
+    const { userEmail, role } = req.body || {};
+    const assignment = await BuildingModel.assignUserToBuilding(req.params.id, userEmail, role);
+    res.json(assignment);
+  } catch (err) {
+    console.error('assignUserToBuilding error', err);
+    res.status(400).json({ error: err.message });
+  }
+}
+
+async function removeUserFromBuilding(req, res) {
+  try {
+    await BuildingModel.removeUserFromBuilding(req.params.id, req.params.userEmail);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('removeUserFromBuilding error', err);
+    res.status(400).json({ error: err.message });
+  }
+}
+
+async function getBuildingAssignments(req, res) {
+  try {
+    const list = await BuildingModel.getBuildingAssignments(req.params.id);
+    res.json(list);
+  } catch (err) {
+    console.error('getBuildingAssignments error', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   getBuildings,
   getBuilding,
@@ -117,6 +183,12 @@ module.exports = {
   createBuilding,
   updateBuilding,
   deleteBuilding,
+  getPendingBuildings,
+  approveBuilding,
+  rejectBuilding,
+  assignUserToBuilding,
+  removeUserFromBuilding,
+  getBuildingAssignments,
 };
 
 

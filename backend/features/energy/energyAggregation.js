@@ -1,5 +1,13 @@
 const { prisma } = require('../../utils/prisma');
 const invoiceService = require('../billing/invoice.service');
+const fs = require('fs');
+const path = require('path');
+
+// syncCursor.txt is the single source of truth for the energy feed cursor.
+// It MUST be deleted when logs are reset, otherwise the feed thinks it already
+// synced past old data and will not re-pull history (e.g. after clearing logs
+// with the Mock Energy Reset button, old days never come back).
+const SYNC_CURSOR_FILE = path.join(__dirname, 'syncCursor.txt');
 
 function toFiniteNumber(value) {
   const parsed = Number(value);
@@ -439,6 +447,92 @@ async function insertRunningMetersBulk(logs = []) {
   );
 
   const previousLogBySnid = new Map(previousLogs);
+
+  // ── Battery SoC from kW (State-of-Charge integration) ──
+  // The feed's kWH for a battery is a cumulative energy counter (odometer-style,
+  // only ever increases) — NOT a real State of Charge. So it never drops when the
+  // battery discharges. Recompute SoC by integrating kW over the time between
+  // readings: charge (kW > 0) raises SoC, discharge (kW < 0) lowers it, clamped
+  // to [0, capacity]. This overrides item.kWH for battery meters only.
+  let batteryMeters = new Map();
+  try {
+    const batteryRows = await prisma.meterInfo.findMany({
+      where: { type: { contains: 'battery', mode: 'insensitive' } },
+      select: { snid: true, capacity: true, value: true, kWH: true },
+    });
+    for (const b of batteryRows) batteryMeters.set(String(b.snid), b);
+  } catch (_) {}
+
+  for (const snid of uniqueSnids) {
+    const bat = batteryMeters.get(snid);
+    if (!bat) continue;
+    const capacity = Number(bat.capacity || 0);
+    if (!(capacity > 0)) continue; // need a capacity to clamp against
+
+    const rows = normalizedLogs.filter((item) => item.snid === snid);
+    if (!rows.length) continue;
+
+    // ── Seed SoC from the battery's REAL energy, not a stale 0 ──
+    // Prefer the last known stored energy on MeterInfo (kept in sync by
+    // syncMeterSnapshot each batch). If it's zero/missing — e.g. right after a
+    // log reset wiped value/kWH to null — fall back to the REAL cumulative kWh
+    // carried by the incoming logs (clamped to capacity). That way the battery
+    // starts from its true charge instead of being stuck at 0 forever, and kW
+    // integration (charge ↑ / discharge ↓) then moves SoC up/down.
+    const meterSeed = (Number.isFinite(Number(bat.value)) && Number(bat.value) > 0) ? Number(bat.value)
+      : (Number.isFinite(Number(bat.kWH)) && Number(bat.kWH) > 0) ? Number(bat.kWH)
+      : NaN;
+    const firstLogKwh = Number(rows[0].kWH);
+    const prevKwh = Number(previousLogBySnid.get(snid)?.kWH);
+    const fallbackSeed = (Number.isFinite(firstLogKwh) && firstLogKwh > 0) ? firstLogKwh
+      : (Number.isFinite(prevKwh) && prevKwh > 0) ? prevKwh
+      : 0;
+    const seedRaw = Number.isFinite(meterSeed) ? meterSeed : fallbackSeed;
+    let soc = Math.max(0, Math.min(seedRaw, capacity));
+
+    console.log(`[BATTERY] ${snid} seed=${roundTo4(seedRaw)} cap=${capacity} meterSeed=${roundTo4(meterSeed)} fallback=${roundTo4(fallbackSeed)} rows=${rows.length}`);
+
+    // Integrate from the previous RunningMeter row into the first row of this batch
+    const prevRow = previousLogBySnid.get(snid);
+    let prevTs = rows[0].timestamp.getTime();
+    if (prevRow) {
+      const gapH = (prevTs - prevRow.timestamp.getTime()) / 3600000;
+      if (gapH > 0 && gapH < 48) {
+        soc = Math.max(0, Math.min(soc + Number(rows[0].kW || 0) * gapH, capacity));
+      }
+    }
+
+    for (let i = 0; i < rows.length; i++) {
+      const item = rows[i];
+      const ts = item.timestamp.getTime();
+      const dtH = (ts - prevTs) / 3600000;
+      if (dtH > 0 && dtH < 48) {
+        soc = Math.max(0, Math.min(soc + Number(item.kW || 0) * dtH, capacity));
+      }
+      item.kWH = roundTo4(soc);
+      prevTs = ts;
+    }
+  }
+
+  // ── Idempotency guard: query which (snid, timestamp) pairs already exist ──
+  // This prevents double-counting when the same batch is re-processed
+  // (e.g. cursor stall → fetch same logs → createMany skipDuplicates → but delta was re-aggregated)
+  const minTs = normalizedLogs[0]?.timestamp;
+  const maxTs = normalizedLogs[normalizedLogs.length - 1]?.timestamp;
+  const existingSet = new Set();
+  if (minTs && maxTs) {
+    const existingRows = await prisma.runningMeter.findMany({
+      where: {
+        snid: { in: uniqueSnids },
+        timestamp: { gte: minTs, lte: maxTs },
+      },
+      select: { snid: true, timestamp: true },
+    });
+    for (const row of existingRows) {
+      existingSet.add(`${row.snid}|${row.timestamp.toISOString()}`);
+    }
+  }
+
   const deltaLogs = [];
 
   uniqueSnids.forEach((snid) => {
@@ -454,7 +548,12 @@ async function insertRunningMetersBulk(logs = []) {
       }
 
       const delta = roundTo4(currentValue - previousValue) || 0;
+      // Always advance previousValue so subsequent entries compute correct delta
       previousValue = currentValue;
+
+      // Skip delta aggregation if this (snid, timestamp) already exists
+      // (idempotency guard — prevents double-increment on cursor stall)
+      if (existingSet.has(`${item.snid}|${item.timestamp.toISOString()}`)) return;
 
       if (delta > 0) {
         deltaLogs.push({
@@ -658,12 +757,21 @@ async function resetEnergyLogs() {
       }
     });
 
+    // Reset the feed cursor too — otherwise the energy feed thinks it already
+    // synced past old data and won't re-pull history after a full log reset.
+    try {
+      if (fs.existsSync(SYNC_CURSOR_FILE)) {
+        fs.unlinkSync(SYNC_CURSOR_FILE);
+      }
+    } catch (_) {}
+
     return {
       runningMeter: runningMeter.count || 0,
       hourlyEnergy: hourlyEnergy.count || 0,
       dailyEnergy: dailyEnergy.count || 0,
       weeklyEnergy: weeklyEnergy.count || 0,
       monthlyEnergy: monthlyEnergy.count || 0,
+      syncCursorReset: true,
     };
   });
 

@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useDispatch } from 'react-redux';
 import { validateAuth } from '../../store/auth/auth.action';
 import { formatEntityId, formatTokenShort } from '../../utils/formatters';
 import { getApiBase } from '../../core/data_connecter/apiBase';
 import Key from '../../global/key';
+import { fmtDateTime } from '../../utils/dateFormat';
 
 const POLL_INTERVAL = 15000; // refresh every 15s
 
@@ -128,7 +129,7 @@ export default function Receipts() {
                                 </td>
                                 <td className="py-3 px-4 text-sm text-gray-700">{formatEntityId('INV', receipt.invoiceId)}</td>
                                 <td className="py-3 px-4 text-sm text-gray-700">{formatEntityId('WTX', receipt.walletTxId)}</td>
-                                <td className="py-3 px-4 text-sm text-gray-700">{receipt.timestamp ? new Date(receipt.timestamp).toLocaleString() : '-'}</td>
+                                <td className="py-3 px-4 text-sm text-gray-700">{receipt.timestamp ? fmtDateTime(new Date(receipt.timestamp)) : '-'}</td>
                                 <td className="py-3 px-4 text-sm text-gray-700">{receipt.invoice?.buildingName || '-'}</td>
                                 <td className="py-3 px-4 text-sm text-gray-700">
                                     {(() => {

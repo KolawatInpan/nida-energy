@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+﻿import React, { useMemo, useState, useEffect } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -9,6 +9,7 @@ import { useTOR } from '../../global/TORContext';
 import { getBuildings } from '../../core/data_connecter/register';
 import { formatEntityId, formatToken, formatVerificationStatus, getSignedTokenAmount, getTransactionDisplayType } from '../../utils/formatters';
 import { buildTransactionCompareRows, buildTransactionCompareSummary } from '../../utils/transactionMappers';
+import { fmtDateTime } from '../../utils/dateFormat';
 
 function shortenValue(value, start = 10, end = 8) {
   if (!value) return '-';
@@ -186,10 +187,7 @@ export default function Transaction() {
       ts: (() => {
         const d = new Date(tx.timestamp);
         if (isNaN(d.getTime())) return 'N/A';
-        return d.toLocaleString('en-US', { 
-          year: 'numeric', month: 'short', day: 'numeric', 
-          hour: '2-digit', minute: '2-digit', second: '2-digit' 
-        });
+        return fmtDateTime(d);
       })(),
       building: tx.buildingName || 'N/A',
       type: getTransactionDisplayType(tx),

@@ -22,10 +22,12 @@ export async function requestOtpEmail(email) {
     }
 }
 
-export async function registerUser(name, email, password, telNum, otp, dataMode) {
+export async function registerUser(name, email, password, telNum, otp, dataMode, bypassOtp = false) {
     try {
         const base = getApiBase();
-        const config = dataMode ? { headers: { 'x-data-mode': dataMode } } : {};
+        const config = { headers: {} };
+        if (dataMode) config.headers['x-data-mode'] = dataMode;
+        if (bypassOtp) config.headers['x-admin-bypass-otp'] = 'true';
         const response = await axios.post(`${base}/users/register`, { name, email, password, telNum, otp }, config);
         return response.data;
     } catch (error) {
@@ -45,10 +47,11 @@ export async function getUsers() {
     }
 }
 
-export async function getBuildings() {
+export async function getBuildings(includeAll = false) {
     try {
         const base = getApiBase();
-        const response = await axios.get(`${base}/buildings`);
+        const params = includeAll ? '?all=true' : '';
+        const response = await axios.get(`${base}/buildings${params}`);
         return response.data;
     } catch (error) {
         console.error('Error fetching buildings:', error);
@@ -168,6 +171,20 @@ export async function getMonthlyEnergyByMeter(snid, year) {
         throw error;
     }
 }
+
+export async function getGaps({ meterId, date, from, to } = {}) {
+    try {
+        const base = getApiBase();
+        const response = await axios.get(`${base}/dashboard/gaps`, {
+            params: { meterId, date, from, to },
+        });
+        return response.data;
+    } catch (error) {
+        console.error('Error fetching gaps:', error);
+        return [];
+    }
+}
+
 export async function insertRunningLog(snid, timestamp, kW, kWH, txid = null) {
     try {
         const base = getApiBase();

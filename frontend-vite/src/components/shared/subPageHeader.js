@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from "react";
 import { Row, Col, Typography } from 'antd';
+import { fmtDate } from '../../utils/dateFormat';
 
 const SubHeader = (props) => {
     const { firstLetter,
@@ -9,7 +10,7 @@ const SubHeader = (props) => {
         secondFBold } = props;
     const [page, setPage] = React.useState(0);
     let dt = new Date();
-    let datestr = (dt.getDate() + 100).toString().substring(1, 3) + " " + (dt.toLocaleString("en-US", { month: "short" })) + " " + dt.getFullYear();
+    let datestr = fmtDate(dt);
 
     const [adatestr, set_datestr] = useState(datestr)
 

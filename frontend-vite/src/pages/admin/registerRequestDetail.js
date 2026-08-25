@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
 import { Modal, message } from 'antd';
 import { getPendingMeters, getUserFromBuilding, updateMeter } from '../../core/data_connecter/meter';
+import { getPendingBuildings, approveBuilding, rejectBuilding } from '../../core/data_connecter/building';
+import { getPendingUsers, approveUser, rejectUser } from '../../core/data_connecter/user';
+import { fmtDate, fmtDateTime } from '../../utils/dateFormat';
 
 const getString = (value) => {
     if (value === null || value === undefined) return '';
@@ -17,11 +20,12 @@ const normalizeType = (rawType) => {
 };
 
 export default function RegisterRequestDetail() {
-    const { id } = useParams();
+    const { type, id } = useParams();
     const history = useHistory();
     const [request, setRequest] = useState(null);
     const [loading, setLoading] = useState(true);
     const [actioning, setActioning] = useState(false);
+    const [requestType, setRequestType] = useState(type || 'meter'); // building | user | meter
 
     useEffect(() => {
         let mounted = true;
@@ -29,66 +33,146 @@ export default function RegisterRequestDetail() {
         const loadDetail = async () => {
             setLoading(true);
             try {
-                const pending = await getPendingMeters();
-                const list = Array.isArray(pending) ? pending : [];
-                const target = list.find((item) => {
-                    const candidateId = getString(item.requestId || item.id || item._id || item.reqId || item.snid || item.meterName);
-                    return candidateId === id;
-                });
+                const reqType = type || 'meter';
+                if (mounted) setRequestType(reqType);
 
-                if (!target) {
-                    if (mounted) setRequest(null);
-                    return;
-                }
+                let target = null;
 
-                const building = target.building || {};
-                const owner = building.owner || {};
-                let contactName = owner.name || '';
-                let contactEmail = owner.email || target.email || '';
+                if (reqType === 'building') {
+                    // Building approval — match by building id
+                    const pending = await getPendingBuildings();
+                    const list = Array.isArray(pending) ? pending : [];
+                    target = list.find((item) => {
+                        const candidateId = String(item.id || item._id || '');
+                        return candidateId === id;
+                    });
+                    if (target && mounted) {
+                        const owner = target.owner || {};
+                        setRequest({
+                            requestId: `BUILDING-${String(target.id || id)}`,
+                            submittedDate: target.createdAt ? fmtDate(target.createdAt) : '-',
+                            submittedTime: target.createdAt ? new Date(target.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
+                            serviceUnitType: 'Building',
+                            currentStatus: String(target.approvalStatus || 'Pending Review'),
+                            contactName: owner.name || '-',
+                            contactPosition: '-',
+                            contactEmail: owner.email || '-',
+                            contactPhone: getString(owner.telNum || '-'),
+                            buildingName: getString(target.name || '-'),
+                            buildingCode: target.id != null ? `BUILDING-${String(target.id)}` : '-',
+                            zone: getString(target.province || '-'),
+                            floorArea: '-',
+                            address: getString(target.address || '-'),
+                            meterServiceType: '-',
+                            meterId: '-',
+                            meterBrand: '-',
+                            meterCapacity: '-',
+                            installationDate: '-',
+                            warrantyPeriod: '-',
+                            termsAgreed: [],
+                            submissionDate: target.createdAt ? fmtDate(target.createdAt) : '-',
+                            submissionTime: target.createdAt ? new Date(target.createdAt).toLocaleTimeString() : '-',
+                            ipAddress: '-',
+                            buildingId: target.id,
+                            _raw: target,
+                        });
+                    }
+                } else if (reqType === 'user') {
+                    // User approval — match by email
+                    const pending = await getPendingUsers();
+                    const list = Array.isArray(pending) ? pending : [];
+                    const decodedId = decodeURIComponent(id || '');
+                    target = list.find((item) => {
+                        const candidateId = String(item.email || item.id || item._id || '');
+                        return candidateId === decodedId || candidateId === id;
+                    });
+                    if (target && mounted) {
+                        setRequest({
+                            requestId: getString(target.email || id),
+                            submittedDate: target.createdAt ? fmtDate(target.createdAt) : '-',
+                            submittedTime: target.createdAt ? new Date(target.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
+                            serviceUnitType: 'User',
+                            currentStatus: String(target.status || 'Pending Review'),
+                            contactName: getString(target.name || '-'),
+                            contactPosition: '-',
+                            contactEmail: getString(target.email || '-'),
+                            contactPhone: getString(target.telNum || '-'),
+                            buildingName: '-',
+                            buildingCode: '-',
+                            zone: '-',
+                            floorArea: '-',
+                            address: '-',
+                            meterServiceType: '-',
+                            meterId: '-',
+                            meterBrand: '-',
+                            meterCapacity: '-',
+                            installationDate: '-',
+                            warrantyPeriod: '-',
+                            termsAgreed: [],
+                            submissionDate: target.createdAt ? fmtDate(target.createdAt) : '-',
+                            submissionTime: target.createdAt ? new Date(target.createdAt).toLocaleTimeString() : '-',
+                            ipAddress: '-',
+                            userEmail: target.email,
+                            _raw: target,
+                        });
+                    }
+                } else {
+                    // Meter approval (default)
+                    const pending = await getPendingMeters();
+                    const list = Array.isArray(pending) ? pending : [];
+                    target = list.find((item) => {
+                        const candidateId = getString(item.requestId || item.id || item._id || item.reqId || item.snid || item.meterName);
+                        return candidateId === id;
+                    });
+                    if (target && mounted) {
+                        const building = target.building || {};
+                        const owner = building.owner || {};
+                        let contactName = owner.name || '';
+                        let contactEmail = owner.email || target.email || '';
 
-                if ((!contactName || !contactEmail) && building.id) {
-                    try {
-                        const users = await getUserFromBuilding(building.id);
-                        const userList = Array.isArray(users) ? users : (users ? [users] : []);
-                        const firstUser = userList.find((item) => item?.email) || userList[0];
-                        if (firstUser) {
-                            contactName = contactName || firstUser.name || '';
-                            contactEmail = contactEmail || firstUser.email || '';
+                        if ((!contactName || !contactEmail) && building.id) {
+                            try {
+                                const users = await getUserFromBuilding(building.id);
+                                const userList = Array.isArray(users) ? users : (users ? [users] : []);
+                                const firstUser = userList.find((item) => item?.email) || userList[0];
+                                if (firstUser) {
+                                    contactName = contactName || firstUser.name || '';
+                                    contactEmail = contactEmail || firstUser.email || '';
+                                }
+                            } catch (_) { /* ignore */ }
                         }
-                    } catch (error) {
-                        console.warn('Unable to load request contact from building users:', error);
+
+                        const submittedAt = target.dateSubmit ? new Date(target.dateSubmit) : null;
+                        setRequest({
+                            requestId: getString(target.requestId || target.id || target._id || target.reqId || target.snid || target.meterName),
+                            submittedDate: submittedAt && !Number.isNaN(submittedAt.getTime()) ? fmtDate(submittedAt) : '-',
+                            submittedTime: submittedAt && !Number.isNaN(submittedAt.getTime()) ? submittedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
+                            serviceUnitType: normalizeType(target.type),
+                            currentStatus: String(target.approveStatus || 'Pending Review'),
+                            contactName: contactName || '-',
+                            contactPosition: '-',
+                            contactEmail: contactEmail || '-',
+                            contactPhone: getString(target.contactPhone || target.telNum || owner.telNum || '-'),
+                            buildingName: getString(building.name || target.buildingName || '-'),
+                            buildingCode: building.id != null ? `BUILDING-${String(building.id)}` : '-',
+                            zone: getString(building.province || '-'),
+                            floorArea: '-',
+                            address: getString(building.address || '-'),
+                            meterServiceType: normalizeType(target.type),
+                            meterId: getString(target.snid || target.meterName || '-'),
+                            meterBrand: '-',
+                            meterCapacity: target.capacity != null ? `${target.capacity} kWh` : '-',
+                            installationDate: target.dateInstalled ? (() => { const d = new Date(target.dateInstalled); const dd = String(d.getDate()).padStart(2,'0'); const mm = String(d.getMonth()+1).padStart(2,'0'); return `${dd}-${mm}-${d.getFullYear()}`; })() : '-',
+                            warrantyPeriod: '-',
+                            termsAgreed: [],
+                            _raw: target,
+                        });
                     }
                 }
 
-                const submittedAt = target.dateSubmit ? new Date(target.dateSubmit) : null;
-                const detail = {
-                    requestId: getString(target.requestId || target.id || target._id || target.reqId || target.snid || target.meterName),
-                    submittedDate: submittedAt && !Number.isNaN(submittedAt.getTime()) ? submittedAt.toLocaleDateString() : '-',
-                    submittedTime: submittedAt && !Number.isNaN(submittedAt.getTime()) ? submittedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
-                    serviceUnitType: normalizeType(target.type),
-                    currentStatus: String(target.approveStatus || 'Pending Review'),
-                    contactName: contactName || '-',
-                    contactPosition: '-',
-                    contactEmail: contactEmail || '-',
-                    contactPhone: getString(target.contactPhone || target.telNum || owner.telNum || '-'),
-                    buildingName: getString(building.name || target.buildingName || '-'),
-                    buildingCode: building.id != null ? `BLD-${String(building.id).padStart(3, '0')}` : '-',
-                    zone: getString(building.province || '-'),
-                    floorArea: '-',
-                    address: getString(building.address || '-'),
-                    meterServiceType: normalizeType(target.type),
-                    meterId: getString(target.snid || target.meterName || '-'),
-                    meterBrand: '-',
-                    meterCapacity: target.capacity != null ? `${target.capacity} kWh` : '-',
-                    installationDate: target.dateInstalled ? new Date(target.dateInstalled).toLocaleDateString() : '-',
-                    warrantyPeriod: '-',
-                    termsAgreed: [],
-                    submissionDate: submittedAt && !Number.isNaN(submittedAt.getTime()) ? submittedAt.toLocaleDateString() : '-',
-                    submissionTime: submittedAt && !Number.isNaN(submittedAt.getTime()) ? submittedAt.toLocaleTimeString() : '-',
-                    ipAddress: '-',
-                };
-
-                if (mounted) setRequest(detail);
+                if (!target && mounted) {
+                    setRequest(null);
+                }
             } catch (error) {
                 console.error('Failed to load request detail:', error);
                 if (mounted) setRequest(null);
@@ -137,12 +221,12 @@ export default function RegisterRequestDetail() {
     };
 
     const handleDecision = async (nextStatus) => {
-        if (!request?.meterId || actioning) return;
+        if (actioning) return;
         const label = nextStatus === 'approved' ? 'approve' : 'reject';
 
         Modal.confirm({
-            title: `${nextStatus === 'approved' ? 'Approve' : 'Reject'} Meter Request`,
-            content: `Request ${request.requestId} for ${request.buildingName} will be marked as ${nextStatus}.`,
+            title: `${nextStatus === 'approved' ? 'Approve' : 'Reject'} ${requestType === 'building' ? 'Building' : requestType === 'user' ? 'User' : 'Meter'} Request`,
+            content: `Request ${request?.requestId || id} will be marked as ${nextStatus}.`,
             okText: nextStatus === 'approved' ? 'Approve Request' : 'Reject Request',
             cancelText: 'Cancel',
             okButtonProps: {
@@ -152,8 +236,22 @@ export default function RegisterRequestDetail() {
             async onOk() {
                 setActioning(true);
                 try {
-                    await updateMeter(request.meterId, { status: nextStatus });
-                    message.success(`Request ${request.requestId} ${nextStatus === 'approved' ? 'approved' : 'rejected'} successfully.`);
+                    if (requestType === 'building' && request?.buildingId) {
+                        if (nextStatus === 'approved') {
+                            await approveBuilding(request.buildingId);
+                        } else {
+                            await rejectBuilding(request.buildingId);
+                        }
+                    } else if (requestType === 'user' && request?.userEmail) {
+                        if (nextStatus === 'approved') {
+                            await approveUser(request.userEmail);
+                        } else {
+                            await rejectUser(request.userEmail);
+                        }
+                    } else if (request?.meterId) {
+                        await updateMeter(request.meterId, { status: nextStatus });
+                    }
+                    message.success(`Request ${request?.requestId || id} ${nextStatus === 'approved' ? 'approved' : 'rejected'} successfully.`);
                     history.push('/approved-request');
                 } catch (error) {
                     console.error(`Failed to ${label} request`, error);
@@ -190,7 +288,7 @@ export default function RegisterRequestDetail() {
                         </div>
                         <div className="text-right px-1 py-1">
                             <div className="text-[10px] text-gray-500">Today</div>
-                            <div className="text-xs font-semibold text-gray-700">{new Date().toLocaleDateString()}</div>
+                            <div className="text-xs font-semibold text-gray-700">{fmtDate(new Date())}</div>
                         </div>
                     </div>
                 </div>
@@ -204,17 +302,29 @@ export default function RegisterRequestDetail() {
                             </div>
                             <div>
                                 <h2 className="text-base font-bold text-gray-900 mb-1">Pending Review</h2>
-                                <p className="text-xs text-gray-600">This request is awaiting your approval decision</p>
+                                <p className="text-xs text-gray-600">
+                                    {requestType === 'building' ? 'Building registration awaiting approval' :
+                                     requestType === 'user' ? 'User registration awaiting approval' :
+                                     'This request is awaiting your approval decision'}
+                                </p>
                             </div>
                         </div>
-                        <div className="hidden">
-                            <button className="px-4 py-2 bg-red-500 text-white text-xs font-semibold rounded-md hover:bg-red-600 transition-colors flex items-center gap-2">
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => handleDecision('rejected')}
+                                disabled={actioning}
+                                className="px-4 py-2 bg-red-500 text-white text-xs font-semibold rounded-md hover:bg-red-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            >
                                 <span>✖</span>
-                                <span>Reject Request</span>
+                                <span>Reject</span>
                             </button>
-                            <button className="px-4 py-2 bg-green-500 text-white text-xs font-semibold rounded-md hover:bg-green-600 transition-colors flex items-center gap-2">
+                            <button
+                                onClick={() => handleDecision('approved')}
+                                disabled={actioning}
+                                className="px-4 py-2 bg-green-500 text-white text-xs font-semibold rounded-md hover:bg-green-600 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            >
                                 <span>✓</span>
-                                <span>Approve Request</span>
+                                <span>Approve</span>
                             </button>
                         </div>
                     </div>
@@ -375,7 +485,8 @@ export default function RegisterRequestDetail() {
                 </div>
                 </div>
 
-                {/* Meter Specifications */}
+                {/* Meter Specifications — meter requests only */}
+                {requestType === 'meter' && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-4">
                     <div className="border-b border-gray-200 px-4 py-3">
                         <div className="flex items-center gap-3">
@@ -442,6 +553,7 @@ export default function RegisterRequestDetail() {
                         </div>
                     </div>
                 </div>
+                )}
 
                 {/* Terms & Conditions Agreement */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-4">
