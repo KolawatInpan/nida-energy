@@ -133,8 +133,8 @@ async function resetDatabase(req, res) {
 			await removeAll('userCredential');
 		}
 
-		if (preserveAdmins && preservedEmails.length > 0) {
-			await removeAll('user', { where: { email: { notIn: preservedEmails } } });
+		if (preserveAdmins && preservedCredIds.length > 0) {
+			await removeAll('user', { where: { credId: { notIn: preservedCredIds } } });
 		} else {
 			await removeAll('user');
 		}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Switch, Input, Button, Card, Tag, message, Spin, Divider } from 'antd';
+import { Switch, Button, Card, Tag, message, Spin, Divider } from 'antd';
 import {
-    BellOutlined, MailOutlined, SendOutlined, SaveOutlined,
+    BellOutlined, MailOutlined, SaveOutlined,
     AppstoreOutlined, WalletOutlined, FileDoneOutlined, LineChartOutlined, WarningOutlined,
     CheckCircleFilled, CloseCircleFilled,
 } from '@ant-design/icons';
@@ -20,9 +20,7 @@ export default function SettingsPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [prefs, setPrefs] = useState({
-        telegramChatId: '',
         notifyEmail: true,
-        notifyTelegram: true,
         notifyTypes: [],
         notificationTypes: [],
         email: '',
@@ -32,9 +30,7 @@ export default function SettingsPage() {
         getNotificationSettings()
             .then((data) => {
                 setPrefs({
-                    telegramChatId: data?.telegramChatId || '',
                     notifyEmail: data?.notifyEmail !== false,
-                    notifyTelegram: data?.notifyTelegram !== false,
                     notifyTypes: data?.notifyTypes || [],
                     notificationTypes: data?.notificationTypes || [],
                     email: data?.email || '',
@@ -73,15 +69,11 @@ export default function SettingsPage() {
         setSaving(true);
         try {
             const updated = await updateNotificationSettings({
-                telegramChatId: prefs.telegramChatId || null,
                 notifyEmail: prefs.notifyEmail,
-                notifyTelegram: prefs.notifyTelegram,
                 notifyTypes: prefs.notifyTypes,
             });
             setPrefs({
-                telegramChatId: updated?.telegramChatId || '',
                 notifyEmail: updated?.notifyEmail !== false,
-                notifyTelegram: updated?.notifyTelegram !== false,
                 notifyTypes: updated?.notifyTypes || [],
                 notificationTypes: updated?.notificationTypes || prefs.notificationTypes,
                 email: updated?.email || prefs.email,
@@ -159,42 +151,6 @@ export default function SettingsPage() {
                                     </div>
                                     <Switch checked={prefs.notifyEmail} onChange={(v) => setPrefs(p => ({ ...p, notifyEmail: v }))} />
                                 </div>
-
-                                {/* Telegram (row 2) */}
-                                <div className={`flex items-center justify-between gap-3 px-4 py-3.5 rounded-2xl border-2 transition-all ${prefs.notifyTelegram ? 'border-sky-200 bg-sky-50/50' : 'border-slate-100 bg-slate-50/50'}`}>
-                                    <div className="flex items-center gap-3">
-                                        <span className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${prefs.notifyTelegram ? 'bg-sky-500 text-white shadow-md shadow-sky-200' : 'bg-slate-200 text-slate-500'}`}>
-                                            <SendOutlined />
-                                        </span>
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-semibold text-slate-700">Telegram</span>
-                                                {prefs.notifyTelegram
-                                                    ? <CheckCircleFilled className="text-emerald-500" />
-                                                    : <CloseCircleFilled className="text-slate-300" />}
-                                            </div>
-                                            <p className="text-xs text-slate-400">Direct message to your Telegram</p>
-                                        </div>
-                                    </div>
-                                    <Switch checked={prefs.notifyTelegram}
-                                        onChange={(v) => setPrefs(p => ({ ...p, notifyTelegram: v }))} />
-                                </div>
-
-                                {/* Telegram Chat ID (indented under Telegram row) */}
-                                {prefs.notifyTelegram && (
-                                    <div className="pl-16 flex items-center gap-2 max-w-lg">
-                                        <Input
-                                            prefix={<SendOutlined className="text-slate-400" />}
-                                            placeholder="Telegram Chat ID (e.g. 123456789)"
-                                            value={prefs.telegramChatId}
-                                            onChange={(e) => setPrefs(p => ({ ...p, telegramChatId: e.target.value }))}
-                                            className="!rounded-xl"
-                                        />
-                                    </div>
-                                )}
-                                <p className="text-[11px] text-slate-400 pl-16 !mt-1">
-                                    💡 Find your Chat ID by messaging <b>@userinfobot</b> on Telegram
-                                </p>
                             </div>
                         </div>
 
@@ -249,7 +205,7 @@ export default function SettingsPage() {
                         {/* Footer note */}
                         <div className="pt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-slate-100">
                             <p className="text-xs text-slate-400">
-                                <BellOutlined className="mr-1" /> In-app notifications are always shown — toggles control Email / Telegram delivery
+                                <BellOutlined className="mr-1" /> In-app notifications are always shown — toggles control Email delivery
                             </p>
                             <div className="nida-all-btns inline-flex items-center rounded-xl bg-slate-100 p-1 gap-1 w-fit">
                                 <Button size="small" icon={<CloseCircleFilled />}

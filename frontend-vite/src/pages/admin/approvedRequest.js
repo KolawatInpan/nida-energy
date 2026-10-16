@@ -43,7 +43,7 @@ export default function BuildingRequest() {
     // Assign modal
     const [assignModalOpen, setAssignModalOpen] = useState(false);
     const [assignBuilding, setAssignBuilding] = useState(null);
-    const [assignEmail, setAssignEmail] = useState('');
+    const [assignUserId, setAssignUserId] = useState('');
     const [allUsers, setAllUsers] = useState([]);
     const [userSearch, setUserSearch] = useState('');
     const [userBuildings, setUserBuildings] = useState({});
@@ -121,7 +121,7 @@ export default function BuildingRequest() {
                 setActioningId(id);
                 try {
                     if (tab === 'buildings') await approveBuilding(item.id);
-                    else if (tab === 'users') await approveUser(item.email);
+                    else if (tab === 'users') await approveUser(item.credId || item.id);
                     else await updateMeter(item.snid, { status: 'approved' });
                     message.success('Approved');
                     fetchData();
@@ -144,7 +144,7 @@ export default function BuildingRequest() {
                 setActioningId(id);
                 try {
                     if (tab === 'buildings') await rejectBuilding(item.id);
-                    else if (tab === 'users') await rejectUser(item.email);
+                    else if (tab === 'users') await rejectUser(item.credId || item.id);
                     else await updateMeter(item.snid, { status: 'rejected' });
                     message.success('Rejected');
                     fetchData();
@@ -157,7 +157,7 @@ export default function BuildingRequest() {
 
     const openAssignModal = async (building) => {
         setAssignBuilding(building);
-        setAssignEmail('');
+        setAssignUserId('');
         setUserSearch('');
         setShowUnassignedOnly(false);
         try {
@@ -167,28 +167,33 @@ export default function BuildingRequest() {
             
             const ubMap = {};
             buildings.forEach(b => {
-                if (b.owner?.email) {
-                    if (!ubMap[b.owner.email]) ubMap[b.owner.email] = [];
-                    ubMap[b.owner.email].push(b.name);
+                if (Array.isArray(b.assignedUsers)) {
+                    b.assignedUsers.forEach(au => {
+                        const user = au.user;
+                        if (user?.credId) {
+                            if (!ubMap[user.credId]) ubMap[user.credId] = [];
+                            ubMap[user.credId].push(b.name);
+                        }
+                    });
                 }
             });
             setUserBuildings(ubMap);
             
             setAllUsers(users.filter(x => x.status === 'approved').map(x => ({
                 label: `${x.name || 'No Name'} (${x.email || ''})`,
-                email: x.email,
+                credId: x.credId,
                 name: x.name,
-                buildings: ubMap[x.email] || [],
+                buildings: ubMap[x.credId] || [],
             })));
         } catch { setAllUsers([]); setUserBuildings({}); }
         setAssignModalOpen(true);
     };
 
     const handleAssign = async () => {
-        if (!assignEmail || !assignBuilding) return;
+        if (!assignUserId || !assignBuilding) return;
         setActioningId(assignBuilding.id);
         try {
-            await assignUserToBuilding(assignBuilding.id, assignEmail, 'owner');
+            await assignUserToBuilding(assignBuilding.id, assignUserId, 'owner');
             message.success(`User assigned to ${assignBuilding.name}`);
             setAssignModalOpen(false);
             fetchData();
@@ -333,7 +338,7 @@ export default function BuildingRequest() {
                 {/* Assign User Modal */}
                 <Modal title={`Assign User to ${assignBuilding?.name || ''}`} open={assignModalOpen}
                     onOk={handleAssign} onCancel={() => setAssignModalOpen(false)}
-                    okText="Assign" okButtonProps={{ className: '!bg-blue-600', loading: !!actioningId, disabled: !assignEmail }}>
+                    okText="Assign" okButtonProps={{ className: '!bg-blue-600', loading: !!actioningId, disabled: !assignUserId }}>
                     <div className="py-2">
                         <label className="text-sm font-semibold text-gray-700 mb-2 block">Select User</label>
                         <div className="flex items-center gap-2 mb-2">
@@ -356,8 +361,8 @@ export default function BuildingRequest() {
                                 .filter(u => !showUnassignedOnly || u.buildings.length === 0)
                                 .map(u => (
                                 <div key={u.email}
-                                    onClick={() => { setAssignEmail(u.email); setUserSearch(u.label); }}
-                                    className={`px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm ${assignEmail === u.email ? 'bg-blue-100 font-semibold' : ''}`}>
+                                    onClick={() => { setAssignUserId(u.credId); setUserSearch(u.label); }}
+                                    className={`px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm ${assignUserId === u.credId ? 'bg-blue-100 font-semibold' : ''}`}>
                                     <div className="flex items-center gap-2">
                                         <span>👤</span>
                                         <span>{u.label}</span>

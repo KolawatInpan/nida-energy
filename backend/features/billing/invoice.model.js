@@ -27,33 +27,41 @@ function getRecentPeriods(lookbackMonths = 3, now = new Date()) {
 const TOKEN_RATE_PER_KWH = 1;
 const SYSTEM_WALLET_ID = 'SYSTEM';
 
+// Marketplace purchases: sum energy delivered to the building's meters as
+// MARKET logs in RunningMeter (kW on a MARKET log = kWh delivered; kWH is the
+// cumulative meter reading). Previously this summed per-trade invoices — but
+// trades no longer create invoices (one bill per building per month).
+// Timestamp window uses Bangkok tz (UTC+7), matching DailyEnergy bucketing.
 async function getMarketplacePurchaseSnapshot({ year, month, buildingName }) {
     const selectedYear = Number(year);
     const selectedMonth = Number(month);
 
-    const purchaseInvoices = await prisma.invoice.findMany({
+    const marketLogs = await prisma.runningMeter.findMany({
         where: {
-            year: selectedYear,
-            month: selectedMonth,
-            fromWId: {
-                not: SYSTEM_WALLET_ID,
+            source: 'MARKET',
+            timestamp: {
+                gte: new Date(Date.UTC(selectedYear, selectedMonth - 1, 1, -7)),
+                lt: new Date(Date.UTC(selectedYear, selectedMonth, 1, -7)),
             },
-            ...(buildingName ? { buildingName: String(buildingName) } : {}),
+            ...(buildingName ? { meter: { buildingName: String(buildingName) } } : {}),
         },
         select: {
-            buildingName: true,
-            kWH: true,
+            kW: true,
+            timestamp: true,
+            meter: { select: { buildingName: true } },
         },
     });
 
     const purchasedByBuilding = new Map();
 
-    purchaseInvoices.forEach((invoice) => {
-        const key = String(invoice.buildingName || '').trim();
+    marketLogs.forEach((log) => {
+        const key = String(log?.meter?.buildingName || '').trim();
         if (!key) return;
 
-        const current = purchasedByBuilding.get(key) || 0;
-        purchasedByBuilding.set(key, current + toNumber(invoice.kWH));
+        const delivered = toNumber(log.kW);
+        if (delivered <= 0) return;
+
+        purchasedByBuilding.set(key, (purchasedByBuilding.get(key) || 0) + delivered);
     });
 
     return purchasedByBuilding;
@@ -66,6 +74,18 @@ async function getInvoices(filter = {}) {
     if (filter.month) where.month = Number(filter.month);
     if (filter.status) where.status = String(filter.status).toLowerCase();
     if (filter.buildingName) where.buildingName = String(filter.buildingName);
+
+    // Billing statements only: monthly utility invoices (fromWId = 'SYSTEM').
+    // Marketplace trades (seller→buyer), top-ups (SYSTEM→buyer, kWH=0) and
+    // payment intents (empty fromWId/toWId) are receipts, not bills — they were
+    // surfacing in the invoice list and then also feeding the marketplace
+    // purchase subtraction, distorting the billable calculation.
+    if (!filter.includeAll) {
+        where.fromWId = SYSTEM_WALLET_ID;
+        // Top-up receipts are also SYSTEM-origin but never carry a dueDate
+        // (monthly bills always get dueDate = timestamp + 15 days at creation).
+        where.dueDate = { not: null };
+    }
 
     // Auto-detect overdue: backfill dueDate + mark late
     // 1. Set dueDate for old invoices that don't have one (timestamp + 15 days)
@@ -88,7 +108,7 @@ async function getInvoices(filter = {}) {
         WHERE "status" = 'unpaid' AND "dueDate" IS NOT NULL AND "dueDate" < NOW()
     `);
 
-    // 4. Send Telegram notifications at intervals: 7 days, 15 days, new month
+    // 4. Send email notifications at intervals: 7 days, 15 days, new month
     if (becomingLate.length > 0) {
         const { dispatchNotification } = require('../notification/notification.service');
         const now = new Date();
@@ -117,17 +137,19 @@ async function getInvoices(filter = {}) {
                 const amount = inv.tokenAmount ? Number(inv.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '0';
                 const label = overdueDays >= 15 ? `🔴 ${overdueDays} days overdue!` : `⚠️ ${overdueDays} days overdue`;
                 
-                // Resolve building owner email for per-user prefs/delivery
-                let ownerEmail = null;
+                // Resolve building owner email via BuildingAssignment
+                let ownerUserId = null;
                 try {
-                    const owner = await prisma.building.findUnique({ where: { name: inv.buildingName }, select: { email: true } });
-                    ownerEmail = owner?.email || null;
+                    const building = await prisma.building.findUnique({ where: { name: inv.buildingName }, select: { id: true } });
+                    if (building) {
+                        const assignment = await prisma.buildingAssignment.findFirst({ where: { buildingId: building.id }, select: { userId: true } });
+                        ownerUserId = assignment?.userId || null;
+                    }
                 } catch (_) {}
                 dispatchNotification({
                     type: 'invoice',
                     message: `${label}\n🏢 ${inv.buildingName}\n📅 ${monthName} ${inv.year}\n💰 ${amount} Token\n📆 Due: ${due}\n\nPlease pay to avoid service interruption.`,
-                    email: ownerEmail,
-                    userId: null,
+                    userId: ownerUserId,
                 }).catch(() => {});
                 
                 // Update lastNotifiedAt
@@ -323,14 +345,14 @@ async function createMonthlyInvoices({ year, month, buildingName }) {
 
     const wallets = await prisma.wallet.findMany({
         where: {
-            email: {
-                in: buildings.map((building) => String(building.email)),
+            buildingId: {
+                in: buildings.map((building) => building.id),
             },
         },
     });
 
     const buildingByName = new Map(buildings.map((building) => [building.name, building]));
-    const walletByEmail = new Map(wallets.map((wallet) => [wallet.email, wallet]));
+    const walletByBuildingId = new Map(wallets.map((wallet) => [wallet.buildingId, wallet]));
 
     const existingInvoices = await prisma.invoice.findMany({
         where: {
@@ -340,6 +362,12 @@ async function createMonthlyInvoices({ year, month, buildingName }) {
             buildingName: {
                 in: consumptionRows.map((item) => item.buildingName),
             },
+            // Monthly bills always carry a dueDate (set at creation); top-up
+            // receipts (also SYSTEM→building) never do. Without this filter the
+            // top-up receipt collides with the dedup key and the real bill is
+            // never created (or worse, unpaid top-ups get overwritten with bill
+            // amounts).
+            dueDate: { not: null },
         },
         include: {
             receipt: true,
@@ -354,7 +382,7 @@ async function createMonthlyInvoices({ year, month, buildingName }) {
 
     for (const item of consumptionRows) {
         const building = buildingByName.get(item.buildingName);
-        const wallet = building ? walletByEmail.get(String(building.email)) : null;
+        const wallet = building ? walletByBuildingId.get(building.id) : null;
 
         if (!building || !wallet) {
             skipped.push({
@@ -436,20 +464,22 @@ async function markInvoicePaid({ invoiceId }) {
         include: { receipt: true },
     });
 
-    // Telegram + Email notification (respects user prefs)
+    // Email notification (respects user prefs)
     const { dispatchNotification } = require('../notification/notification.service');
     const amount = invoice.tokenAmount ? Number(invoice.tokenAmount).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '0';
     const monthName = new Date(invoice.year, (invoice.month || 1) - 1).toLocaleString('en-US', { month: 'short' });
-    let ownerEmail = null;
+    let ownerUserId = null;
     try {
-        const owner = await prisma.building.findUnique({ where: { name: invoice.buildingName }, select: { email: true } });
-        ownerEmail = owner?.email || null;
+        const building = await prisma.building.findUnique({ where: { name: invoice.buildingName }, select: { id: true } });
+        if (building) {
+            const assignment = await prisma.buildingAssignment.findFirst({ where: { buildingId: building.id }, select: { userId: true } });
+            ownerUserId = assignment?.userId || null;
+        }
     } catch (_) {}
     dispatchNotification({
         type: 'invoice',
         message: `✅ *Invoice Paid*\n🏢 ${invoice.buildingName}\n📅 ${monthName} ${invoice.year}\n💰 ${amount} Token\n\nThank you for your payment!`,
-        email: ownerEmail,
-        userId: null,
+        userId: ownerUserId,
     }).catch(() => {});
 
     return normalizeInvoice(invoice);
@@ -490,15 +520,12 @@ async function getQuotaWarnings({ lookbackMonths = 3 } = {}) {
 
     const wallets = await prisma.wallet.findMany({
         where: {
-            OR: [
-                { id: { in: buildings.map((building) => String(building.id)) } },
-                { email: { in: buildings.map((building) => String(building.email || '')).filter(Boolean) } },
-            ],
+            buildingId: { in: buildings.map((building) => building.id) },
         },
     });
 
     const walletById = new Map(wallets.map((wallet) => [String(wallet.id), wallet]));
-    const walletByEmail = new Map(wallets.map((wallet) => [String(wallet.email || ''), wallet]));
+    const walletByBuildingId = new Map(wallets.map((wallet) => [wallet.buildingId, wallet]));
 
     const lastInvoices = await prisma.invoice.findMany({
         where: {
@@ -526,7 +553,7 @@ async function getQuotaWarnings({ lookbackMonths = 3 } = {}) {
             ? usageHistory.reduce((sum, value) => sum + toNumber(value), 0) / usageHistory.length
             : 0;
         const expectedTokenCost = avgMonthlyUsage * TOKEN_RATE_PER_KWH;
-        const wallet = walletById.get(String(building.id)) || walletByEmail.get(String(building.email || '')) || null;
+        const wallet = walletByBuildingId.get(building.id) || walletById.get(String(building.id)) || null;
         const walletBalance = toNumber(wallet?.tokenBalance);
         const lastInvoice = latestInvoiceByBuilding.get(building.name) || null;
         const coverageRatio = expectedTokenCost > 0 ? walletBalance / expectedTokenCost : 1;
@@ -546,7 +573,7 @@ async function getQuotaWarnings({ lookbackMonths = 3 } = {}) {
             address: building.address,
             province: building.province,
             postal: building.postal,
-            contact: building.email,
+            contact: building.assignedContactEmail,
             walletId: wallet?.id || null,
             walletBalance: Number(walletBalance.toFixed(4)),
             avgMonthlyUsage: Number(avgMonthlyUsage.toFixed(4)),

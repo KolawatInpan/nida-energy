@@ -8,7 +8,7 @@ import Key from "../../global/key";
 function storeSession(response) {
     const token = response?.data?.token;
     const user = response?.data?.user || {};
-    const userRef = user?.credId || user?._id || user?.id || user?.email;
+    const userRef = user?.credId || user?._id || user?.id;
     const userRole = user?.role || user?.userRole || user?.type || '';
 
     if (token) {

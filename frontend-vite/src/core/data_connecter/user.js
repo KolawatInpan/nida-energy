@@ -18,13 +18,17 @@ export async function getUsers() {
     }
 }
 
-export async function getBuildingsFromEmail(email) {
+/**
+ * Get buildings assigned to a user via BuildingAssignment.
+ * @param {string} credId - User's credId (UUID)
+ */
+export async function getBuildingsByUser(credId) {
     try {
         const base = getApiBase();
-        const response = await axios.get(`${base}/buildings/email/${encodeURIComponent(email)}`);
+        const response = await axios.get(`${base}/users/${encodeURIComponent(credId)}/buildings`);
         return response.data;
     } catch (error) {
-        console.error('Error fetching buildings by email:', error);
+        console.error('Error fetching buildings by user:', error);
         throw error;
     }
 }
@@ -52,21 +56,21 @@ export async function deleteUser(credId, force = false) {
     }
 }
 
-// User Approval
+// User Approval (now uses credId instead of email)
 export async function getPendingUsers() {
     const base = getApiBase();
     const res = await axios.get(`${base}/users/pending/list`);
     return res.data;
 }
 
-export async function approveUser(email) {
+export async function approveUser(credId) {
     const base = getApiBase();
-    const res = await axios.put(`${base}/users/approve/${encodeURIComponent(email)}`);
+    const res = await axios.put(`${base}/users/approve/${encodeURIComponent(credId)}`);
     return res.data;
 }
 
-export async function rejectUser(email) {
+export async function rejectUser(credId) {
     const base = getApiBase();
-    const res = await axios.put(`${base}/users/reject/${encodeURIComponent(email)}`);
+    const res = await axios.put(`${base}/users/reject/${encodeURIComponent(credId)}`);
     return res.data;
 }

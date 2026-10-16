@@ -70,7 +70,8 @@ export default defineConfig(({ mode }) => {
           javascriptEnabled: true,
           modifyVars: {
             '@font-family': 'Chulabhorn',
-            '@font-size-base': '20px',
+            // antd base font size — keep in sync with html { font-size } in App.css/App.less
+            '@font-size-base': '16px',
             '@primary-color': '#1F3D7D',
             '@btn-primary-color': '#fff',
             '@btn-primary-bg': '#F36B21',

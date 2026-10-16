@@ -1,6 +1,5 @@
 const walletService = require('./wallet.service');
-const { sendTelegramMessage } = require('../../utils/telegram');
-const { createNotification, dispatchNotification } = require('../notification/notification.service');
+const { dispatchNotification } = require('../notification/notification.service');
 
 async function getWallets(req, res) {
     try {
@@ -25,6 +24,20 @@ async function getWalletById(req, res) {
     }
 }
 
+async function getWalletByBuildingId(req, res) {
+    const { buildingId } = req.params;
+    try {
+        const wallet = await walletService.getWalletByBuildingId(buildingId);
+        if (!wallet) {
+            res.status(404).json({ error: 'Wallet not found for this building' });
+        } else {
+            res.json(wallet);
+        }
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.message || 'Failed to retrieve wallet' });
+    }
+}
+
 async function getBalance(req, res) {
     const { walletId } = req.params;
     try {
@@ -36,58 +49,41 @@ async function getBalance(req, res) {
 }
 
 async function createWallet(req, res) {
-    const { buildingId, email } = req.body;
+    const { buildingId } = req.body;
     try {
-        // ตรวจสอบว่ามีกระเป๋าเงินสำหรับ email นี้อยู่แล้วหรือไม่
-        const existingWallet = await walletService.getWalletByEmail(email);
+        if (!buildingId) {
+            return res.status(400).json({ error: 'buildingId is required' });
+        }
+
+        // Check if wallet already exists for this building
+        const existingWallet = await walletService.getWalletByBuildingId(buildingId);
         if (existingWallet) {
-            // ถ้ามีอยู่แล้ว ให้ตอบกลับเป็นกระเป๋าเดิมเลย ไม่ต้องสร้างใหม่ (ป้องกัน Error จาก Prisma)
             return res.status(200).json(existingWallet);
         }
 
-        const newWallet = await walletService.createWallet({ buildingId, email });
+        const newWallet = await walletService.createWallet({ buildingId });
         res.status(201).json(newWallet);
     } catch (e) {
         res.status(e.status || 500).json({ error: e.message || 'Failed to create wallet' });
     }
 }
 
-async function getWalletByEmail(req, res) {
-    const { email } = req.params;
-    try {
-        const wallet = await walletService.getWalletByEmail(email);
-        if (!wallet) {
-            return res.status(404).json({ error: 'Wallet not found' });
-        }
-        res.json(wallet);
-    } catch (e) {
-        res.status(e.status || 500).json({ error: e.message || 'Failed to retrieve wallet by email' });
-    }
-}
-
 async function addBalance(req, res) {
-    const { email } = req.params;
-    const { amount, rate } = req.body;
+    const { walletId } = req.params;
+    const { amount } = req.body;
     try {
-        const updatedWallet = await walletService.addBalance(email, amount, rate);
+        const updatedWallet = await walletService.addBalanceByWalletId(walletId, amount);
         res.json(updatedWallet);
 
-        // Notify via Telegram + Email (respects user notification prefs)
+        // Fire-and-forget notification
         (async () => {
             try {
-                let buildingName = email;
-                try {
-                    const { prisma: p } = require('../../utils/prisma');
-                    const b = await p.building.findFirst({ where: { email }, select: { name: true } });
-                    if (b?.name) buildingName = b.name;
-                } catch {}
                 const tokenAmount = Number(amount || 0);
                 const currentBalance = Number(updatedWallet?.tokenBalance ?? 0);
-                const text = `✅ เติมเงินเข้าอาคาร ${buildingName}\n+${tokenAmount.toLocaleString('en-US')} Token\nยอดคงเหลือ: ${currentBalance.toLocaleString('en-US')} Token`;
+                const text = `✅ เติมเงินเข้า Wallet\n+${tokenAmount.toLocaleString('en-US')} Token\nยอดคงเหลือ: ${currentBalance.toLocaleString('en-US')} Token`;
                 await dispatchNotification({
                     type: 'addBalance',
                     message: text,
-                    email, // used to resolve the user (prefs) + email delivery
                     userId: null,
                 });
             } catch (e) {
@@ -99,42 +95,39 @@ async function addBalance(req, res) {
     }
 }
 
-async function topupByEmail(req, res) {
-    const { email } = req.params;
+async function topupByBuildingId(req, res) {
+    const { buildingId } = req.params;
     const { amount, snid } = req.body;
     try {
-        const result = await walletService.topupWalletByEmail(email, amount, snid);
-                res.status(201).json(result);
+        const result = await walletService.topupWalletByBuildingId(buildingId, amount, snid);
+        res.status(201).json(result);
 
-                // Fire-and-forget: in-app + Telegram + Email (respects user prefs)
-                (async () => {
+        // Fire-and-forget notification
+        (async () => {
+            try {
+                let buildingName = result?.transaction?.buildingName;
+                if (!buildingName || buildingName === 'Unknown building') {
                     try {
-                        let buildingName = result?.transaction?.buildingName;
-                        if (!buildingName || buildingName === 'Unknown building') {
-                            try {
-                                const { prisma: p } = require('../../utils/prisma');
-                                const b = await p.building.findFirst({ where: { email }, select: { name: true } });
-                                if (b?.name) buildingName = b.name;
-                            } catch {}
-                        }
-                        if (!buildingName || buildingName === 'Unknown building') {
-                            buildingName = email;
-                        }
-                    const tokenAmount = Number((result?.transaction?.tokenAmount ?? amount) || 0);
-                    const currentBalance = Number(result?.wallet?.tokenBalance ?? 0);
-                    const formattedAmount = tokenAmount.toLocaleString('en-US');
-                    const formattedBalance = currentBalance.toLocaleString('en-US');
-                    const text = `✅ เติมเงินเข้าอาคาร ${buildingName}\n+${formattedAmount} Token\nยอดคงเหลือ: ${formattedBalance} Token`;
-                    await dispatchNotification({
-                        type: 'topup',
-                        message: text,
-                        email, // resolve user prefs + email delivery
-                        userId: null,
-                    });
-                    } catch (e) {
-                        console.error('Notification (topup) failed:', e?.message || e);
-                    }
-                })();
+                        const { prisma: p } = require('../../utils/prisma');
+                        const b = await p.building.findUnique({ where: { id: parseInt(buildingId) }, select: { name: true } });
+                        if (b?.name) buildingName = b.name;
+                    } catch {}
+                }
+                if (!buildingName || buildingName === 'Unknown building') {
+                    buildingName = `Building-${buildingId}`;
+                }
+                const tokenAmount = Number((result?.transaction?.tokenAmount ?? amount) || 0);
+                const currentBalance = Number(result?.wallet?.tokenBalance ?? 0);
+                const text = `✅ เติมเงินเข้าอาคาร ${buildingName}\n+${tokenAmount.toLocaleString('en-US')} Token\nยอดคงเหลือ: ${currentBalance.toLocaleString('en-US')} Token`;
+                await dispatchNotification({
+                    type: 'topup',
+                    message: text,
+                    userId: null,
+                });
+            } catch (e) {
+                console.error('Notification (topup) failed:', e?.message || e);
+            }
+        })();
     } catch (e) {
         res.status(e.status || 500).json({ error: e.message || 'Failed to top up wallet' });
     }
@@ -163,11 +156,11 @@ async function recalculateWalletBalance(req, res) {
 module.exports = {
     getWallets,
     getWalletById,
-    getWalletByEmail,
+    getWalletByBuildingId,
     getBalance,
     createWallet,
     addBalance,
-    topupByEmail,
+    topupByBuildingId,
     getWalletTransactions,
-    recalculateWalletBalance
+    recalculateWalletBalance,
 };

@@ -5,7 +5,7 @@ import { QuestionCircleOutlined } from '@ant-design/icons';
 import { getOffers, getBids, getBuildingByWalletId, triggerClearing, triggerMatching, cancelOffer, cancelBid, sellToBid } from '../../core/data_connecter/market';
 import { purchaseEnergy } from '../../core/data_connecter/purchase';
 import { getBuildings, getMeters, getMetersByBuilding } from '../../core/data_connecter/register';
-import { getWalletByEmail } from '../../core/data_connecter/wallet';
+import { getWalletByBuildingId } from '../../core/data_connecter/wallet';
 import TORSell from '../../components/TOR/TORSell';
 import { MarketTimeline } from '../../components/shared';
 import { fmtDate, fmtDateTime } from '../../utils/dateFormat';
@@ -217,14 +217,15 @@ export default function Market() {
             );
             const capacity = capacityRaw > 0 ? capacityRaw : Math.max(1, current || 1);
 
+            // Wallet lookup by buildingId — Building no longer has an email field
+            // (email-unification), so gate on b?.email would leave every balance at 0.
             let tokenBalance = 0;
-            if (b?.email) {
-              try {
-                const walletRes = await getWalletByEmail(b.email);
-                tokenBalance = toNumber(walletRes?.data?.tokenBalance ?? 0);
-              } catch (err) {
-                tokenBalance = 0;
-              }
+            try {
+              const walletRes = await getWalletByBuildingId(b.id);
+              tokenBalance = toNumber(walletRes?.data?.tokenBalance ?? 0);
+            } catch (err) {
+              // building has no wallet yet
+              tokenBalance = 0;
             }
 
             return {
@@ -275,6 +276,28 @@ export default function Market() {
     : 0;
   const destinationTokenBalance = Number(selectedDestination?.tokenBalance || 0);
   const hasInsufficientToken = !!selectedDestination && totalCost > destinationTokenBalance;
+
+  // Re-fetch the selected building's wallet balance each time it is picked, so a
+  // recent top-up is reflected instead of the stale snapshot taken on page mount.
+  useEffect(() => {
+    if (!targetBuilding) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const walletRes = await getWalletByBuildingId(targetBuilding);
+        if (cancelled) return;
+        const fresh = toNumber(walletRes?.data?.tokenBalance ?? 0);
+        setDestinationBuildings(prev => prev.map(b =>
+          String(b.id) === String(targetBuilding) ? { ...b, tokenBalance: fresh } : b
+        ));
+      } catch {
+        if (!cancelled) setDestinationBuildings(prev => prev.map(b =>
+          String(b.id) === String(targetBuilding) ? { ...b, tokenBalance: 0 } : b
+        ));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [targetBuilding]);
 
     const refreshListings = async () => {
         try {
@@ -347,19 +370,21 @@ export default function Market() {
           }
 
           const computedTotalCost = purchaseAmount * Number(selectedListing.rate || 0);
-          const tokenBalance = Number(selectedDestination?.tokenBalance || 0);
-          if (computedTotalCost > tokenBalance) {
-            throw new Error(`Insufficient token balance for destination building. Required: ${computedTotalCost.toFixed(2)}, Available: ${tokenBalance.toFixed(2)}`);
-          }
-          
-          if (!selectedDestination?.email) {
-            throw new Error('Selected destination building has no owner email/wallet mapping');
+
+          if (!selectedDestination) {
+            throw new Error('Please select a destination building');
           }
 
-          const walletRes = await getWalletByEmail(selectedDestination.email);
+          // Fetch the wallet fresh at submit time — authoritative balance check.
+          const walletRes = await getWalletByBuildingId(selectedDestination.id);
           const buyerWalletId = walletRes?.data?.id ? String(walletRes.data.id) : '';
           if (!buyerWalletId) {
             throw new Error('Buyer wallet not found for selected destination building');
+          }
+
+          const tokenBalance = toNumber(walletRes?.data?.tokenBalance ?? 0);
+          if (computedTotalCost > tokenBalance) {
+            throw new Error(`Insufficient token balance for destination building. Required: ${computedTotalCost.toFixed(2)}, Available: ${tokenBalance.toFixed(2)}`);
           }
 
           if (!selectedListing.id) {
@@ -382,7 +407,8 @@ export default function Market() {
                   message.success(`${purchaseAmount} kWh purchased from ${selectedListing.building} → ${targetBuildingName}`);
 
                   refreshListings();
-                  history.push('/receipts');
+                  // Trades are recorded as Transactions (no per-trade receipt since one-bill-per-month)
+                  history.push('/transaction');
                 } else {
                     throw new Error('Purchase failed');
                 }
@@ -1257,7 +1283,7 @@ export default function Market() {
                                     const solarMeter = meters.find(m => (m.type || '').toLowerCase().includes('produce'));
                                     const batteryMeter = meters.find(m => (m.type || '').toLowerCase().includes('battery'));
                                     if (!solarMeter && !batteryMeter) return null;
-                                    const w = await getWalletByEmail(b.email).catch(() => null);
+                                    const w = await getWalletByBuildingId(b.id).catch(() => null);
                                     return {
                                       ...b,
                                       walletId: w?.data?.id || w?.id,

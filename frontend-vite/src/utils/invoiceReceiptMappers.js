@@ -53,7 +53,7 @@ export function buildReceiptView(receipt, id) {
     buildingName: invoice?.buildingName || building?.name || '-',
     location: [building?.address, building?.province, building?.postal].filter(Boolean).join(', ') || '-',
     customerName: owner?.name || building?.name || '-',
-    customerEmail: owner?.email || building?.email || '-',
+    customerEmail: owner?.email || building?.assignedContactEmail || '-',
     customerPhone: owner?.telNum || '-',
     customerType: getCustomerType(owner),
     smartMeterId: walletTx?.id ? formatEntityId('WTX', walletTx.id) : '-',

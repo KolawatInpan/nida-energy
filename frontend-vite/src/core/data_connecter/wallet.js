@@ -22,11 +22,15 @@ export function getWalletBalance(walletId) {
     }
 }
 
-export function getWalletByEmail(email) {
+/**
+ * Get wallet by building ID.
+ * @param {number} buildingId - Building ID
+ */
+export function getWalletByBuildingId(buildingId) {
     const base = getApiBase();
-    return axios.get(`${base}/wallets/by-email/${encodeURIComponent(email)}`)
+    return axios.get(`${base}/wallets/by-building/${encodeURIComponent(buildingId)}`)
         .then(ress => ress)
-        .catch(err => { console.error('getWalletByEmail error', err); throw err; });
+        .catch(err => { console.error('getWalletByBuildingId error', err); throw err; });
 }
 
 export function getWalletById(walletId) {
@@ -36,23 +40,39 @@ export function getWalletById(walletId) {
         .catch(err => { console.error('getWalletById error', err); throw err; });
 }
 
-export function topupWalletByEmail(email, amount, snid) {
+/**
+ * Top-up wallet by building ID.
+ * @param {number} buildingId - Building ID
+ * @param {number} amount - Token amount
+ * @param {string} snid - Meter serial number (optional)
+ */
+export function topupWalletByBuildingId(buildingId, amount, snid) {
     const base = getApiBase();
-    return axios.post(`${base}/wallets/by-email/${encodeURIComponent(email)}/topup`, { amount, snid })
+    return axios.post(`${base}/wallets/by-building/${encodeURIComponent(buildingId)}/topup`, { amount, snid })
         .then(ress => ress)
-        .catch(err => { console.error('topupWalletByEmail error', err); throw err; });
+        .catch(err => { console.error('topupWalletByBuildingId error', err); throw err; });
 }
 
-export function registerWallet({ email, buildingId } = {}) {
+/**
+ * Register a new wallet for a building.
+ * @param {Object} params
+ * @param {number} params.buildingId - Building ID
+ */
+export function registerWallet({ buildingId } = {}) {
     const base = getApiBase();
-    return axios.post(`${base}/wallets/register`, { email, buildingId })
+    return axios.post(`${base}/wallets/register`, { buildingId })
         .then(ress => ress)
         .catch(err => { console.error('registerWallet error', err); throw err; });
 }
 
-export function createStripePaymentIntent(email, amount) {
+/**
+ * Create Stripe payment intent (for building-based wallet top-up).
+ * @param {number} buildingId - Building ID
+ * @param {number} amount - Amount
+ */
+export function createStripePaymentIntent(buildingId, amount) {
     const base = getApiBase();
-    return axios.post(`${base}/payments/create-payment-intent`, { email, amount })
+    return axios.post(`${base}/payments/create-payment-intent`, { buildingId, amount })
         .then(ress => ress)
         .catch(err => { console.error('createStripePaymentIntent error', err); throw err; });
 }

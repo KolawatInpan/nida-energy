@@ -11,6 +11,7 @@
 
 # Sensitive credentials & secrets
 .env.dev
+.env*.local
 password
 telegram
 vpn
@@ -23,3 +24,29 @@ pgadmin/pgpassfile
 pgadmin/servers.json
 .DS_Store
 *.log
+
+# Temporary files
+backend/temp-test.js
+temp-test.js
+backend/tmp/
+_tmp/
+tmp/
+temp/
+
+# Freebuff tool
+.freebuff/
+
+# Docker deploy artifacts
+deploy/*.tar
+deploy/*.tar.gz
+deploy/*.tar.xz
+*.tar
+*.tar.gz
+*.tar.xz
+*.tar.zst
+
+# Data files (not source code)
+building.txt
+
+# Node
+node_modules/

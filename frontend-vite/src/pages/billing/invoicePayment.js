@@ -56,13 +56,15 @@ export default function InvoicePayment() {
 
   const isUserScope = roleName === 'USER' || roleName === 'CONSUMER';
 
-  const memberEmail = useMemo(() => {
-    return String(member?.email || localStorage.getItem(Key.UserEmail) || '').toLowerCase();
-  }, [member?.email]);
+  const userCredId = useMemo(() => {
+    return String(localStorage.getItem(Key.UserId) || member?.credId || '').toLowerCase();
+  }, [member?.credId]);
 
   const memberBuilding = useMemo(() => {
-    return allBuildings.find((building) => String(building?.email || '').toLowerCase() === memberEmail) || null;
-  }, [allBuildings, memberEmail]);
+    return allBuildings.find((building) =>
+      building?.assignedUsers?.some(au => au.user?.credId === userCredId)
+    ) || null;
+  }, [allBuildings, userCredId]);
 
   useEffect(() => {
     let mounted = true;
@@ -210,10 +212,10 @@ export default function InvoicePayment() {
               Back
             </button>
             <div>
-              <h1 className="text-xl lg:text-2xl font-bold text-gray-900">
+              <h1 className="text-lg lg:text-xl font-bold text-gray-900">
                 {step === 'success' ? 'Payment Successful' : `Invoice ${(view.invoiceId || '').slice(0, 8)}`}
               </h1>
-              <p className="text-gray-500 mt-1">
+              <p className="text-sm text-gray-500 mt-0.5">
                 {step === 'success'
                   ? 'Your invoice has been paid successfully'
                   : view.billingPeriod}
@@ -223,8 +225,8 @@ export default function InvoicePayment() {
           <div className="flex items-center gap-4">
             <div className="px-4 py-3 rounded-2xl border border-blue-200 bg-blue-50 min-w-[180px]">
               <div className="text-xs text-gray-500">Building Treasury</div>
-              <div className="text-xl font-bold text-gray-900">
-                {formatToken(walletBalance)} <span className="text-sm font-medium text-gray-500">Token</span>
+              <div className="text-base font-bold text-gray-900">
+                {formatToken(walletBalance)} <span className="text-xs font-medium text-gray-500">Token</span>
               </div>
             </div>
             <div className="text-right">
@@ -257,28 +259,29 @@ export default function InvoicePayment() {
                 <div className="p-6 space-y-8">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <div className="text-sm text-gray-400">Invoice ID</div>
-                      <div className="text-2xl font-bold text-gray-900 mt-1 font-mono">{(view.invoiceId || '').slice(0, 8)}</div>
+                      <div className="text-xs text-gray-400">Invoice ID</div>
+                      <div className="text-lg font-bold text-gray-900 mt-1 font-mono">{(view.invoiceId || '').slice(0, 8)}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs text-gray-400">Billing Period</div>
+                      {/* nowrap + smaller size: "01 Sept 2026 - 30 Sept 2026" used to wrap onto a second row */}
+                      <div className="text-base font-semibold text-gray-900 mt-1 whitespace-nowrap">{view.billingPeriod}</div>
                     </div>
                     <div>
-                      <div className="text-sm text-gray-400">Billing Period</div>
-                      <div className="text-2xl font-bold text-gray-900 mt-1">{view.billingPeriod}</div>
+                      <div className="text-xs text-gray-400">Total Energy Used</div>
+                      <div className="text-lg font-bold text-gray-900 mt-1">{formatEnergy(view.totalKwh)} kWh</div>
                     </div>
                     <div>
-                      <div className="text-sm text-gray-400">Total Energy Used</div>
-                      <div className="text-2xl font-bold text-gray-900 mt-1">{formatEnergy(view.totalKwh)} kWh</div>
+                      <div className="text-xs text-gray-400">Market Energy Discount</div>
+                      <div className="text-lg font-bold text-green-600 mt-1">- {formatEnergy(view.marketPurchasedKwh)} kWh</div>
                     </div>
                     <div>
-                      <div className="text-sm text-gray-400">Market Energy Discount</div>
-                      <div className="text-2xl font-bold text-green-600 mt-1">- {formatEnergy(view.marketPurchasedKwh)} kWh</div>
+                      <div className="text-xs text-gray-400">Billable Energy</div>
+                      <div className="text-lg font-bold text-gray-900 mt-1">{formatEnergy(view.billableKwh)} kWh</div>
                     </div>
                     <div>
-                      <div className="text-sm text-gray-400">Billable Energy</div>
-                      <div className="text-2xl font-bold text-gray-900 mt-1">{formatEnergy(view.billableKwh)} kWh</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-400">Rate (Token/kWh)</div>
-                      <div className="text-2xl font-bold text-gray-900 mt-1">{formatToken(view.rate)} Token</div>
+                      <div className="text-xs text-gray-400">Rate (Token/kWh)</div>
+                      <div className="text-lg font-bold text-gray-900 mt-1">{formatToken(view.rate)} Token</div>
                     </div>
                   </div>
 
@@ -291,7 +294,7 @@ export default function InvoicePayment() {
                           <div className="text-sm text-gray-500">Energy remaining after marketplace discount</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-xl font-bold text-gray-900">{formatEnergy(view.baseKwh)} kWh</div>
+                          <div className="text-base font-bold text-gray-900">{formatEnergy(view.baseKwh)} kWh</div>
                           <div className="text-xs text-gray-500">{formatToken(view.baseCost)} Token</div>
                         </div>
                       </div>
@@ -302,7 +305,7 @@ export default function InvoicePayment() {
                           <div className="text-sm text-gray-500">Energy already purchased from the marketplace and deducted from the utility bill</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-xl font-bold text-green-700">- {formatEnergy(view.marketPurchasedKwh)} kWh</div>
+                          <div className="text-base font-bold text-green-700">- {formatEnergy(view.marketPurchasedKwh)} kWh</div>
                           <div className="text-xs text-gray-500">Discount applied before billing</div>
                         </div>
                       </div>
@@ -313,7 +316,7 @@ export default function InvoicePayment() {
                           <div className="text-sm text-gray-500">Highest single-day energy usage in this month</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-xl font-bold text-gray-900">{formatEnergy(view.peakKwh)} kWh</div>
+                          <div className="text-base font-bold text-gray-900">{formatEnergy(view.peakKwh)} kWh</div>
                           <div className="text-xs text-gray-500">{formatToken(view.peakCost)} Token</div>
                         </div>
                       </div>
@@ -334,8 +337,8 @@ export default function InvoicePayment() {
                       <span>0 Token</span>
                     </div>
                     <div className="flex items-center justify-between border-t border-gray-200 pt-4">
-                      <span className="text-2xl font-bold text-gray-900">Total Amount Due</span>
-                      <span className="text-3xl font-bold text-blue-600">{formatToken(view.tokenAmount)} Token</span>
+                      <span className="text-base font-bold text-gray-900">Total Amount Due</span>
+                      <span className="text-xl font-bold text-blue-600">{formatToken(view.tokenAmount)} Token</span>
                     </div>
                   </div>
                 </div>
@@ -353,10 +356,10 @@ export default function InvoicePayment() {
                         {view.isPaid ? 'This invoice has already been paid.' : 'Use the building wallet balance to complete this payment.'}
                       </div>
                     </div>
-                    <div className="space-y-3 text-base">
+                    <div className="space-y-3 text-sm">
                       <div className="flex items-center justify-between"><span className="text-gray-500">Invoice Amount</span><span className="font-semibold">{formatToken(view.tokenAmount)} Token</span></div>
                       <div className="flex items-center justify-between"><span className="text-gray-500">Late Fee (5%)</span><span className="font-semibold text-blue-600">+0 Token</span></div>
-                      <div className="flex items-center justify-between border-t border-gray-200 pt-4"><span className="text-xl font-bold text-gray-900">Total to Pay</span><span className="text-2xl font-bold text-blue-600">{formatToken(view.tokenAmount)} Token</span></div>
+                      <div className="flex items-center justify-between border-t border-gray-200 pt-4"><span className="text-base font-bold text-gray-900">Total to Pay</span><span className="text-lg font-bold text-blue-600">{formatToken(view.tokenAmount)} Token</span></div>
                     </div>
 
                     {view.isPaid ? (
@@ -386,12 +389,12 @@ export default function InvoicePayment() {
 
                 <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
                   <div className="px-6 py-5 border-b border-gray-200">
-                    <h2 className="text-xl font-bold text-gray-900">Payment Method</h2>
+                    <h2 className="text-lg font-bold text-gray-900">Payment Method</h2>
                     <p className="text-sm text-gray-500">Select how you want to pay</p>
                   </div>
                   <div className="p-6">
                     <div className="rounded-2xl border-2 border-blue-500 bg-blue-50 px-5 py-4">
-                      <div className="font-semibold text-lg text-gray-900">Digital Wallet</div>
+                      <div className="font-semibold text-base text-gray-900">Digital Wallet</div>
                       <div className="text-sm text-gray-500 mt-1">Current Balance: {formatToken(walletBalance)} Token</div>
                     </div>
                   </div>
@@ -404,7 +407,7 @@ export default function InvoicePayment() {
                 <label className="flex items-start gap-3">
                   <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-1 w-5 h-5" />
                   <div>
-                    <div className="text-lg font-semibold text-gray-900">I agree to the Terms and Conditions</div>
+                    <div className="text-base font-semibold text-gray-900">I agree to the Terms and Conditions</div>
                     <div className="text-sm text-gray-500 mt-1">
                       By checking this box and proceeding with the payment, you acknowledge that this wallet deduction will be recorded for transparency and security.
                     </div>
@@ -417,8 +420,8 @@ export default function InvoicePayment() {
 
         {step === 'confirm' && (
           <div className="max-w-3xl mx-auto bg-white border border-gray-200 rounded-3xl shadow-sm p-8 text-center">
-            <div className="w-20 h-20 mx-auto rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-4xl font-bold">!</div>
-            <h2 className="text-2xl font-bold text-gray-900 mt-6">Confirm Invoice Payment</h2>
+            <div className="w-20 h-20 mx-auto rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-3xl font-bold">!</div>
+            <h2 className="text-xl font-bold text-gray-900 mt-6">Confirm Invoice Payment</h2>
             <p className="text-gray-500 mt-2">Please confirm you want to pay this invoice from the building wallet.</p>
 
             <div className="mt-8 rounded-2xl bg-gray-50 border border-gray-200 p-6 text-left space-y-3">
@@ -426,7 +429,7 @@ export default function InvoicePayment() {
               <div className="flex items-center justify-between text-base"><span className="text-gray-500">Building</span><span className="font-semibold">{view.buildingName}</span></div>
               <div className="flex items-center justify-between text-base"><span className="text-gray-500">Billing Period</span><span className="font-semibold">{view.billingPeriod}</span></div>
               <div className="flex items-center justify-between text-base"><span className="text-gray-500">Wallet Balance</span><span className="font-semibold">{formatToken(walletBalance)} Token</span></div>
-              <div className="flex items-center justify-between border-t border-gray-200 pt-4 text-xl">
+              <div className="flex items-center justify-between border-t border-gray-200 pt-4 text-lg">
                 <span className="font-bold text-gray-900">Amount to Pay</span>
                 <span className="font-bold text-blue-600">{formatToken(view.tokenAmount)} Token</span>
               </div>
@@ -451,24 +454,24 @@ export default function InvoicePayment() {
         {step === 'success' && (
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="bg-white border border-gray-200 rounded-3xl shadow-sm p-10 text-center">
-              <div className="w-24 h-24 mx-auto rounded-full bg-green-100 text-green-600 flex items-center justify-center text-3xl font-bold">OK</div>
-              <h2 className="text-4xl font-bold text-gray-900 mt-6">Payment Completed!</h2>
-              <p className="text-xl text-gray-500 mt-3">
+              <div className="w-24 h-24 mx-auto rounded-full bg-green-100 text-green-600 flex items-center justify-center text-2xl font-bold">OK</div>
+              <h2 className="text-2xl font-bold text-gray-900 mt-6">Payment Completed!</h2>
+              <p className="text-base text-gray-500 mt-2">
                 Your payment of <span className="font-bold text-gray-900">{formatToken(view.tokenAmount)} Token</span> has been processed successfully
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
                 <div className="rounded-2xl bg-gray-50 p-4">
                   <div className="text-sm text-gray-400">Transaction ID</div>
-                  <div className="text-lg font-bold text-gray-900 mt-1">{paymentResult?.transaction?.txid || '-'}</div>
+                  <div className="text-base font-bold text-gray-900 mt-1">{paymentResult?.transaction?.txid || '-'}</div>
                 </div>
                 <div className="rounded-2xl bg-gray-50 p-4">
                   <div className="text-sm text-gray-400">Payment Date</div>
-                  <div className="text-lg font-bold text-gray-900 mt-1">{paymentResult?.receipt?.timestamp ? fmtDate(new Date(paymentResult.receipt.timestamp)) : '-'}</div>
+                  <div className="text-base font-bold text-gray-900 mt-1">{paymentResult?.receipt?.timestamp ? fmtDate(new Date(paymentResult.receipt.timestamp)) : '-'}</div>
                 </div>
                 <div className="rounded-2xl bg-gray-50 p-4">
                   <div className="text-sm text-gray-400">Payment Time</div>
-                  <div className="text-lg font-bold text-gray-900 mt-1">{formatTime(paymentResult?.receipt?.timestamp)}</div>
+                  <div className="text-base font-bold text-gray-900 mt-1">{formatTime(paymentResult?.receipt?.timestamp)}</div>
                 </div>
               </div>
 
@@ -493,19 +496,19 @@ export default function InvoicePayment() {
             <div className="bg-white border border-gray-200 rounded-3xl shadow-sm p-8">
               <div className="flex items-center justify-between border-b border-gray-200 pb-6">
                 <div>
-                  <div className="text-4xl font-bold text-blue-600">NIDA</div>
+                  <div className="text-2xl font-bold text-blue-600">NIDA</div>
                   <div className="text-sm text-gray-500 mt-1">Energy Management System</div>
                 </div>
                 <div className="text-right">
                   <div className="text-sm text-gray-400">Receipt Number</div>
-                  <div className="text-3xl font-bold text-gray-900">{view.receiptId || '-'}</div>
+                  <div className="text-lg font-bold text-gray-900">{view.receiptId || '-'}</div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-8 border-b border-gray-200">
                 <div>
                   <div className="text-sm text-gray-400 mb-2">Bill To</div>
-                  <div className="text-2xl font-bold text-gray-900">{view.buildingName}</div>
+                  <div className="text-lg font-bold text-gray-900">{view.buildingName}</div>
                   <div className="text-gray-500 mt-2">Invoice ID: {view.invoiceId}</div>
                 </div>
                 <div>
@@ -527,12 +530,12 @@ export default function InvoicePayment() {
                   <div className="flex items-center justify-between"><span className="text-gray-500">Rate per kWh</span><span className="font-semibold">{formatToken(view.rate)} Token/kWh</span></div>
                 </div>
 
-                <div className="flex items-center justify-between text-lg"><span className="text-gray-500">Invoice Amount</span><span>{formatToken(view.tokenAmount)} Token</span></div>
-                <div className="flex items-center justify-between text-lg"><span className="text-gray-500">Processing Fee</span><span className="text-green-600">0 Token</span></div>
-                <div className="flex items-center justify-between text-lg"><span className="text-gray-500">Late Fee</span><span className="text-green-600">0 Token</span></div>
+                <div className="flex items-center justify-between text-sm"><span className="text-gray-500">Invoice Amount</span><span>{formatToken(view.tokenAmount)} Token</span></div>
+                <div className="flex items-center justify-between text-sm"><span className="text-gray-500">Processing Fee</span><span className="text-green-600">0 Token</span></div>
+                <div className="flex items-center justify-between text-sm"><span className="text-gray-500">Late Fee</span><span className="text-green-600">0 Token</span></div>
                 <div className="rounded-2xl bg-blue-50 px-5 py-4 flex items-center justify-between">
-                  <span className="text-2xl font-bold text-gray-900">Total Amount Paid</span>
-                  <span className="text-4xl font-bold text-blue-600">{formatToken(view.tokenAmount)} <span className="text-lg text-gray-500">Token</span></span>
+                  <span className="text-lg font-bold text-gray-900">Total Amount Paid</span>
+                  <span className="text-2xl font-bold text-blue-600">{formatToken(view.tokenAmount)} <span className="text-sm text-gray-500">Token</span></span>
                 </div>
               </div>
             </div>

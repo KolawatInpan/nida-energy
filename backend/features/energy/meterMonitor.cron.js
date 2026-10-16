@@ -3,7 +3,7 @@ const { dispatchNotification } = require('../notification/notification.service')
 
 /**
  * Check for inactive meters (no RunningMeter data in last N hours)
- * and send Telegram notifications.
+ * and send email notifications.
  */
 const INACTIVE_HOURS = 24; // meters inactive for 24+ hours
 const CRON_SCHEDULE = '0 * * * *'; // every hour
@@ -64,26 +64,31 @@ function startMeterMonitor() {
           : 'ไม่เคยส่งข้อมูล';
 
         const text = [
-          `⚠️ <b>Meter Inactive</b>`,
-          `🏢 อาคาร: ${m.buildingName || 'Unknown'}`,
-          `📟 SNID: ${m.snid}`,
-          `🔌 ประเภท: ${m.type || 'Unknown'}`,
-          `🕐 ข้อมูลล่าสุด: ${lastStr}`,
-          `⏰ ไม่มีข้อมูลมาเกิน ${INACTIVE_HOURS} ชั่วโมง`,
+          `⚠️ Meter Inactive`,
+          `อาคาร: ${m.buildingName || 'Unknown'}`,
+          `SNID: ${m.snid}`,
+          `ประเภท: ${m.type || 'Unknown'}`,
+          `ข้อมูลล่าสุด: ${lastStr}`,
+          `ไม่มีข้อมูลมาเกิน ${INACTIVE_HOURS} ชั่วโมง`,
         ].join('\n');
 
         try {
-          // Resolve building owner email so the notification respects per-user prefs
-          let ownerEmail = null;
+          // Resolve building owner via BuildingAssignment
+          let ownerUserId = null;
           try {
-            const building = await prisma.building.findUnique({ where: { name: m.buildingName }, select: { email: true } });
-            ownerEmail = building?.email || null;
+            const building = await prisma.building.findUnique({ where: { name: m.buildingName }, select: { id: true } });
+            if (building) {
+              const assignment = await prisma.buildingAssignment.findFirst({
+                where: { buildingId: building.id, role: 'owner' },
+                select: { userId: true },
+              });
+              ownerUserId = assignment?.userId || null;
+            }
           } catch (_) {}
           await dispatchNotification({
             type: 'meter_inactive',
             message: text,
-            email: ownerEmail,
-            userId: null,
+            userId: ownerUserId,
           });
           console.log(`[MeterMonitor] Notified: ${m.snid} (${m.buildingName})`);
         } catch (e) {
@@ -109,7 +114,7 @@ function startMeterMonitor() {
 }
 
 /**
- * Test: send a sample meter inactive Telegram notification using the first approved meter.
+ * Test: send a sample meter inactive email notification using the first approved meter.
  */
 async function testMeterInactiveNotification() {
   const { prisma } = require('../../utils/prisma');
@@ -135,15 +140,15 @@ async function testMeterInactiveNotification() {
     : 'ไม่เคยส่งข้อมูล';
 
   const text = [
-    `🧪 <b>[TEST] Meter Inactive Notification</b>`,
-    `🏢 อาคาร: ${m.buildingName || 'Unknown'}`,
-    `📟 SNID: ${m.snid}`,
-    `🔌 ประเภท: ${m.type || 'Unknown'}`,
-    `🕐 ข้อมูลล่าสุด: ${lastStr}`,
-    `⏰ แจ้งเตือนเมื่อไม่มีข้อมูลเกิน ${INACTIVE_HOURS} ชั่วโมง`,
+    `🧪 [TEST] Meter Inactive Notification`,
+    `อาคาร: ${m.buildingName || 'Unknown'}`,
+    `SNID: ${m.snid}`,
+    `ประเภท: ${m.type || 'Unknown'}`,
+    `ข้อมูลล่าสุด: ${lastStr}`,
+    `แจ้งเตือนเมื่อไม่มีข้อมูลเกิน ${INACTIVE_HOURS} ชั่วโมง`,
   ].join('\n');
 
-  await sendTelegramMessage({ text, parseMode: 'HTML' });
+  await dispatchNotification({ type: 'meter_inactive', message: text });
   return { sent: true, meter: m, lastData: lastStr };
 }
 

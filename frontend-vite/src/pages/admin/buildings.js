@@ -35,7 +35,7 @@ const Buildings = () => {
   const [actioningId, setActioningId] = useState(null);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assignBuilding, setAssignBuilding] = useState(null);
-  const [assignEmail, setAssignEmail] = useState('');
+  const [assignUserId, setAssignUserId] = useState('');
   const [allUsers, setAllUsers] = useState([]);
   const [userSearch, setUserSearch] = useState('');
   const [showUnassignedOnly, setShowUnassignedOnly] = useState(false);
@@ -56,8 +56,8 @@ const Buildings = () => {
         const normalized = items.map((building, index) => ({
           id: building.id || building.name,
           name: building.name || '-',
-          contact: building.owner?.name ? `${building.owner.name} (${building.owner.email || building.email})` : (building.owner ? building.email : '—'),
-          contactEmail: building.owner?.email || '—',
+          contact: building.assignedUsers?.[0]?.user?.name || '—',
+          contactEmail: building.assignedContactEmail || building.assignedUsers?.[0]?.user?.email || '—',
           totalMeter: counts[index] ?? (building.meters ? building.meters.length : building.totalMeter || 0),
           status: normalizeStatus(building.status),
           approvalStatus: building.approvalStatus || 'approved',  // pending | approved | rejected
@@ -171,27 +171,32 @@ const Buildings = () => {
   };
 
   const openAssignModal = async (building) => {
-    setAssignBuilding(building); setAssignEmail(''); setUserSearch(''); setShowUnassignedOnly(false);
+    setAssignBuilding(building); setAssignUserId(''); setUserSearch(''); setShowUnassignedOnly(false);
     try {
       const [u, blds] = await Promise.all([getUsers(), getBldsFromBuilding(true)]);
       const users = Array.isArray(u?.data) ? u.data : Array.isArray(u) ? u : [];
       const buildings = Array.isArray(blds?.data) ? blds.data : Array.isArray(blds) ? blds : [];
       const ubMap = {};
       buildings.forEach(b => {
-        if (b.owner?.email) {
-          if (!ubMap[b.owner.email]) ubMap[b.owner.email] = [];
-          ubMap[b.owner.email].push(b.name);
+        if (Array.isArray(b.assignedUsers)) {
+          b.assignedUsers.forEach(au => {
+            const user = au.user;
+            if (user?.credId) {
+              if (!ubMap[user.credId]) ubMap[user.credId] = [];
+              ubMap[user.credId].push(b.name);
+            }
+          });
         }
       });
-      setAllUsers(users.filter(x => x.status === 'approved').map(x => ({ label: `${x.name || 'No Name'} (${x.email || ''})`, email: x.email, name: x.name, buildings: ubMap[x.email] || [] })));
+      setAllUsers(users.filter(x => x.status === 'approved').map(x => ({ label: `${x.name || 'No Name'} (${x.email || ''})`, credId: x.credId, name: x.name, buildings: ubMap[x.credId] || [] })));
     } catch { setAllUsers([]); }
     setAssignModalOpen(true);
   };
 
   const handleAssign = async () => {
-    if (!assignEmail || !assignBuilding) return;
+    if (!assignUserId || !assignBuilding) return;
     setActioningId(assignBuilding.id);
-    try { await assignUserToBuilding(assignBuilding.id, assignEmail, 'owner'); message.success('User assigned'); setAssignModalOpen(false); refreshBuildings(); }
+    try { await assignUserToBuilding(assignBuilding.id, assignUserId, 'owner'); message.success('User assigned'); setAssignModalOpen(false); refreshBuildings(); }
     catch (e) { message.error(e?.response?.data?.error || 'Failed'); }
     finally { setActioningId(null); }
   };
@@ -368,8 +373,7 @@ const Buildings = () => {
 
       {/* Assign User Modal */}
       <Modal title={`Assign User to ${assignBuilding?.name || ''}`} open={assignModalOpen}
-        onOk={handleAssign} onCancel={() => setAssignModalOpen(false)}
-        okText="Assign" okButtonProps={{ className: '!bg-blue-600', loading: !!actioningId, disabled: !assignEmail }}>
+        onOk={handleAssign} onCancel={() => setAssignModalOpen(false)}                    okText="Assign" okButtonProps={{ className: '!bg-blue-600', loading: !!actioningId, disabled: !assignUserId }}>
         <div className="py-2">
           <label className="text-sm font-semibold text-gray-700 mb-2 block">Select User</label>
           <div className="flex items-center gap-2 mb-2">
@@ -388,8 +392,8 @@ const Buildings = () => {
               .filter(u => !showUnassignedOnly || u.buildings.length === 0)
               .map(u => (
               <div key={u.email}
-                onClick={() => { setAssignEmail(u.email); setUserSearch(u.label); }}
-                className={`px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm ${assignEmail === u.email ? 'bg-blue-100 font-semibold' : ''}`}>
+                onClick={() => { setAssignUserId(u.credId); setUserSearch(u.label); }}
+                className={`px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm ${assignUserId === u.credId ? 'bg-blue-100 font-semibold' : ''}`}>
                 <div className="flex items-center gap-2">
                   <span>👤</span>
                   <span>{u.label}</span>

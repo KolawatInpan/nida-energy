@@ -88,9 +88,9 @@ function createApp() {
       if (tx.buildingName) return tx;
       if (!tx.walletId) return tx;
       try {
-        const wallet = await prisma.wallet.findUnique({ where: { id: String(tx.walletId) }, select: { email: true } });
-        if (wallet?.email) {
-          const b = await prisma.building.findFirst({ where: { email: wallet.email }, select: { name: true } });
+        const wallet = await prisma.wallet.findUnique({ where: { id: String(tx.walletId) }, select: { buildingId: true } });
+        if (wallet?.buildingId) {
+          const b = await prisma.building.findUnique({ where: { id: wallet.buildingId }, select: { name: true } });
           if (b?.name) return { ...tx, buildingName: b.name };
         }
       } catch {}

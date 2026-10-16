@@ -37,13 +37,18 @@ async function getTotalMeters(req, res) {
 }
 
 async function getBuildingByEmail(req, res) {
+  // DEPRECATED: Building no longer has an email field.
+  // This endpoint now returns buildings where assignedContactEmail matches.
   const { email } = req.params;
   try {
-    const building = await BuildingModel.getBuildingByEmail(email);
-    if (!building) {
+    const { prisma } = require('../../utils/prisma');
+    const buildings = await prisma.building.findMany({
+      where: { assignedContactEmail: email },
+    });
+    if (!buildings.length) {
       return res.status(404).json({ error: 'Building not found' });
     }
-    res.json(building);
+    res.json(buildings);
   } catch (err) {
     console.error('getBuildingByEmail error', err);
     res.status(500).json({ error: err.message });
@@ -146,8 +151,9 @@ async function rejectBuilding(req, res) {
 
 async function assignUserToBuilding(req, res) {
   try {
-    const { userEmail, role } = req.body || {};
-    const assignment = await BuildingModel.assignUserToBuilding(req.params.id, userEmail, role);
+    const { userId, userEmail, role } = req.body || {};
+    const effectiveUserId = userId || userEmail;
+    const assignment = await BuildingModel.assignUserToBuilding(req.params.id, effectiveUserId, role);
     res.json(assignment);
   } catch (err) {
     console.error('assignUserToBuilding error', err);
@@ -157,7 +163,8 @@ async function assignUserToBuilding(req, res) {
 
 async function removeUserFromBuilding(req, res) {
   try {
-    await BuildingModel.removeUserFromBuilding(req.params.id, req.params.userEmail);
+    const userId = req.params.userId || req.params.userEmail;
+    await BuildingModel.removeUserFromBuilding(req.params.id, userId);
     res.json({ success: true });
   } catch (err) {
     console.error('removeUserFromBuilding error', err);

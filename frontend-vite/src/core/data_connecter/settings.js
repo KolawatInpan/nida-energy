@@ -1,10 +1,12 @@
 import axios from 'axios';
 import { getApiBase } from './apiBase';
+import Key from '../../global/key';
 
 const base = getApiBase().replace(/\/$/, '');
 
 function getAuthConfig() {
-  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  // Canonical token key is Key.TOKEN ("Token") — same as every other connector.
+  const token = localStorage.getItem(Key.TOKEN) || sessionStorage.getItem(Key.TOKEN) || '';
   return {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   };

@@ -5,12 +5,14 @@
 set -e
 
 ACCEPT_DATA_LOSS=""
+FORCE_RESET=""
 SCHEMA_PATH="./prisma/schema.prisma"
 EXTRA_ARGS=""
 
 for arg in "$@"; do
   case "$arg" in
     --accept-data-loss) ACCEPT_DATA_LOSS="--accept-data-loss" ;;
+    --force-reset) FORCE_RESET="--force-reset" ;;
     --schema) ;;  # next arg handled below
     --schema=*) SCHEMA_PATH="${arg#--schema=}" ;;
     *) EXTRA_ARGS="$EXTRA_ARGS $arg" ;;
@@ -27,12 +29,12 @@ for arg in "$@"; do
 done
 
 echo "=== Pushing schema to REAL database (energy_trading) ==="
-DATABASE_URL="${DATABASE_URL}" npx prisma db push $ACCEPT_DATA_LOSS --schema="$SCHEMA_PATH" $EXTRA_ARGS
+DATABASE_URL="${DATABASE_URL}" npx prisma db push $FORCE_RESET $ACCEPT_DATA_LOSS --schema="$SCHEMA_PATH" $EXTRA_ARGS
 echo "=== REAL database push complete ==="
 echo ""
 
 echo "=== Pushing schema to DEMO database (energy_trading_demo) ==="
-DATABASE_URL="${DATABASE_URL_DEMO}" npx prisma db push $ACCEPT_DATA_LOSS --schema="$SCHEMA_PATH" $EXTRA_ARGS
+DATABASE_URL="${DATABASE_URL_DEMO}" npx prisma db push $FORCE_RESET $ACCEPT_DATA_LOSS --schema="$SCHEMA_PATH" $EXTRA_ARGS
 echo "=== DEMO database push complete ==="
 echo ""
 

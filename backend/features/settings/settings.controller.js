@@ -25,9 +25,7 @@ async function getNotificationSettings(req, res) {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     res.json({
-      telegramChatId: user.telegramChatId || null,
       notifyEmail: user.notifyEmail !== false,
-      notifyTelegram: user.notifyTelegram !== false,
       notifyTypes: Array.isArray(user.notifyTypes) ? user.notifyTypes : [],
       notificationTypes: Object.values(NOTIFICATION_TYPES).map((key) => ({
         key,
@@ -44,7 +42,7 @@ async function getNotificationSettings(req, res) {
 /**
  * PUT /api/settings/notification
  * Updates the current user's notification preferences.
- * Body: { telegramChatId?, notifyEmail?, notifyTelegram?, notifyTypes? }
+ * Body: { notifyEmail?, notifyTypes? }
  */
 async function updateNotificationSettings(req, res) {
   try {
@@ -52,9 +50,7 @@ async function updateNotificationSettings(req, res) {
     if (!credId) return res.status(401).json({ error: 'Unauthorized — missing user identity' });
 
     const updates = {};
-    if (req.body?.telegramChatId !== undefined) updates.telegramChatId = req.body.telegramChatId;
     if (req.body?.notifyEmail !== undefined) updates.notifyEmail = req.body.notifyEmail;
-    if (req.body?.notifyTelegram !== undefined) updates.notifyTelegram = req.body.notifyTelegram;
     if (req.body?.notifyTypes !== undefined) {
       const validKeys = new Set([...Object.values(NOTIFICATION_TYPES), NOTIFY_NONE]);
       updates.notifyTypes = (Array.isArray(req.body.notifyTypes) ? req.body.notifyTypes : [])
@@ -65,9 +61,7 @@ async function updateNotificationSettings(req, res) {
     const updated = await userService.updateUser(credId, updates);
 
     res.json({
-      telegramChatId: updated.telegramChatId || null,
       notifyEmail: updated.notifyEmail !== false,
-      notifyTelegram: updated.notifyTelegram !== false,
       notifyTypes: Array.isArray(updated.notifyTypes) ? updated.notifyTypes : [],
       notificationTypes: Object.values(NOTIFICATION_TYPES).map((key) => ({
         key,

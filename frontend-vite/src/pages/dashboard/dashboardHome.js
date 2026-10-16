@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import Plot from 'react-plotly.js';
 import DatePicker from 'react-datepicker';
@@ -15,6 +15,7 @@ import { getApiBase } from '../../core/data_connecter/apiBase';
 import { buildComparisonXAxisLabels, buildNiceScale, swapComparisonSelection } from '../../utils/dashboardCharts';
 import { AdminKpiSection } from './components';
 import GapBar from '../../components/charts/GapBar';
+import { computeGapBuckets } from '../../utils/gapShapes';
 
 const toNumber = (value) => {
   const numeric = Number(value);
@@ -492,12 +493,16 @@ export default function DashboardHome() {
             production: sumHourlyRows(producerRows),
             consumption: sumHourlyRows(consumerRows),
           });
-          // Detect gaps for today
-          const gapMeterId1d = producerIds[0] || consumerIds[0];
-          if (gapMeterId1d) {
+          // Detect system-wide gaps for today (ALL meters — a gap means every
+          // meter was silent at the same time, matching the summed chart)
+          const allMeterIds1d = [...producerIds, ...consumerIds];
+          if (allMeterIds1d.length) {
             const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
-            const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
-            getGaps({ meterId: gapMeterId1d, date: todayStr }).then((g) => {
+            // exclusive end (midnight) → 24h total so the bucket grid = exactly 1h per column;
+            // from/to (not date:) avoids the backend's 23:59:59.999 end which would
+            // leave the last hour bucket unshaded when the meter is silent at end-of-day
+            const todayEnd = new Date(todayStart.getTime() + 24 * 3600000);
+            getGaps({ meterIds: allMeterIds1d, from: todayStart.toISOString(), to: todayEnd.toISOString() }).then((g) => {
               if (mounted) { setSystemGaps(Array.isArray(g) ? g : []); setSystemChartRange({ start: todayStart.toISOString(), end: todayEnd.toISOString() }); }
             }).catch(() => {});
           }
@@ -597,11 +602,15 @@ export default function DashboardHome() {
 
         if (!mounted) return;
         setSystemEnergyTrend({ labels, production, consumption });
-        // Detect gaps for the date range
-        const gapMeterIdRange = producerIds[0] || consumerIds[0];
-        if (gapMeterIdRange && rangeStart && rangeEnd) {
-          getGaps({ meterId: gapMeterIdRange, from: rangeStart.toISOString(), to: rangeEnd.toISOString() }).then((g) => {
-            if (mounted) { setSystemGaps(Array.isArray(g) ? g : []); setSystemChartRange({ start: rangeStart.toISOString(), end: rangeEnd.toISOString() }); }
+        // Detect system-wide gaps for the date range (ALL meters)
+        const allMeterIdsRange = [...producerIds, ...consumerIds];
+        if (allMeterIdsRange.length && rangeStart && rangeEnd) {
+          // Chart columns are calendar days → query+render gaps on exact
+          // midnight..midnight bounds so the bucket grid = exactly 1 day per column
+          const gapStart = new Date(rangeStart); gapStart.setHours(0, 0, 0, 0);
+          const gapEnd = new Date(rangeEnd); gapEnd.setHours(24, 0, 0, 0);
+          getGaps({ meterIds: allMeterIdsRange, from: gapStart.toISOString(), to: gapEnd.toISOString() }).then((g) => {
+            if (mounted) { setSystemGaps(Array.isArray(g) ? g : []); setSystemChartRange({ start: gapStart.toISOString(), end: gapEnd.toISOString() }); }
           }).catch(() => {});
         }
       } catch (error) {
@@ -1117,6 +1126,44 @@ export default function DashboardHome() {
     };
   }, [systemEnergyTrend, systemEnergyMode]);
 
+  // Buckets (chart columns) covered by a silence gap — used to shade the empty
+  // columns in the bar chart so the highlight sits exactly on the columns the
+  // user sees. Shares the exact computation with the GapBar below the chart.
+  const systemGapBuckets = useMemo(() => {
+    const bucketCount = systemEnergyMode === '1d' ? 24 : (systemEnergyChart.labels.length || 0);
+    return computeGapBuckets(systemGaps, bucketCount, systemChartRange.start, systemChartRange.end);
+  }, [systemGaps, systemChartRange, systemEnergyMode, systemEnergyChart.labels.length]);
+
+  const isSystemGapBucket = (index) => systemGapBuckets.has(index);
+
+  // The system bar chart is plain CSS (not Plotly), so measure the actual
+  // column strip to place the gap bar under exactly those columns.
+  const systemColumnsRef = useRef(null);
+  const gapFrameRef = useRef(null);
+  const [systemPlotBox, setSystemPlotBox] = useState(null);
+  useEffect(() => {
+    const measure = () => {
+      const cols = systemColumnsRef.current;
+      const frame = gapFrameRef.current;
+      if (!cols || !frame) return;
+      const c = cols.getBoundingClientRect();
+      const f = frame.getBoundingClientRect();
+      if (!c.width || !f.width) return;
+      setSystemPlotBox((prev) => (
+        prev && Math.abs(prev.left - (c.left - f.left)) < 0.5 && Math.abs(prev.width - c.width) < 0.5
+          ? prev
+          : { left: c.left - f.left, width: c.width }
+      ));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    let raf = null;
+    let frames = 0;
+    const tick = () => { measure(); if (++frames < 120) raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => { window.removeEventListener('resize', measure); if (raf) cancelAnimationFrame(raf); };
+  }, [systemEnergyMode, systemEnergyTrend]);
+
   const currentTimeLabel = useMemo(() => currentTime.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
@@ -1217,11 +1264,12 @@ export default function DashboardHome() {
                     </span>
                   ))}
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1" ref={systemColumnsRef}>
                   <div className="h-[220px] flex items-end gap-1">
                     {systemEnergyChart.points.map((point, index) => (
                       <div key={`${point.label}-${index}`} className="flex min-w-0 flex-1 flex-col justify-end gap-1">
-                        <div className="flex h-[180px] items-end gap-[2px]">
+                        <div className={`flex h-[180px] items-end gap-[2px] ${isSystemGapBucket(index) ? 'rounded bg-orange-200/60' : ''}`}
+                          title={isSystemGapBucket(index) ? `No log data in this ${systemEnergyMode === '1d' ? 'hour' : 'day'}` : undefined}>
                           <div className="w-1/2 rounded-t bg-emerald-400" style={{ height: `${point.productionPct}%` }} title={`${point.label} production: ${formatEnergy(point.production)} kWh`} />
                           <div className="w-1/2 rounded-t bg-rose-300" style={{ height: `${point.consumptionPct}%` }} title={`${point.label} consumption: ${formatEnergy(point.consumption)} kWh`} />
                         </div>
@@ -1248,7 +1296,14 @@ export default function DashboardHome() {
                 </span>
                 {systemEnergyLoading && <span className="text-blue-500">Updating chart...</span>}
               </div>
-              <GapBar gaps={systemGaps} rangeStart={systemChartRange.start} rangeEnd={systemChartRange.end} />
+              {/* Aligned to the REAL column strip measured above; the fixed margin
+                  is only a first-paint fallback */}
+              <div ref={gapFrameRef}>
+                <GapBar gaps={systemGaps} rangeStart={systemChartRange.start} rangeEnd={systemChartRange.end}
+                  bucketCount={systemEnergyMode === '1d' ? 24 : (systemEnergyTrend.labels?.length || undefined)}
+                  plotLeft={systemPlotBox?.left} plotWidth={systemPlotBox?.width}
+                  plotMargin={{ left: 68, right: 0 }} />
+              </div>
             </div>
           </Card>
         </section>
@@ -1731,7 +1786,7 @@ export default function DashboardHome() {
                     }
                   }}
                   className="px-2 py-1 text-[10px] font-semibold bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors"
-                  title="Send test meter inactive notification to Telegram"
+                  title="Send test meter inactive notification via email"
                 >
                   🧪 Test Meter Alert
                 </button>

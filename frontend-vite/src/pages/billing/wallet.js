@@ -2,7 +2,7 @@
 import { useHistory, useParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { getBuildings } from '../../core/data_connecter/register';
-import { getWalletBalance, getWalletById, getWalletTransactions, recalculateWalletBalance, topupWalletByEmail, createStripePaymentIntent } from '../../core/data_connecter/wallet';
+import { getWalletBalance, getWalletByBuildingId, getWalletTransactions, recalculateWalletBalance, topupWalletByBuildingId, createStripePaymentIntent } from '../../core/data_connecter/wallet';
 import { getQuotaWarnings } from '../../core/data_connecter/invoice';
 import { formatCurrency, formatEntityId, formatToken, formatTokenShort, formatVerificationStatus, getSignedTokenAmount, getTransactionDisplayType, toSafeNumber } from '../../utils/formatters';
 import { normalizeRoleName } from '../../utils/authSession';
@@ -66,9 +66,9 @@ export default function Wallet() {
     if (memberStore && typeof memberStore === 'object') return memberStore;
     return null;
   }, [memberStore]);
-  const memberEmail = useMemo(() => {
-    return String(member?.email || localStorage.getItem(Key.UserEmail) || '').toLowerCase();
-  }, [member?.email]);
+  const userCredId = useMemo(() => {
+    return String(localStorage.getItem(Key.UserId) || member?.credId || '').toLowerCase();
+  }, [member?.credId]);
   const roleName = useMemo(() => {
     if (member) return normalizeRoleName(member);
     const storedRole = String(localStorage.getItem(Key.UserRole) || '').trim().toUpperCase();
@@ -100,7 +100,9 @@ export default function Wallet() {
       const target = arr.find(b => normalizeBuildingName(b.name) === normalizeBuildingName(wantedName)) || null;
       setBuilding(target);
 
-      const assignedBuilding = arr.find((item) => String(item?.email || '').toLowerCase() === memberEmail) || null;
+      const assignedBuilding = arr.find((item) =>
+        item?.assignedUsers?.some(au => au.user?.credId === userCredId)
+      ) || null;
 
       if (isUserRole) {
         if (!assignedBuilding) {
@@ -111,7 +113,7 @@ export default function Wallet() {
           return;
         }
 
-        if (target && String(target?.email || '').toLowerCase() !== memberEmail) {
+        if (target && !target.assignedUsers?.some(au => au.user?.credId === userCredId)) {
           setError('No building assigned to this user');
           setBuilding(assignedBuilding);
           setWallet(null);
@@ -121,15 +123,9 @@ export default function Wallet() {
         }
       }
 
-      if (!target?.email) {
-        setError(isUserRole && !assignedBuilding ? 'No building assigned to this user' : 'Building or building owner email not found');
-        setWallet(null);
-        setTransactions([]);
-        setQuotaOverride(null);
-        return;
-      }
-
-      const walletRes = await getWalletById(String(target.id));
+      // Look the wallet up by BUILDING id — `getWalletById` expects a wallet UUID,
+      // so passing a building id always 404'd with "Wallet not found".
+      const walletRes = await getWalletByBuildingId(target.id);
       const walletPayload = walletRes?.data || null;
       let w = walletPayload ? {
         ...walletPayload,
@@ -179,7 +175,7 @@ export default function Wallet() {
 
   useEffect(() => {
     loadData();
-  }, [buildingName, isUserRole, memberEmail]);
+  }, [buildingName, isUserRole, userCredId]);
 
   const handleQuickAmount = (amount) => {
     setExchangeAmount(amount);
@@ -195,15 +191,15 @@ export default function Wallet() {
   const handleConfirmExchange = async () => {
     if (!showTopupModal) {
       // First click — show QR code modal
-      if (!building?.email) return;
+      if (!building?.id) return;
       const amt = Number(exchangeAmount || 0);
       if (amt <= 0) { setToast({ type: 'error', title: 'Invalid Amount', message: 'Please enter a valid amount' }); return; }
       try {
         setLoading(true);
-        const paymentRes = await createStripePaymentIntent(building.email, amt);
+        const paymentRes = await createStripePaymentIntent(building.id, amt);
         const paymentData = paymentRes?.data || paymentRes;
         setQrUrl(paymentData?.qrUrl || null);
-        setQrData({ buildingName: building?.name, amount: amt, email: building?.email });
+        setQrData({ buildingName: building?.name, amount: amt });
         setShowTopupModal(true);
       } catch (e) {
         setToast({ type: 'error', title: 'QR Generation Failed', message: e?.response?.data?.error || e.message || 'Failed to generate QR code' });
@@ -214,12 +210,12 @@ export default function Wallet() {
     }
     // Second click — execute topup from modal
     try {
-      if (!building?.email) return;
+      if (!building?.id) return;
       const amt = Number(exchangeAmount || 0);
       if (amt <= 0) return;
       setLoading(true);
       setShowTopupModal(false);
-      const result = await topupWalletByEmail(building.email, amt);
+      const result = await topupWalletByBuildingId(building.id, amt);
       await loadData();
       const verification = result?.data?.verification;
       const vStatus = verification?.verified

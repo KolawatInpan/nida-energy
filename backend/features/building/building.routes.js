@@ -139,7 +139,7 @@ router.put("/:id/reject", BuildingController.rejectBuilding);
 
 // User Assignment (M:N)
 router.post("/:id/assign", BuildingController.assignUserToBuilding);
-router.delete("/:id/assign/:userEmail", BuildingController.removeUserFromBuilding);
+router.delete("/:id/assign/:userId", BuildingController.removeUserFromBuilding);
 router.get("/:id/assignments", BuildingController.getBuildingAssignments);
 
 router.put("/:id", BuildingController.updateBuilding);

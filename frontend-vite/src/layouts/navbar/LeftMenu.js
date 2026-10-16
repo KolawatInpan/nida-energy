@@ -267,10 +267,12 @@ const LeftMenu = ({ history, location }) => {
     }, []);
 
     const isAuthenticated = Boolean(token || authStore);
-    const memberEmail = String(member?.email || localStorage.getItem(Key.UserEmail) || '').toLowerCase();
+    const userCredId = String(localStorage.getItem(Key.UserId) || member?.credId || '').toLowerCase();
     const memberBuilding = useMemo(
-        () => buildings.find((building) => String(building?.email || '').toLowerCase() === memberEmail) || null,
-        [buildings, memberEmail]
+        () => buildings.find((building) =>
+            building?.assignedUsers?.some(au => au.user?.credId === userCredId)
+        ) || null,
+        [buildings, userCredId]
     );
 
     const logoutAction = () => {
@@ -393,6 +395,7 @@ const LeftMenu = ({ history, location }) => {
                     { label: 'Meter Registration', key: ROUTE_PATHS.meterRegistration, icon: <ExperimentOutlined /> },
                     { label: '📋 Patch Notes', key: ROUTE_PATHS.patchNotes, icon: <FileTextOutlined /> },
                     { label: '🔌 API Status', key: ROUTE_PATHS.apiStatus, icon: <ThunderboltOutlined /> },
+                    { label: '🧪 Testing', key: ROUTE_PATHS.testing, icon: <ExperimentOutlined /> },
                     { label: '⚙️ Settings', key: ROUTE_PATHS.settings, icon: <SettingOutlined /> },
                 ],
             },
@@ -410,6 +413,7 @@ const LeftMenu = ({ history, location }) => {
         if (path.startsWith('/admin/users')) return '/admin/users';
         if (path.startsWith('/admin/meters')) return '/admin/meters';
         if (path.startsWith('/admin/reset-database')) return '/admin/reset-database';
+        if (path.startsWith('/admin/testing')) return ROUTE_PATHS.testing;
         if (path.startsWith('/trading-history')) return '/trading-history';
         if (path.startsWith('/transactions/')) return '/transaction';
         if (path.startsWith('/transaction')) return '/transaction';

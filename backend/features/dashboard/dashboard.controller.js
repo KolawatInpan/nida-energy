@@ -153,8 +153,12 @@ async function searchBuildingEnergy(req, res) {
 
 async function getGaps(req, res) {
     try {
-        const { meterId, date, from, to } = req.query;
-        const gaps = await DashBoardModel.getGaps({ meterId, date, from, to });
+        const { meterId, meterIds, date, from, to, tz } = req.query;
+        const gaps = await DashBoardModel.getGaps({
+            meterId,
+            meterIds: meterIds ? String(meterIds).split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+            date, from, to, tz,
+        });
         res.json(gaps);
     } catch (err) {
         console.error('Error fetching gaps:', err);

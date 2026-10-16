@@ -1,6 +1,7 @@
 /**
- * Email utility — send notification emails via nodemailer (Gmail SMTP).
+ * Email utility — the ONLY place this app sends mail from.
  * Env: GMAIL_USER, GMAIL_PASS (fallback to SMTP_HOST/SMTP_PORT if set)
+ *      MAIL_FROM, ADMIN_EMAIL
  */
 const nodemailer = require('nodemailer');
 
@@ -40,23 +41,53 @@ function getTransporter() {
 }
 
 /**
+ * The From address for every outgoing message — single source of truth.
+ *
+ * This app has exactly two addresses: the shared admin address and the shared user
+ * address. There is deliberately no invented third address — when nothing is
+ * configured we fall back to the admin address, so the From header always resolves
+ * to an address that actually exists in this system.
+ *
+ * Set MAIL_FROM to override (a display name is allowed: 'NIDA Energy <a@b.c>').
+ */
+function getMailFrom() {
+  return process.env.MAIL_FROM
+    || process.env.GMAIL_USER
+    || process.env.SMTP_USER
+    || process.env.ADMIN_EMAIL
+    || 'blockchain.admin@nida.ac.th';
+}
+
+/**
  * Send an email.
  * @param {Object} opts
  * @param {string} opts.to - recipient email
  * @param {string} opts.subject - subject line
  * @param {string} opts.html - HTML body
  * @param {string} [opts.text] - plain text fallback
+ * @param {string} [opts.fromName] - optional display name for the From header
  */
-async function sendEmail({ to, subject, html, text = null } = {}) {
+async function sendEmail({ to, subject, html, text = null, fromName = null } = {}) {
   if (!to) throw new Error('Email recipient (to) is required');
+
+  const address = getMailFrom();
+  // Only wrap in a display name when MAIL_FROM did not already supply one.
+  const from = fromName && !String(address).includes('<') ? `"${fromName}" <${address}>` : address;
+
+  // `text || html ? ... : ...` used to be written inline here, which parses as
+  // `(text || html) ? ... : ...` — so an explicit `text` was silently discarded and
+  // replaced by tag-stripped HTML. Compute the plain-text part explicitly instead.
+  const plainText = text != null
+    ? String(text)
+    : String(html || '').replace(/<[^>]*>/g, '');
 
   const mailer = getTransporter();
   const info = await mailer.sendMail({
-    from: process.env.GMAIL_USER || process.env.SMTP_USER || 'NIDA Energy <no-reply@nida.ac.th>',
+    from,
     to,
     subject: String(subject || 'NIDA Energy Notification'),
     html: html || '',
-    text: text || html ? String(html).replace(/<[^>]*>/g, '') : '',
+    text: plainText,
   });
   return info;
 }
@@ -64,4 +95,5 @@ async function sendEmail({ to, subject, html, text = null } = {}) {
 module.exports = {
   sendEmail,
   getTransporter,
+  getMailFrom,
 };

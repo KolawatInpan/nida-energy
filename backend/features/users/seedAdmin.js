@@ -1,45 +1,55 @@
 const { prisma, realPrisma, demoPrisma } = require('../../utils/prisma');
 const bcrypt = require('bcrypt');
 
-const DEFAULT_ADMIN_EMAIL = 'admin@nida.ac.th';
-const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+// Single source of truth for the seeded system admins.
+// All admins SHARE the same address (email is not unique) and are told apart by name + password.
+const DEFAULT_ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'blockchain.admin@nida.ac.th';
+const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'nidaadmin1';
 
 const ADMINS = [
-    { name: 'System Administrator', email: 'admin@nida.ac.th', password: 'admin123' },
-    { name: 'Energy Manager', email: 'energy-admin@nida.ac.th', password: 'admin456' },
+    { name: 'System Administrator', email: DEFAULT_ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD || 'nidaadmin1' },
+    { name: 'Energy Manager', email: DEFAULT_ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD_2 || 'nidaadmin2' },
 ];
 
 async function seedAdminToDb(db, label) {
     for (const admin of ADMINS) {
-        const existing = await db.user.findUnique({ where: { email: admin.email } });
+        // Shared email model: check by name + role (email is shared across users)
+        const existing = await db.user.findFirst({
+            where: { name: admin.name, role: 'ADMIN' },
+        });
         if (existing) {
-            if (existing.role !== 'ADMIN') {
-                await db.user.update({ where: { email: admin.email }, data: { role: 'ADMIN' } });
-                console.log(`[SEED] ${label} Updated ${admin.email} role to ADMIN`);
+            // ADMINS is the source of truth, and adminLogin() looks users up by these very
+            // addresses. If ADMIN_EMAIL changed, repair the stale row instead of leaving an
+            // admin that can no longer sign in.
+            if (admin.email && existing.email !== admin.email) {
+                await db.user.update({
+                    where: { credId: existing.credId },
+                    data: { email: admin.email },
+                });
+                console.log(`[SEED] ${label} Admin email updated: ${admin.name} (${existing.email} -> ${admin.email})`);
             } else {
-                console.log(`[SEED] ${label} Admin exists: ${admin.email}`);
+                console.log(`[SEED] ${label} Admin exists: ${admin.name}`);
             }
             continue;
         }
 
+        // Create new admin user (shared email is fine — each user has unique password)
         const passwordHash = await bcrypt.hash(admin.password, 10);
         const credId = require('crypto').randomUUID();
-
         const maxSeq = await db.user.aggregate({ _max: { userId: true } });
         const seqId = (maxSeq._max.userId || 0) + 1;
         await db.user.create({
-            data: { credId, userId: seqId, name: admin.name, email: admin.email, passwordHash, role: 'ADMIN' },
+            data: {
+                credId,
+                userId: seqId,
+                name: admin.name,
+                email: admin.email,
+                passwordHash,
+                role: 'ADMIN',
+                status: 'approved',
+            },
         });
-        console.log(`[SEED] ${label} Admin created: ${admin.email}`);
-    }
-
-    // Shared admin treasury wallet — all admins use this one wallet
-    const ADMIN_WALLET_EMAIL = 'admin@nida.ac.th';
-    const wallet = await db.wallet.findUnique({ where: { email: ADMIN_WALLET_EMAIL } });
-    if (!wallet) {
-        const { randomUUID } = require('crypto');
-        await db.wallet.create({ data: { id: randomUUID(), email: ADMIN_WALLET_EMAIL, tokenBalance: 0 } });
-        console.log(`[SEED] ${label} Shared admin wallet created: ${ADMIN_WALLET_EMAIL}`);
+        console.log(`[SEED] ${label} Admin created: ${admin.name} (${admin.email})`);
     }
 }
 

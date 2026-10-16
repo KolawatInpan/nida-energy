@@ -3,12 +3,14 @@ const { dispatchNotification } = require('../notification/notification.service')
 const auth = require('../../middleware/auth');
 const requireRole = require('../../middleware/requireRole');
 
-/** Resolve a wallet's owner email (to route notification prefs/delivery). */
-async function resolveWalletEmail(walletId) {
+/** Resolve a wallet's owner userId via BuildingAssignment (to route notification prefs/delivery). */
+async function resolveWalletOwnerUserId(walletId) {
   try {
     const { prisma } = require('../../utils/prisma');
-    const w = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { email: true } });
-    return w?.email || null;
+    const w = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { buildingId: true } });
+    if (!w?.buildingId) return null;
+    const assignment = await prisma.buildingAssignment.findFirst({ where: { buildingId: w.buildingId }, select: { userId: true } });
+    return assignment?.userId || null;
   } catch (_) {
     return null;
   }
@@ -60,12 +62,12 @@ async function createOffer(req, res) {
                 const created = await Offer.createOffer({ sellerWalletId, kwh, ratePerKwh, sourceType, marketType, targetDate });
                 res.status(201).json(created);
 
-                // Notify via Telegram + Email (respects user prefs)
+                // Notify via Email (respects user prefs)
                 (async () => {
                     try {
                         const text = `✅ New Offer Created\nBuilding: ${created.sellerWalletId || sellerWalletId}\nAmount: ${kwh} kWh\nRate: ${ratePerKwh} Token/kWh`;
-                        const email = await resolveWalletEmail(created?.sellerWalletId || sellerWalletId);
-                        await dispatchNotification({ type: 'offer', message: text, email, userId: null });
+                        const ownerUserId = await resolveWalletOwnerUserId(created?.sellerWalletId || sellerWalletId);
+                        await dispatchNotification({ type: 'offer', message: text, userId: ownerUserId });
                     } catch (e) {
                         console.error('Notification (offer) failed:', e?.message || e);
                     }
@@ -92,12 +94,12 @@ async function createBid(req, res) {
                 const created = await Offer.createBid({ buyerWalletId, kwh, ratePerKwh, marketType, targetDate, bypassLock });
                 res.status(201).json(created);
 
-                // Notify via Telegram + Email (respects user prefs)
+                // Notify via Email (respects user prefs)
                 (async () => {
                     try {
                         const text = `🛒 New Bid Placed\nBuilding(wallet): ${created.buyerWalletId || buyerWalletId}\nAmount: ${kwh} kWh\nMax Price: ${ratePerKwh != null ? ratePerKwh : 'Market'}`;
-                        const email = await resolveWalletEmail(created?.buyerWalletId || buyerWalletId);
-                        await dispatchNotification({ type: 'bid', message: text, email, userId: null });
+                        const ownerUserId = await resolveWalletOwnerUserId(created?.buyerWalletId || buyerWalletId);
+                        await dispatchNotification({ type: 'bid', message: text, userId: ownerUserId });
                     } catch (e) {
                         console.error('Notification (bid) failed:', e?.message || e);
                     }

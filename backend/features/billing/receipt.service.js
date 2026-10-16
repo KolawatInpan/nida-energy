@@ -41,12 +41,15 @@ async function getReceiptDetails(id) {
 		})()
 		: null;
 
-	const owner = building?.email
-		? await prisma.user.findUnique({
-			where: { email: String(building.email) },
-			include: { wallets: true },
-		})
-		: null;
+	// Find owner via BuildingAssignment
+	let owner = null;
+	if (building?.id) {
+		const assignment = await prisma.buildingAssignment.findFirst({
+			where: { buildingId: building.id, role: 'owner' },
+			include: { user: { include: { buildingAssignments: { include: { building: true } } } } },
+		});
+		owner = assignment?.user || null;
+	}
 
 	const walletTx = receipt.walletTxId
 		? await prisma.walletTx.findUnique({

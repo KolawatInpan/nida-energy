@@ -11,9 +11,9 @@ async function createOrder(req, res) {
     // Resolve building name from wallet
     let buildingName = null;
     try {
-      const wallet = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { email: true } });
-      if (wallet?.email) {
-        const b = await prisma.building.findFirst({ where: { email: wallet.email }, select: { name: true } });
+      const wallet = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { buildingId: true } });
+      if (wallet?.buildingId) {
+        const b = await prisma.building.findUnique({ where: { id: wallet.buildingId }, select: { name: true } });
         if (b?.name) buildingName = b.name;
       }
     } catch {}
@@ -41,7 +41,12 @@ async function createOrder(req, res) {
         targetDate: targetDate ? new Date(targetDate) : null, metadata: { sourceType }
       }});
       // also create energyOffer to keep existing flows
-      try { const created = await Offer.createOffer({ sellerWalletId: walletId, kwh, ratePerKwh: price, sourceType, marketType, targetDate, bypassLock }); mo.metadata.energyOfferId = created.id; await prisma.marketOrder.update({ where: { id: mo.id }, data: { metadata: mo.metadata } }); } catch (e) { console.warn('warning: created MarketOrder but energyOffer creation failed', e.message || e); }
+      try { const created = await Offer.createOffer({ sellerWalletId: walletId, kwh, ratePerKwh: price, sourceType, marketType, targetDate, bypassLock }); mo.metadata.energyOfferId = created.id; await prisma.marketOrder.update({ where: { id: mo.id }, data: { metadata: mo.metadata } }); } catch (e) {
+        console.warn('warning: created MarketOrder but energyOffer creation failed', e.message || e);
+        // Reserve-on-create rejections must not leave a stray OPEN order for matching to pick up
+        await prisma.marketOrder.delete({ where: { id: mo.id } }).catch(() => {});
+        return res.status(e.status || 400).json({ error: e.message });
+      }
       return res.status(201).json(mo);
     }
 
@@ -51,7 +56,12 @@ async function createOrder(req, res) {
         quantity: Number(kwh), price: price != null ? Number(price) : null, status: 'OPEN',
         targetDate: targetDate ? new Date(targetDate) : null
       }});
-      try { const created = await Offer.createBid({ buyerWalletId: walletId, kwh, ratePerKwh: price, marketType, targetDate, bypassLock }); mo.metadata = { energyBidId: created.id }; await prisma.marketOrder.update({ where: { id: mo.id }, data: { metadata: mo.metadata } }); } catch (e) { console.warn('warning: created MarketOrder but energyBid creation failed', e.message || e); }
+      try { const created = await Offer.createBid({ buyerWalletId: walletId, kwh, ratePerKwh: price, marketType, targetDate, bypassLock }); mo.metadata = { energyBidId: created.id }; await prisma.marketOrder.update({ where: { id: mo.id }, data: { metadata: mo.metadata } }); } catch (e) {
+        console.warn('warning: created MarketOrder but energyBid creation failed', e.message || e);
+        // Reservation rejections must not leave a stray OPEN order for matching to pick up
+        await prisma.marketOrder.delete({ where: { id: mo.id } }).catch(() => {});
+        return res.status(e.status || 400).json({ error: e.message });
+      }
       return res.status(201).json(mo);
     }
 
@@ -72,16 +82,14 @@ async function listOrders(req, res) {
 
     const orders = await prisma.marketOrder.findMany({ where, orderBy: { createdAt: 'desc' } });
 
-    // Resolve buildingName for orders missing it (lookup by walletId → email → building)
+    // Resolve buildingName for orders missing it (lookup by walletId → building)
     const enriched = await Promise.all(orders.map(async (o) => {
       if (o.buildingName) return o;
-      if (!o.walletId && !o.participantEmail) return o;
+      if (!o.walletId) return o;
       try {
-        const email = o.participantEmail || (
-          await prisma.wallet.findUnique({ where: { id: String(o.walletId) }, select: { email: true } })
-        )?.email;
-        if (email) {
-          const b = await prisma.building.findFirst({ where: { email }, select: { name: true } });
+        const wallet = await prisma.wallet.findUnique({ where: { id: String(o.walletId) }, select: { buildingId: true } });
+        if (wallet?.buildingId) {
+          const b = await prisma.building.findUnique({ where: { id: wallet.buildingId }, select: { name: true } });
           if (b?.name) return { ...o, buildingName: b.name };
         }
       } catch {}
@@ -141,9 +149,9 @@ async function triggerClearing(req, res) {
           const resolveName = async (order) => {
             if (order?.buildingName) return order.buildingName;
             if (order?.walletId) {
-              const w = await prisma.wallet.findUnique({ where: { id: order.walletId }, select: { email: true } }).catch(() => null);
-              if (w?.email) {
-                const b = await prisma.building.findFirst({ where: { email: w.email }, select: { name: true } }).catch(() => null);
+              const w = await prisma.wallet.findUnique({ where: { id: order.walletId }, select: { buildingId: true } }).catch(() => null);
+              if (w?.buildingId) {
+                const b = await prisma.building.findUnique({ where: { id: w.buildingId }, select: { name: true } }).catch(() => null);
                 if (b?.name) return b.name;
               }
             }
@@ -159,9 +167,9 @@ async function triggerClearing(req, res) {
           // Fallback: use matchLog data (resolve from walletId)
           const resolveFromWallet = async (walletId) => {
             if (!walletId) return 'Unknown';
-            const w = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { email: true } }).catch(() => null);
-            if (w?.email) {
-              const b = await prisma.building.findFirst({ where: { email: w.email }, select: { name: true } }).catch(() => null);
+            const w = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { buildingId: true } }).catch(() => null);
+            if (w?.buildingId) {
+              const b = await prisma.building.findUnique({ where: { id: w.buildingId }, select: { name: true } }).catch(() => null);
               if (b?.name) return b.name;
             }
             return 'Unknown';
@@ -259,9 +267,9 @@ async function triggerMatching(req, res) {
 
     const resolveName = async (walletId) => {
       if (!walletId) return 'Unknown';
-      const w = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { email: true } }).catch(() => null);
-      if (w?.email) {
-        const b = await prisma.building.findFirst({ where: { email: w.email }, select: { name: true } }).catch(() => null);
+      const w = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { buildingId: true } }).catch(() => null);
+      if (w?.buildingId) {
+        const b = await prisma.building.findUnique({ where: { id: w.buildingId }, select: { name: true } }).catch(() => null);
         if (b?.name) return b.name;
       }
       return 'Unknown';

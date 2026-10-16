@@ -26,5 +26,5 @@ export const getStoredRoleName = (storageLike, roleKey) => {
 export const getStoredMemberFallback = (storageLike, keyMap) => ({
     name: 'User',
     role: storageLike?.getItem ? storageLike.getItem(keyMap.UserRole) || 'USER' : 'USER',
-    email: storageLike?.getItem ? storageLike.getItem(keyMap.UserEmail) || '' : '',
+    credId: storageLike?.getItem ? storageLike.getItem(keyMap.UserId) || '' : '',
 });

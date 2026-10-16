@@ -1,30 +1,43 @@
 const { prisma } = require('../../utils/prisma');
 const { randomUUID } = require('crypto');
-// private key / keystore support removed for now — wallets are simple records linked to user email
 
-async function getWallets () {
-  return await prisma.wallet.findMany();
-}
-
-async function getWalletById (id) {
-  return await prisma.wallet.findUnique({
-    where: { id },
+async function getWallets() {
+  return await prisma.wallet.findMany({
+    include: {
+      building: { select: { id: true, name: true } },
+    },
   });
 }
 
-async function createWallet ({ buildingId, email }) {
-  if (!email || !String(email).includes('@')) {
-    const e = new Error('owner email not resolved or missing');
+async function getWalletById(id) {
+  return await prisma.wallet.findUnique({
+    where: { id },
+    include: {
+      building: { select: { id: true, name: true } },
+    },
+  });
+}
+
+async function getWalletByBuildingId(buildingId) {
+  return await prisma.wallet.findUnique({
+    where: { buildingId: parseInt(buildingId) },
+    include: {
+      building: { select: { id: true, name: true } },
+    },
+  });
+}
+
+async function createWallet({ buildingId }) {
+  if (!buildingId) {
+    const e = new Error('buildingId is required');
     e.status = 400;
     throw e;
   }
-  // If a buildingId is provided, use it (stringified) as the wallet id so wallet.id matches building id.
-  // Otherwise fall back to a generated UUID.
-  const walletId = buildingId ? String(buildingId) : randomUUID();
+  const walletId = randomUUID();
   const newWallet = await prisma.wallet.create({
     data: {
       id: walletId,
-      email,
+      buildingId: parseInt(buildingId),
       isCustodial: true,
       chain: 'ethereum',
       tokenBalance: 0,
@@ -34,17 +47,15 @@ async function createWallet ({ buildingId, email }) {
   return newWallet;
 }
 
-async function getBalance (walletId) {
-  // walletId is stored as string (may be buildingId string or UUID). Query by id directly.
-  return await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { tokenBalance: true } });
+async function getBalance(walletId) {
+  return await prisma.wallet.findUnique({
+    where: { id: String(walletId) },
+    select: { tokenBalance: true },
+  });
 }
 
-async function getWalletByEmail(email) {
-  return await prisma.wallet.findFirst({ where: { email } });
-}
-
-async function addBalance (email, amount, rate) {
-  const wallet = await prisma.wallet.findFirst({ where: { email } });
+async function addBalanceByWalletId(walletId, amount) {
+  const wallet = await prisma.wallet.findUnique({ where: { id: String(walletId) } });
   if (!wallet) {
     const e = new Error('wallet not found');
     e.status = 404;
@@ -91,9 +102,7 @@ async function recalculateBalance(walletId) {
   const recalculatedBalance = await calculateBalanceFromTransactions(walletId);
   const updatedWallet = await prisma.wallet.update({
     where: { id: String(walletId) },
-    data: {
-      tokenBalance: recalculatedBalance,
-    },
+    data: { tokenBalance: recalculatedBalance },
   });
 
   return {
@@ -106,12 +115,10 @@ async function recalculateBalance(walletId) {
 module.exports = {
   getWallets,
   getWalletById,
+  getWalletByBuildingId,
   createWallet,
   getBalance,
-  getWalletByEmail,
-  addBalance,
+  addBalanceByWalletId,
   calculateBalanceFromTransactions,
   recalculateBalance,
 };
-
-

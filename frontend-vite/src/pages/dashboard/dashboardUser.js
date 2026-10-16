@@ -4,7 +4,7 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { useSelector } from 'react-redux';
 import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/register';
-import { getWalletByEmail } from '../../core/data_connecter/wallet';
+import { getWalletByBuildingId } from '../../core/data_connecter/wallet';
 import { getInvoices } from '../../core/data_connecter/invoice';
 import { searchBuildingEnergy } from '../../core/data_connecter/dashboard';
 import { getEnergyRates, getTokenRates } from '../../core/data_connecter/rate';
@@ -103,8 +103,8 @@ export default function DashboardUser() {
         }
         setError('');
 
-        const email = String(member?.email || localStorage.getItem(Key.UserEmail) || '').toLowerCase();
-        if (!email) {
+        const userCredId = String(localStorage.getItem(Key.UserId) || member?.credId || '').toLowerCase();
+        if (!userCredId) {
           if (!mounted) return;
           setError('User building not found');
           return;
@@ -112,7 +112,9 @@ export default function DashboardUser() {
 
         const buildings = await getBuildings();
         const buildingRows = Array.isArray(buildings) ? buildings : [];
-        const foundBuilding = buildingRows.find((item) => String(item?.email || '').toLowerCase() === email) || null;
+        const foundBuilding = buildingRows.find((item) =>
+          item?.assignedUsers?.some(au => au.user?.credId === userCredId)
+        ) || null;
 
         if (!foundBuilding) {
           if (!mounted) return;
@@ -148,7 +150,7 @@ export default function DashboardUser() {
           tokenRateRows,
           energyRes,
         ] = await Promise.all([
-          getWalletByEmail(foundBuilding.email).catch(() => null),
+          getWalletByBuildingId(foundBuilding.id).catch(() => null),
           getMetersByBuilding(foundBuilding.id).catch(() => []),
           getInvoices({ month: currentMonth, year: currentYear, buildingName: foundBuilding.name }).catch(() => []),
           getInvoices({ year: currentYear, buildingName: foundBuilding.name }).catch(() => []),

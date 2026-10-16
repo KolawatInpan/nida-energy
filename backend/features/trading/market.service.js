@@ -1,5 +1,74 @@
 const { prisma } = require('../../utils/prisma');
 const { randomUUID } = require('crypto');
+const { matchesSourceType } = require('./market.utils');
+// Lazy require avoids a top-level circular dependency (billing ↔ trading).
+function refreshBuyerMonthlyBill(tx, opts) {
+    const { upsertMonthlyBillInTx } = require('../billing/invoice.service');
+    return upsertMonthlyBillInTx(tx, opts);
+}
+
+// Reserve-on-create: bids only RESERVE tokens. Affordability at execution time
+// must consider the outstanding reservations of the buyer's OTHER open bids
+// (energyBid rows and their MarketOrder mirrors), not just the raw balance.
+async function activeReserveForBuyer(buyerWalletId, excludeBid) {
+    const excludeKey = excludeBid ? String(excludeBid.id) : null;
+    const energyBids = await prisma.energyBid.findMany({
+        where: { buyerWalletId: String(buyerWalletId), status: 'OPEN' },
+        select: { id: true, kWH: true, kWHBought: true, ratePerkWH: true },
+    });
+    let reserve = energyBids
+        .filter((b) => String(b.id) !== excludeKey)
+        .reduce((s, b) => {
+            const price = b.ratePerkWH != null ? Number(b.ratePerkWH) : 0;
+            return s + Math.max(0, Number(b.kWH) - Number(b.kWHBought || 0)) * price;
+        }, 0);
+    const mos = await prisma.marketOrder.findMany({
+        where: { side: 'BID', walletId: String(buyerWalletId), status: { in: ['OPEN', 'PARTIAL'] } },
+        select: { id: true, quantity: true, filled: true, price: true },
+    });
+    reserve += mos
+        .filter((m) => String(m.id) !== excludeKey)
+        .reduce((s, m) => {
+            const price = m.price != null ? Number(m.price) : 0;
+            return s + Math.max(0, Number(m.quantity) - Number(m.filled || 0)) * price;
+        }, 0);
+    return reserve;
+}
+
+// Reserve-on-create: energy only physically moves at execution time. Deduct the
+// seller's source meter (clamped at zero) inside the caller's transaction.
+async function deductSellerSourceMeter(tx, offer, amount) {
+    const src = String(offer.sourceType || 'produce');
+    const sellerMeters = offer.sellerBuilding?.name ? await tx.meterInfo.findMany({ where: { buildingName: offer.sellerBuilding.name } }) : [];
+    const sellerMeter = sellerMeters.find((m) => matchesSourceType(m.type, src));
+    if (!sellerMeter) {
+        console.warn(`[Market] No ${src} meter for seller ${offer.sellerBuilding?.name || offer.sellerWalletId} — energy NOT deducted`);
+        return null;
+    }
+    const now = Math.max(0, Number(sellerMeter.kWH ?? sellerMeter.value ?? 0));
+    const next = Math.max(0, now - Number(amount));
+    await tx.meterInfo.update({ where: { snid: sellerMeter.snid }, data: { kWH: next, value: next, timestamp: new Date() } });
+    return sellerMeter.snid;
+}
+
+// Post-commit RunningMeter logs: MARKET on the receiving meter (kW = kWh
+// delivered — this is what the billing marketplace-purchase snapshot sums),
+// SOLD on the seller's meter (kW: 0 keeps syncMeterSnapshot from writing
+// negative values; kWH clamped to the meter's current state).
+async function logMarketEnergyTransfer({ sellerMeterSnid, buyerMeterSnid, kwh }) {
+    try {
+        const { insertRunningMeter } = require('../energy/energyAggregation');
+        if (buyerMeterSnid) {
+            const m = await prisma.meterInfo.findUnique({ where: { snid: buyerMeterSnid }, select: { kWH: true, value: true } });
+            await insertRunningMeter({ snid: buyerMeterSnid, timestamp: new Date(), kW: kwh, kWH: Math.max(0, Number(m?.kWH ?? m?.value ?? 0)), source: 'MARKET' });
+        }
+        if (sellerMeterSnid) {
+            const m = await prisma.meterInfo.findUnique({ where: { snid: sellerMeterSnid }, select: { kWH: true, value: true } });
+            await insertRunningMeter({ snid: sellerMeterSnid, timestamp: new Date(), kW: 0, kWH: Math.max(0, Number(m?.kWH ?? m?.value ?? 0)), source: 'SOLD' });
+        }
+    } catch (e) { console.warn('[Market] RunningMeter log failed:', e.message || e); }
+}
+
 
 // Helper: create MarketOrder mapping for an existing energyBid or energyOffer
 async function ensureMarketOrderForBid(txOrClient, bid) {
@@ -86,6 +155,7 @@ async function processIntraBuildingMatching(targetDate) {
     let matchedKwh = 0;
     // create a run placeholder map so that matches can be linked later
     const createdMatches = [];
+    const postCommitLogs = [];
 
     // วนลูปจับคู่ทีละคำสั่งซื้อ
     for (const bid of bids) {
@@ -120,6 +190,22 @@ async function processIntraBuildingMatching(targetDate) {
                     }
                 });
                 
+                // Reserve-on-create: deliver the energy to the building's meter
+                // (self-consumption — the offer reservation becomes physical energy).
+                {
+                    const deliveryMeter = bid.buyerBatteryMeter
+                        || (await tx.meterInfo.findFirst({ where: { buildingName: bid.buyerBuilding?.name || '', type: { contains: 'consume', mode: 'insensitive' } } }));
+                    if (deliveryMeter) {
+                        await tx.meterInfo.update({
+                            where: { snid: deliveryMeter.snid },
+                            data: { value: Number(deliveryMeter.value || 0) + matchAmount, kWH: Number(deliveryMeter.kWH || 0) + matchAmount, timestamp: new Date() },
+                        });
+                        postCommitLogs.push({ buyerMeterSnid: deliveryMeter.snid, sellerMeterSnid: null, kwh: matchAmount });
+                    } else {
+                        console.warn(`[Market] Self-consumption match for ${bid.buyerBuilding?.name || bid.buyerWalletId}: no battery/consumer meter — energy NOT delivered`);
+                    }
+                }
+
                 // บันทึกประวัติการใช้ไฟภายในตึก (Self-consumption)
                 await tx.transaction.create({
                     data: {
@@ -159,6 +245,11 @@ async function processIntraBuildingMatching(targetDate) {
             if (remainingBidKwh <= 0.001) break; // ถ้าคำสั่งซื้อนี้เต็มแล้ว ให้หยุดลูปไป Bid ถัดไป
         }
     }
+    // Post-commit RunningMeter logs (outside transactions — safe after commit)
+    for (const log of postCommitLogs) {
+        await logMarketEnergyTransfer(log);
+    }
+
     console.log(`[Market] Matched ${matchedKwh} kWh internally (Self-consumption).`);
     return matchedKwh;
 }
@@ -229,10 +320,9 @@ async function processDayAheadClearing(targetDate, requireBattery = true) {
     // Helper: map walletId -> building
     async function getBuildingForWallet(walletId) {
         if (!walletId) return null;
-        const wallet = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { email: true } });
-        if (!wallet?.email) return null;
-        const b = await prisma.building.findFirst({ where: { email: wallet.email } });
-        return b || null;
+        const wallet = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { buildingId: true } });
+        if (!wallet?.buildingId) return null;
+        return await prisma.building.findUnique({ where: { id: wallet.buildingId } }) || null;
     }
 
     async function getBatteryKwhForBuilding(building) {
@@ -272,7 +362,17 @@ async function processDayAheadClearing(targetDate, requireBattery = true) {
             }
             bids.push({ ...b, buyerBuilding, buyerBatteryKwh: Number(buyerBatteryMeter?.kWH || 0), buyerBatteryMeter });
         } else {
-            bids.push({ ...b, buyerBuilding, buyerBatteryKwh: 0, buyerBatteryMeter: null });
+            // No battery meter — fall back to the consumer meter so matched energy
+            // has a destination. Without this, money was debited but energy went
+            // nowhere (buyerBatteryMeter = null skipped the meter update).
+            const fallbackMeter = buyerBuilding?.name ? await prisma.meterInfo.findFirst({
+                where: { buildingName: buyerBuilding.name, type: { contains: 'consume', mode: 'insensitive' } },
+            }) : null;
+            if (!fallbackMeter) {
+                console.log(`[Market] Skip bid from ${buyerBuilding?.name || b.buyerWalletId} — no battery or consumer meter to receive energy`);
+                continue;
+            }
+            bids.push({ ...b, buyerBuilding, buyerBatteryKwh: Number(fallbackMeter.kWH || 0), buyerBatteryMeter: fallbackMeter });
         }
     }
 
@@ -311,6 +411,7 @@ async function processDayAheadClearing(targetDate, requireBattery = true) {
     let totalMatchedKwh = 0;
     const createdMatches = [];
     const matchLog = []; // simple match info for frontend (fallback)
+    const soldMeterSnids = [];
     // cache for marketOrders to avoid re-creating duplicates
     const orderCache = new Map();
     // Collect transaction IDs created during matching for blockchain verification
@@ -342,23 +443,26 @@ async function processDayAheadClearing(targetDate, requireBattery = true) {
             const adminFee = totalCost * ADMIN_FEE_RATE;
             const sellerRevenue = totalCost - adminFee;
 
-            // Check buyer has enough tokens before entering transaction
+            // Reservation-aware affordability: reserve-on-create means the buyer's
+            // balance backs their other open bid reservations too
+            const buyerReserve = await activeReserveForBuyer(bid.buyerWalletId, bid);
             const buyerWalletPre = await prisma.wallet.findUnique({
                 where: { id: bid.buyerWalletId },
                 select: { tokenBalance: true }
             });
             const buyerBalancePre = Number(buyerWalletPre?.tokenBalance || 0);
-            if (buyerBalancePre < totalCost) {
-                console.log(`[Market] Skip match: ${bid.buyerBuilding?.name || bid.buyerWalletId} insufficient tokens (${buyerBalancePre} < ${totalCost})`);
+            if (buyerBalancePre < totalCost + buyerReserve) {
+                console.log(`[Market] Skip match: ${bid.buyerBuilding?.name || bid.buyerWalletId} insufficient free tokens (${buyerBalancePre} < ${totalCost} + ${buyerReserve} reserved)`);
                 continue;
             }
 
             // เริ่มการตัดเงินและโอนพลังงานแบบข้ามตึก
             await prisma.$transaction(async (tx) => {
-                // Re-check buyer balance inside transaction (atomic consistency)
+                // Re-check reservation-aware affordability inside the transaction
                 const bal = await tx.wallet.findUnique({ where: { id: bid.buyerWalletId }, select: { tokenBalance: true } });
-                if (Number(bal?.tokenBalance || 0) < totalCost) {
-                    console.log(`[Market] TX skip: buyer balance changed (${bal?.tokenBalance} < ${totalCost})`);
+                const reserveNow = await activeReserveForBuyer(bid.buyerWalletId, bid);
+                if (Number(bal?.tokenBalance || 0) < totalCost + reserveNow) {
+                    console.log(`[Market] TX skip: buyer free balance changed (${bal?.tokenBalance} < ${totalCost} + ${reserveNow} reserved)`);
                     return;
                 }
 
@@ -432,6 +536,12 @@ async function processDayAheadClearing(targetDate, requireBattery = true) {
                     data: { tokenBalance: { increment: sellerRevenue } }
                 });
 
+                // 3.4 Reserve-on-create: energy physically leaves the seller's meter now
+                let soldMeterSnid = null;
+                try {
+                    soldMeterSnid = await deductSellerSourceMeter(tx, offer, matchAmount);
+                } catch (dedErr) { console.warn('[Market] seller meter deduction failed:', dedErr.message || dedErr); }
+
                 // 3.5 อัพเดต battery meter ผู้ซื้อ (รับพลังงานเข้า battery)
                 if (bid.buyerBatteryMeter) {
                     const nextBatteryValue = Number(bid.buyerBatteryMeter.value || 0) + matchAmount;
@@ -472,15 +582,12 @@ async function processDayAheadClearing(targetDate, requireBattery = true) {
                     }
                 });
                 createdTxIds.push(buyerTx.txid);
-                // Create invoice & receipt for this match
+                // One bill per month: refresh the buyer's monthly statement instead of creating a trade invoice
                 try {
-                    const now = new Date();
-                    const buyerBuildingName = bid.buyerBuilding?.name || `Building-${bid.buyerWalletId}`;
-                    const matchInvoice = await tx.invoice.create({
-                        data: { id: randomUUID(), buildingName: String(buyerBuildingName), fromWId: String(offer.sellerWalletId), toWId: String(bid.buyerWalletId), timestamp: now, kWH: matchAmount, tokenAmount: totalCost, status: 'paid', month: now.getMonth() + 1, year: now.getFullYear(), dailyAvg: matchAmount, peakDate: now, peakkWH: matchAmount }
-                    });
-                    await tx.receipt.create({ data: { id: randomUUID(), invoiceId: String(matchInvoice.id), timestamp: new Date(), walletTxId: String(buyerWalletTxId) } });
-                } catch (invErr) { console.warn('[Market] Match invoice/receipt creation failed:', invErr.message || invErr); }
+                    if (bid.buyerBuilding?.name) {
+                        await refreshBuyerMonthlyBill(tx, { buildingName: bid.buyerBuilding.name, toWalletId: bid.buyerWalletId, at: new Date() });
+                    }
+                } catch (invErr) { console.warn('[Market] Monthly bill refresh failed:', invErr.message || invErr); }
                 // Create or fetch MarketOrder records and a MarketMatch
                 try {
                     let buyerOrder = orderCache.get(`bid:${bid.id}`);
@@ -512,7 +619,13 @@ async function processDayAheadClearing(targetDate, requireBattery = true) {
                 } catch (e) {
                     console.warn('MarketMatch creation failed in cross-building match', e.message || e);
                 }
+                if (soldMeterSnid) soldMeterSnids.push(soldMeterSnid);
             });
+
+            // Post-commit MARKET/SOLD RunningMeter logs
+            if (bid.buyerBatteryMeter) {
+                await logMarketEnergyTransfer({ sellerMeterSnid: soldMeterSnids[soldMeterSnids.length - 1] || null, buyerMeterSnid: bid.buyerBatteryMeter.snid, kwh: matchAmount });
+            }
 
             // อัปเดตค่าในหน่วยความจำเพื่อคำนวณลูปต่อไป
             remainingBidKwh -= matchAmount;
@@ -598,9 +711,9 @@ async function processIntradayClearing(targetDate) {
     // Helper: map walletId -> building
     async function getBuildingForWallet(walletId) {
         if (!walletId) return null;
-        const wallet = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { email: true } });
-        if (!wallet?.email) return null;
-        return await prisma.building.findFirst({ where: { email: wallet.email } }) || null;
+        const wallet = await prisma.wallet.findUnique({ where: { id: String(walletId) }, select: { buildingId: true } });
+        if (!wallet?.buildingId) return null;
+        return await prisma.building.findUnique({ where: { id: wallet.buildingId } }) || null;
     }
 
     // Filter bids: only buildings with battery + price ≥ BID_MIN_PRICE
@@ -655,22 +768,25 @@ async function processIntradayClearing(targetDate) {
             const adminFee = totalCost * ADMIN_FEE_RATE;
             const sellerRevenue = totalCost - adminFee;
 
-            // Check buyer has enough tokens before entering transaction
+            // Reservation-aware affordability (reserve-on-create)
+            const buyerReserve = await activeReserveForBuyer(bid.buyerWalletId, bid);
             const buyerWalletPre = await prisma.wallet.findUnique({
                 where: { id: bid.buyerWalletId },
                 select: { tokenBalance: true }
             });
             const buyerBalancePre = Number(buyerWalletPre?.tokenBalance || 0);
-            if (buyerBalancePre < totalCost) {
-                console.log(`[Intraday] Skip match: ${bid.buyerBuilding?.name || bid.buyerWalletId} insufficient tokens (${buyerBalancePre} < ${totalCost})`);
+            if (buyerBalancePre < totalCost + buyerReserve) {
+                console.log(`[Intraday] Skip match: ${bid.buyerBuilding?.name || bid.buyerWalletId} insufficient free tokens (${buyerBalancePre} < ${totalCost} + ${buyerReserve} reserved)`);
                 continue;
             }
 
+            let soldMeterSnidIntraday = null;
             await prisma.$transaction(async (tx) => {
-                // Re-check buyer balance inside transaction (atomic consistency)
+                // Re-check reservation-aware affordability inside the transaction
                 const bal = await tx.wallet.findUnique({ where: { id: bid.buyerWalletId }, select: { tokenBalance: true } });
-                if (Number(bal?.tokenBalance || 0) < totalCost) {
-                    console.log(`[Intraday] TX skip: buyer balance changed (${bal?.tokenBalance} < ${totalCost})`);
+                const reserveNow = await activeReserveForBuyer(bid.buyerWalletId, bid);
+                if (Number(bal?.tokenBalance || 0) < totalCost + reserveNow) {
+                    console.log(`[Intraday] TX skip: buyer free balance changed (${bal?.tokenBalance} < ${totalCost} + ${reserveNow} reserved)`);
                     return;
                 }
 
@@ -706,6 +822,11 @@ async function processIntradayClearing(targetDate) {
                 await tx.wallet.update({ where: { id: bid.buyerWalletId }, data: { tokenBalance: { decrement: totalCost } } });
                 await tx.wallet.update({ where: { id: offer.sellerWalletId }, data: { tokenBalance: { increment: sellerRevenue } } });
 
+                // Reserve-on-create: energy physically leaves the seller's meter now
+                try {
+                    soldMeterSnidIntraday = await deductSellerSourceMeter(tx, offer, matchAmount);
+                } catch (dedErr) { console.warn('[Intraday] seller meter deduction failed:', dedErr.message || dedErr); }
+
                 // Update buyer battery
                 if (bid.buyerBatteryMeter) {
                     const nv = Number(bid.buyerBatteryMeter.value || 0) + matchAmount;
@@ -722,12 +843,12 @@ async function processIntradayClearing(targetDate) {
                 const sellerTx = await tx.transaction.create({ data: { walletId: offer.sellerWalletId, buildingName: offer.sellerBuilding?.name || null, type: 'MARKETPLACE_SALE', tokenAmount: sellerRevenue, status: 'CONFIRMED' } });
                 const buyerTx = await tx.transaction.create({ data: { walletId: bid.buyerWalletId, buildingName: bid.buyerBuilding?.name || null, type: 'MARKETPLACE_PURCHASE', tokenAmount: totalCost, status: 'CONFIRMED' } });
 
-                // Invoice + Receipt
+                // One bill per month: refresh the buyer's monthly statement instead of creating a trade invoice
                 try {
-                    const now = new Date();
-                    const inv = await tx.invoice.create({ data: { id: randomUUID(), buildingName: String(bid.buyerBuilding?.name || `B-${bid.buyerWalletId}`), fromWId: String(offer.sellerWalletId), toWId: String(bid.buyerWalletId), timestamp: now, kWH: matchAmount, tokenAmount: totalCost, status: 'paid', month: now.getMonth() + 1, year: now.getFullYear(), dailyAvg: matchAmount, peakDate: now, peakkWH: matchAmount } });
-                    await tx.receipt.create({ data: { id: randomUUID(), invoiceId: String(inv.id), timestamp: new Date(), walletTxId: String(buyerWalletTxId) } });
-                } catch (invErr) { console.warn('[Intraday] Invoice failed:', invErr.message || invErr); }
+                    if (bid.buyerBuilding?.name) {
+                        await refreshBuyerMonthlyBill(tx, { buildingName: bid.buyerBuilding.name, toWalletId: bid.buyerWalletId, at: new Date() });
+                    }
+                } catch (invErr) { console.warn('[Intraday] Monthly bill refresh failed:', invErr.message || invErr); }
 
                 // MarketOrder + MarketMatch
                 try {
@@ -744,6 +865,11 @@ async function processIntradayClearing(targetDate) {
                     await tx.marketOrder.update({ where: { id: sellerOrder.id }, data: { filled: { increment: matchAmount }, status: (Number(sellerOrder.filled) + matchAmount) >= Number(sellerOrder.quantity) ? 'FILLED' : 'PARTIAL' } });
                 } catch (e) { console.warn('[Intraday] MarketMatch failed:', e.message || e); }
             });
+
+            // Post-commit MARKET/SOLD RunningMeter logs
+            if (bid.buyerBatteryMeter) {
+                await logMarketEnergyTransfer({ sellerMeterSnid: soldMeterSnidIntraday, buyerMeterSnid: bid.buyerBatteryMeter.snid, kwh: matchAmount });
+            }
 
             remainingBidKwh -= matchAmount;
             offer.kWHSold = Number(offer.kWHSold) + matchAmount;
@@ -1065,8 +1191,8 @@ async function forceDistributeOffers(offersList, options = {}) {
         let note = '';
 
         // Resolve wallet balance
-        const buyerWallet = await prisma.wallet.findFirst({
-            where: { email: bs.building.email },
+        const buyerWallet = await prisma.wallet.findUnique({
+            where: { buildingId: bs.building.id },
             select: { id: true, tokenBalance: true },
         });
         if (buyerWallet) {
@@ -1080,6 +1206,11 @@ async function forceDistributeOffers(offersList, options = {}) {
             note = '⚠️ No wallet';
         } else if (walletBalance <= 0) {
             note = '💰 Not enough tokens';
+        } else {
+            // Reserve-on-create: the free balance excludes open bid reservations
+            const reserve = await activeReserveForBuyer(buyerWallet.id, null);
+            walletBalance = Math.max(0, walletBalance - reserve);
+            if (walletBalance <= 0) note = '💰 Balance reserved by open bids';
         }
         // note stays empty if building is eligible (will be filled during distribution)
 
@@ -1110,10 +1241,10 @@ async function forceDistributeOffers(offersList, options = {}) {
 
         const sellerWallet = await prisma.wallet.findUnique({
             where: { id: String(offer.sellerWalletId) },
-            select: { email: true },
+            select: { buildingId: true },
         });
-        const sellerBuilding = sellerWallet
-            ? await prisma.building.findFirst({ where: { email: sellerWallet.email } })
+        const sellerBuilding = sellerWallet?.buildingId
+            ? await prisma.building.findUnique({ where: { id: sellerWallet.buildingId } })
             : null;
 
         const offerLog = {
@@ -1158,6 +1289,9 @@ async function forceDistributeOffers(offersList, options = {}) {
                     const selfTake = Math.min(remaining, maxSelfCharge);
                     if (selfTake > 0) {
                         await prisma.$transaction(async (tx) => {
+                            // Reserve-on-create: the produce meter still holds this energy —
+                            // deduct it as it moves into the seller's own battery
+                            try { await deductSellerSourceMeter(tx, offer, selfTake); } catch (dedErr) { console.warn('[Market] self-charge source deduction failed:', dedErr.message || dedErr); }
                             await tx.meterInfo.update({
                                 where: { snid: sellerBatteryMeter.snid },
                                 data: { kWH: { increment: selfTake } },
@@ -1206,6 +1340,7 @@ async function forceDistributeOffers(offersList, options = {}) {
         }
 
         // ── Step C2: Cross-building distribution ──
+        let fdSoldMeterSnid = null;
         if (remaining > 0) {
             for (const bs of buildingScores) {
                 if (remaining <= 0) break;
@@ -1225,8 +1360,8 @@ async function forceDistributeOffers(offersList, options = {}) {
                 }
 
                 // Resolve wallet (re-use from pre-resolved if available, otherwise query)
-                const buyerWallet = await prisma.wallet.findFirst({
-                    where: { email: bs.building.email },
+                const buyerWallet = await prisma.wallet.findUnique({
+                    where: { buildingId: bs.building.id },
                     select: { id: true, tokenBalance: true },
                 });
                 if (!buyerWallet) {
@@ -1234,7 +1369,9 @@ async function forceDistributeOffers(offersList, options = {}) {
                     continue;
                 }
 
-                const buyerBalance = Number(buyerWallet.tokenBalance || 0);
+                // Free balance (reserve-on-create: excludes open bid reservations)
+                const buyerReserve = await activeReserveForBuyer(buyerWallet.id, null);
+                const buyerBalance = Math.max(0, Number(buyerWallet.tokenBalance || 0) - buyerReserve);
                 const maxAffordable = Math.floor((buyerBalance / pricePerKwh) * 10000) / 10000;
                 if (maxAffordable <= 0) {
                     if (entry && !entry.note) entry.note = `💰 Insufficient tokens (balance: ${buyerBalance.toFixed(2)}, need ≥${pricePerKwh.toFixed(2)}/kWh)`;
@@ -1278,6 +1415,12 @@ async function forceDistributeOffers(offersList, options = {}) {
                     await tx.wallet.update({ where: { id: buyerWallet.id }, data: { tokenBalance: { decrement: totalCost } } });
                     await tx.wallet.update({ where: { id: offer.sellerWalletId }, data: { tokenBalance: { increment: sellerRevenue } } });
 
+                    // Reserve-on-create: energy physically leaves the seller's meter now
+                    try {
+                        const snid = await deductSellerSourceMeter(tx, offer, take);
+                        if (snid) fdSoldMeterSnid = snid;
+                    } catch (dedErr) { console.warn('[Market] FD seller meter deduction failed:', dedErr.message || dedErr); }
+
                     const recipientBattery = await tx.meterInfo.findFirst({
                         where: { buildingName: bs.building.name, type: { contains: 'battery', mode: 'insensitive' } },
                     });
@@ -1298,13 +1441,10 @@ async function forceDistributeOffers(offersList, options = {}) {
                     const fdBuyerTx = await tx.transaction.create({ data: { walletId: buyerWallet.id, buildingName: bs.building.name, type: 'FORCED_DISTRIBUTION_PURCHASE', tokenAmount: totalCost, status: 'CONFIRMED' } });
                     const fdSellerTx = await tx.transaction.create({ data: { walletId: offer.sellerWalletId, buildingName: sellerBuilding?.name || null, type: 'FORCED_DISTRIBUTION_SALE', tokenAmount: sellerRevenue, status: 'CONFIRMED' } });
 
+                    // One bill per month: refresh the recipient's monthly statement instead of creating a trade invoice
                     try {
-                        const nowDate = new Date();
-                        const fdInvoice = await tx.invoice.create({
-                            data: { id: randomUUID(), buildingName: String(bs.building.name), fromWId: String(offer.sellerWalletId), toWId: String(buyerWallet.id), timestamp: nowDate, kWH: take, tokenAmount: totalCost, status: 'paid', month: nowDate.getMonth() + 1, year: nowDate.getFullYear(), dailyAvg: take, peakDate: nowDate, peakkWH: take }
-                        });
-                        await tx.receipt.create({ data: { id: randomUUID(), invoiceId: String(fdInvoice.id), timestamp: new Date(), walletTxId: String(fdBuyerWalletTxId) } });
-                    } catch (invErr) { console.warn('[Market] FD invoice/receipt creation failed:', invErr.message || invErr); }
+                        await refreshBuyerMonthlyBill(tx, { buildingName: String(bs.building.name), toWalletId: buyerWallet.id, at: new Date() });
+                    } catch (invErr) { console.warn('[Market] FD monthly bill refresh failed:', invErr.message || invErr); }
 
                     createdTxIds.push(fdBuyerTx.txid, fdSellerTx.txid);
 
@@ -1328,6 +1468,11 @@ async function forceDistributeOffers(offersList, options = {}) {
 
         distributedTotal += (offerLog.selfChargedKwh + offerLog.crossDistributedKwh);
         distributionLog.push(offerLog);
+
+        // Post-commit SOLD log for this offer's physical delivery
+        if ((offerLog.crossDistributedKwh + offerLog.selfChargedKwh) > 0) {
+            await logMarketEnergyTransfer({ sellerMeterSnid: fdSoldMeterSnid, buyerMeterSnid: null, kwh: offerLog.crossDistributedKwh });
+        }
     }
 
     return { distributed: Math.round(distributedTotal * 100) / 100, priorityTable: crossPriorityTable, distributionLog };

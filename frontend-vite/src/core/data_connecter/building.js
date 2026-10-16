@@ -47,15 +47,15 @@ export async function rejectBuilding(buildingId) {
 }
 
 // User-Building Assignment
-export async function assignUserToBuilding(buildingId, userEmail, role = 'owner') {
+export async function assignUserToBuilding(buildingId, userId, role = 'owner') {
     const base = getApiBase();
-    const res = await axios.post(`${base}/buildings/${buildingId}/assign`, { userEmail, role });
+    const res = await axios.post(`${base}/buildings/${buildingId}/assign`, { userId, role });
     return res.data;
 }
 
-export async function removeUserFromBuilding(buildingId, userEmail) {
+export async function removeUserFromBuilding(buildingId, userId) {
     const base = getApiBase();
-    const res = await axios.delete(`${base}/buildings/${buildingId}/assign/${userEmail}`);
+    const res = await axios.delete(`${base}/buildings/${buildingId}/assign/${encodeURIComponent(userId)}`);
     return res.data;
 }
 

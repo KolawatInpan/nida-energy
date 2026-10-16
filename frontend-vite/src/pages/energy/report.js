@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useDispatch, useSelector } from "react-redux";
 import Plot from 'react-plotly.js';
@@ -8,15 +8,17 @@ import axios from 'axios';
 import { getApiBase } from '../../core/data_connecter/apiBase';
 import { validateAuth } from "../../store/auth/auth.action";
 import { getMember } from '../../store/member/member.action';
-import { getBuildings, getGaps, getMetersByBuilding } from '../../core/data_connecter/register';
+import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/register';
 import { searchBuildingEnergy } from '../../core/data_connecter/dashboard';
-import { getWalletByEmail } from '../../core/data_connecter/wallet';
+import { getWalletByBuildingId } from '../../core/data_connecter/wallet';
 import Key from '../../global/key';
 import { formatDateLocal, toNumeric } from '../../utils/energyAnalytics';
 import { buildComparisonXAxisLabels, buildNiceScale, swapComparisonSelection } from '../../utils/dashboardCharts';
 import { formatEnergy } from '../../utils/formatters';
 import TORReport from '../../components/TOR/TORReport';
 import GapBar from '../../components/charts/GapBar';
+import { computeEmptyBucketSegments, segmentsToPlotlyShapes } from '../../utils/gapShapes';
+import { usePlotArea } from '../../utils/usePlotArea';
 import { fmtDate, fmtDateTime } from '../../utils/dateFormat';
 
 const buildEmptyChartData = (days) => Array.from({ length: days }, (_, index) => ({
@@ -72,11 +74,14 @@ const getMemberInitials = (member) => {
 };
 
 const getDaysForRange = (range, customStart, customEnd) => {
+  if (range === '1day') return 24; // 24 hourly buckets (00:00–23:00)
   if (range === 'custom' && customStart && customEnd) {
     return Math.max(1, Math.ceil((customEnd - customStart) / (1000 * 60 * 60 * 24)) + 1);
   }
   return range === '1week' ? 7 : range === '1month' ? 30 : 365;
 };
+
+const RANGE_LABELS = { '1day': '1 Day', '1week': '1 Week', '1month': '1 Month', '1year': '1 Year', 'custom': 'Custom' };
 
 // Export functions
 const exportToExcel = () => {
@@ -226,15 +231,121 @@ export default function Report() {
     const [perBuildingChart, setPerBuildingChart] = useState({}); // { buildingName: [{day,pvProduction,consumption}] }
     const [chartRev, setChartRev] = useState(0);
     const [chartToggle, setChartToggle] = useState({ showProduce: true, showConsume: true, showSoC: true });
-    const [reportGaps, setReportGaps] = useState([]);
-    const [reportGapRange, setReportGapRange] = useState({ start: null, end: null });
+    // Real plot rectangle of the main chart (measured from Plotly), shared by
+    // the gap bar so it lines up exactly with the chart's columns. The hook
+    // lives here (not inside EnergyChart) because EnergyChart is re-created on
+    // every render — its local state would reset and thrash.
+    const [mainPlotArea, mainPlotAreaMeasure] = usePlotArea();
+
+    // ── Gaps come from the chart's OWN data, never from raw meter logs ───────
+    // The plotted values are aggregates (DailyEnergy / HourlyEnergy) and those
+    // can still hold a day whose raw RunningMeter rows are gone (and the other
+    // way round). Reading silence from the raw logs therefore shades a column
+    // the chart is actually drawing. The authoritative rule is simpler:
+    //   a bucket is a gap  ⇔  every series the user currently has switched on
+    //                          is empty for that bucket.
+    // Produce/Consume count when > 0 kWh; SoC counts when it has a real value
+    // and the building actually has a battery.
+    const bucketHasData = useCallback((rows, i, hasBattery) => {
+        const d = rows?.[i];
+        if (!d) return false;
+        // Degenerate case: nothing is drawn at all. Fall back to "does this bucket
+        // hold any value", so switching every series off never shades a chart
+        // that does have data in it.
+        if (!chartToggle.showProduce && !chartToggle.showConsume && !(chartToggle.showSoC && hasBattery)) {
+            return toNumeric(d.pvProduction) > 0 || toNumeric(d.consumption) > 0;
+        }
+        if (chartToggle.showProduce && toNumeric(d.pvProduction) > 0) return true;
+        if (chartToggle.showConsume && toNumeric(d.consumption) > 0) return true;
+        if (chartToggle.showSoC && hasBattery && d.batterySoC != null && Number.isFinite(Number(d.batterySoC))) return true;
+        return false;
+    }, [chartToggle]);
+
+    const emptyBucketsIn = useCallback((rows, hasBattery = false) => {
+        const out = [];
+        const n = rows?.length || 0;
+        for (let i = 0; i < n; i++) if (!bucketHasData(rows, i, hasBattery)) out.push(i);
+        return out;
+    }, [bucketHasData]);
+
+    // All-buildings view: the chart sums EVERY building, so it has data wherever
+    // at least one building logged — a gap means the whole system was silent.
+    // (No SoC trace is drawn in this view, so SoC never counts here.)
+    const systemEmptyBuckets = useMemo(() => emptyBucketsIn(chartData, false), [chartData, emptyBucketsIn]);
+
+    const perBuildingEmptyBuckets = useMemo(() => {
+        const map = {};
+        selectedBuildings.forEach((name) => {
+            const entry = perBuildingChart[name];
+            map[name] = emptyBucketsIn(entry?.data, entry?.hasBattery === true);
+        });
+        return map;
+    }, [selectedBuildings, perBuildingChart, emptyBucketsIn]);
+
+    // Whichever view is on screen: with buildings selected the chart draws ALL of
+    // them, so a bucket is a gap only when every selected building is empty there.
+    const emptyBuckets = useMemo(() => {
+        if (selectedBuildings.length === 0) return systemEmptyBuckets;
+        const lists = selectedBuildings.map((name) => perBuildingEmptyBuckets[name] || []);
+        if (!lists.length) return [];
+        const shortest = lists.reduce((a, b) => (a.length <= b.length ? a : b), lists[0]);
+        const sets = lists.map((l) => new Set(l));
+        return shortest.filter((i) => sets.every((s) => s.has(i)));
+    }, [selectedBuildings, perBuildingEmptyBuckets, systemEmptyBuckets]);
+
+    // Time span of one chart bucket. The chart's labels start on the range's
+    // first day (hour 0 in the 1 Day view), so bucket i covers
+    // [start + i*step, start + (i+1)*step).
+    const chartBucketRange = useMemo(() => {
+        const isCustom = timeRange === 'custom' && customStart && customEnd;
+        const isDay = timeRange === '1day';
+        const days = getDaysForRange(timeRange, customStart, customEnd);
+        const endDate = isCustom ? new Date(customEnd) : new Date();
+        const startDate = isCustom ? new Date(customStart) : new Date(endDate);
+        if (!isCustom && !isDay) startDate.setDate(startDate.getDate() - (days - 1));
+        const start = new Date(startDate); start.setHours(0, 0, 0, 0);
+        // 1 Day = today 00:00 → next 00:00 (24 hourly buckets); daily views end
+        // at the next midnight so every column spans exactly one calendar day.
+        const end = isDay ? new Date(start.getTime() + 24 * 3600000) : new Date(endDate);
+        if (!isDay) end.setHours(24, 0, 0, 0);
+        return { start: start.toISOString(), end: end.toISOString() };
+    }, [timeRange, customStart, customEnd]);
+
+    // Bucket granularity of the chart (hourly only in the 1 Day view)
+    const gapBucketUnit = timeRange === '1day' ? 'hour' : 'day';
+    const gapLabel = `No log data in this ${gapBucketUnit}`;
+
+    // One source of truth for all three consumers: the shading inside the chart,
+    // the hover tooltip, and the bar below it.
+    const gapSegments = useMemo(
+        () => computeEmptyBucketSegments(emptyBuckets, chartData?.length || 0, chartBucketRange.start, chartBucketRange.end, { align: 'point', label: gapLabel }),
+        [emptyBuckets, chartData, chartBucketRange, gapLabel]
+    );
+    const gapShapes = useMemo(() => segmentsToPlotlyShapes(gapSegments), [gapSegments]);
+
+    // Per-building bars (one under each selected building's own panel)
+    const perBuildingGapSegments = useMemo(() => {
+        const map = {};
+        selectedBuildings.forEach((name) => {
+            const entry = perBuildingChart[name];
+            map[name] = computeEmptyBucketSegments(
+                perBuildingEmptyBuckets[name] || [],
+                entry?.data?.length || 0,
+                chartBucketRange.start,
+                chartBucketRange.end,
+                { align: 'point', label: gapLabel }
+            );
+        });
+        return map;
+    }, [selectedBuildings, perBuildingChart, perBuildingEmptyBuckets, chartBucketRange, gapLabel]);
 
     // Increment chart revision when data changes
     useEffect(() => { setChartRev(r => r + 1); }, [chartData, perBuildingChart]);
 
     // Fetch admin wallet balance
     useEffect(() => {
-        getWalletByEmail('admin@nida.ac.th')
+        // TODO: Replace with admin building ID from config
+        getWalletByBuildingId(1)
             .then(res => {
                 const bal = res?.data?.tokenBalance ?? res?.tokenBalance ?? res?.balance;
                 if (bal != null) setAdminBalance(Number(bal));
@@ -285,10 +396,12 @@ export default function Report() {
         const fetchReportMetrics = async () => {
             try {
                 const isCustom = timeRange === 'custom' && customStart && customEnd;
+                const isDay = timeRange === '1day';
                 const days = getDaysForRange(timeRange, customStart, customEnd);
                 const endDate = isCustom ? new Date(customEnd) : new Date();
                 const startDate = isCustom ? new Date(customStart) : new Date(endDate);
-                if (!isCustom) startDate.setDate(startDate.getDate() - (days - 1));
+                // 1day = today only (hourly buckets) — do NOT shift back 23 days
+                if (!isCustom && !isDay) startDate.setDate(startDate.getDate() - (days - 1));
                 const start = formatDateLocal(startDate);
                 const end = formatDateLocal(endDate);
 
@@ -383,10 +496,12 @@ export default function Report() {
         const fetchChartData = async () => {
             try {
                 const isCustom = timeRange === 'custom' && customStart && customEnd;
+                const isDay = timeRange === '1day';
                 const days = getDaysForRange(timeRange, customStart, customEnd);
                 const endDate = isCustom ? new Date(customEnd) : new Date();
                 const startDate = isCustom ? new Date(customStart) : new Date(endDate);
-                if (!isCustom) startDate.setDate(startDate.getDate() - (days - 1));
+                // 1day = today only (hourly buckets) — do NOT shift back 23 days
+                if (!isCustom && !isDay) startDate.setDate(startDate.getDate() - (days - 1));
                 const start = formatDateLocal(startDate);
                 const end = formatDateLocal(endDate);
 
@@ -398,11 +513,15 @@ export default function Report() {
                     return;
                 }
 
-                const labels = Array.from({ length: days }, (_, index) => {
-                    const date = new Date(startDate);
-                    date.setDate(startDate.getDate() + index);
-                    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-                });
+                // 1day → 24 hourly labels from the backend's hourly series;
+                // other ranges → one label per calendar day
+                const labels = isDay
+                    ? Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`)
+                    : Array.from({ length: days }, (_, index) => {
+                        const date = new Date(startDate);
+                        date.setDate(startDate.getDate() + index);
+                        return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                    });
 
                 console.log('[report] Buildings from API:', buildings.map(b => b?.name));
                 const energyResponses = await Promise.all(
@@ -416,15 +535,15 @@ export default function Report() {
                                 buildingId,
                                 start,
                                 end,
-                                timeunit: 'day',
+                                timeunit: isDay ? 'hour' : 'day',
                             });
                             let payload = res?.data || {};
                             console.log(`[report:agg] "${building?.name}" daily response keys:`, Object.keys(payload), 'result:', payload?.result);
                             let pv = Array.isArray(payload?.production?.value) ? payload.production.value : [];
                             let con = Array.isArray(payload?.consumption?.value) ? payload.consumption.value : [];
 
-                            // Fallback: aggregate from hourly if daily is empty
-                            if (pv.length === 0 && con.length === 0) {
+                            // Fallback: aggregate from hourly if daily is empty (not needed in 1day mode)
+                            if (!isDay && pv.length === 0 && con.length === 0) {
                                 console.log(`[report:agg] "${building?.name}" daily empty → trying hourly`);
                                 res = await searchBuildingEnergy({
                                     building: backendName,
@@ -496,24 +615,34 @@ export default function Report() {
                     const conSum = consumptionValues.reduce((s, v) => s + toNumeric(v), 0);
                     console.log(`[report:agg] "${buildingName}" → prod=${pvSum} kWh, cons=${conSum} kWh, pvLen=${productionValues.length}`);
 
-                    // Build date→value maps from API response (datetime and value are parallel arrays)
-                    const prodByDate = new Map();
+                    // Build key→value maps from API response (datetime and value are parallel arrays)
+                    // 1day mode: key = "HH:00" hour label; other modes: key = YYYY-MM-DD date
+                    const prodByKey = new Map();
+                    const consByKey = new Map();
+                    const keyOf = isDay ? ((dt) => String(dt).substring(11, 16)) : ((dt) => String(dt).slice(0, 10));
                     productionDatetimes.forEach((dt, i) => {
-                        if (dt) prodByDate.set(String(dt).slice(0, 10), toNumeric(productionValues[i]));
+                        if (dt) prodByKey.set(keyOf(dt), toNumeric(productionValues[i]));
                     });
-                    const consByDate = new Map();
                     consumptionDatetimes.forEach((dt, i) => {
-                        if (dt) consByDate.set(String(dt).slice(0, 10), toNumeric(consumptionValues[i]));
+                        if (dt) consByKey.set(keyOf(dt), toNumeric(consumptionValues[i]));
                     });
 
-                    // Map each label to the correct date-based value
-                    const dayCursor = new Date(startDate);
-                    labels.forEach((label) => {
-                        const dateKey = formatDateLocal(dayCursor); // YYYY-MM-DD
-                        productionMap.set(label, toNumeric(productionMap.get(label)) + (prodByDate.get(dateKey) || 0));
-                        consumptionMap.set(label, toNumeric(consumptionMap.get(label)) + (consByDate.get(dateKey) || 0));
-                        dayCursor.setDate(dayCursor.getDate() + 1);
-                    });
+                    if (isDay) {
+                        // hourly: map each "HH:00" label directly, summing across buildings
+                        labels.forEach((label) => {
+                            productionMap.set(label, toNumeric(productionMap.get(label)) + (prodByKey.get(label) || 0));
+                            consumptionMap.set(label, toNumeric(consumptionMap.get(label)) + (consByKey.get(label) || 0));
+                        });
+                    } else {
+                        // Map each label to the correct date-based value
+                        const dayCursor = new Date(startDate);
+                        labels.forEach((label) => {
+                            const dateKey = formatDateLocal(dayCursor); // YYYY-MM-DD
+                            productionMap.set(label, toNumeric(productionMap.get(label)) + (prodByKey.get(dateKey) || 0));
+                            consumptionMap.set(label, toNumeric(consumptionMap.get(label)) + (consByKey.get(dateKey) || 0));
+                            dayCursor.setDate(dayCursor.getDate() + 1);
+                        });
+                    }
                 });
 
                 setChartData(labels.map((label) => ({
@@ -523,21 +652,8 @@ export default function Report() {
                     batterySoC: averageBatteryPct,
                 })));
 
-                // Detect data gaps for the report range
-                const firstBuilding = buildings[0];
-                if (firstBuilding) {
-                    try {
-                        const metersRes = await getMetersByBuilding(firstBuilding.id);
-                        const meters = Array.isArray(metersRes) ? metersRes : (metersRes?.data || []);
-                        const gapMeterId = meters[0]?.snid;
-                        if (gapMeterId) {
-                            getGaps({ meterId: gapMeterId, from: startDate.toISOString(), to: endDate.toISOString() }).then((g) => {
-                                setReportGaps(Array.isArray(g) ? g : []);
-                                setReportGapRange({ start: startDate.toISOString(), end: endDate.toISOString() });
-                            }).catch(() => {});
-                        }
-                    } catch (_) {}
-                }
+                // No gap query here: gaps are derived from the plotted values
+                // (see emptyBuckets below), so they can never disagree with them.
             } catch (error) {
                 console.error('Failed to load report chart data:', error);
                 setChartData(buildEmptyChartData(getDaysForRange(timeRange, customStart, customEnd)));
@@ -556,10 +672,12 @@ export default function Report() {
 
         const fetchPerBuilding = async () => {
             const isCustom = timeRange === 'custom' && customStart && customEnd;
+            const isDay = timeRange === '1day';
             const days = getDaysForRange(timeRange, customStart, customEnd);
             const endDate = isCustom ? new Date(customEnd) : new Date();
             const startDate = isCustom ? new Date(customStart) : new Date(endDate);
-            if (!isCustom) startDate.setDate(startDate.getDate() - (days - 1));
+            // 1day = today only (hourly buckets) — do NOT shift back
+            if (!isCustom && !isDay) startDate.setDate(startDate.getDate() - (days - 1));
             const start = formatDateLocal(startDate);
             const end = formatDateLocal(endDate);
 
@@ -571,11 +689,13 @@ export default function Report() {
             console.log('[report] nameToId map:', nameToId);
             console.log('[report] selectedBuildings:', selectedBuildings);
 
-            const labels = Array.from({ length: days }, (_, index) => {
-                const date = new Date(startDate);
-                date.setDate(startDate.getDate() + index);
-                return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-            });
+            const labels = isDay
+                ? Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`)
+                : Array.from({ length: days }, (_, index) => {
+                    const date = new Date(startDate);
+                    date.setDate(startDate.getDate() + index);
+                    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                });
 
             const result = {};
 
@@ -585,21 +705,21 @@ export default function Report() {
                     const buildingId = nameToId[buildingName] || null;
                     console.log(`[report] Fetching building "${buildingName}" → backend "${backendName}" id=${buildingId}`);
                     try {
-                        // Try daily data first
+                        // Try daily data first (hourly in 1day mode)
                         let res = await searchBuildingEnergy({
                             building: backendName,
                             buildingId,
                             start,
                             end,
-                            timeunit: 'day',
+                            timeunit: isDay ? 'hour' : 'day',
                         });
                         let payload = res?.data || {};
                         console.log(`[report] "${buildingName}" daily response keys:`, Object.keys(payload));
                         let pv = Array.isArray(payload?.production?.value) ? payload.production.value : [];
                         let con = Array.isArray(payload?.consumption?.value) ? payload.consumption.value : [];
 
-                        // Fallback: if daily data is empty, aggregate from hourly
-                        if (pv.length === 0 && con.length === 0) {
+                        // Fallback: if daily data is empty, aggregate from hourly (not needed in 1day mode)
+                        if (!isDay && pv.length === 0 && con.length === 0) {
                             console.log(`[report] "${buildingName}" daily empty → trying hourly fallback`);
                             res = await searchBuildingEnergy({
                                 building: backendName,
@@ -664,8 +784,9 @@ export default function Report() {
                                         if (socVals[i] != null) fullMap[String(dt).substring(0, 10)] = Number(socVals[i]);
                                     });
 
-                                    // Map accumulated SoC to chart labels
-                                    batterySoCSeries = labels.map((label) => {
+                                    // Map accumulated SoC to chart labels (daily ranges only —
+                                    // 1day mode has hourly labels the date parser can't read)
+                                    batterySoCSeries = isDay ? null : labels.map((label) => {
                                         // labels are "DD Mmm YYYY" format (e.g. "10 Jul 2026")
                                         const monthNames = { Jan:1, Feb:2, Mar:3, Apr:4, May:5, Jun:6, Jul:7, Aug:8, Sep:9, Oct:10, Nov:11, Dec:12 };
                                         const parts = label.split(' ');
@@ -1097,7 +1218,7 @@ export default function Report() {
         const csvRows = [
             ['Total Energy Analytics Report'],
             ['Generated At', generatedAt.toLocaleString()],
-            ['Time Range', timeRange],
+            ['Time Range', RANGE_LABELS[timeRange] || timeRange],
             [],
             ['System Energy Production vs Consumption'],
             ['Period', 'PV Production (kWh)', 'Consumption (kWh)', 'Battery SoC (%)'],
@@ -1168,7 +1289,7 @@ export default function Report() {
             <body>
                 <h1>Total Energy Analytics Report</h1>
                 <p><strong>Generated At:</strong> ${generatedAt.toLocaleString()}</p>
-                <p><strong>Time Range:</strong> ${timeRange}</p>
+                <p><strong>Time Range:</strong> ${RANGE_LABELS[timeRange] || timeRange}</p>
 
                 <div class="summary">
                     <p><strong>Total PV Production:</strong> ${chartData.reduce((sum, row) => sum + toNumeric(row.pvProduction), 0).toFixed(2)} kWh</p>
@@ -1208,7 +1329,8 @@ export default function Report() {
 
     // SVG Chart Component — supports multi-building series
     // Plotly Chart Component — supports multi-building series
-    const EnergyChart = ({ data, series = [], showBattery = true, showProduce = true, showConsume = true, showSoC = true }) => {
+    const EnergyChart = ({ data, series = [], showBattery = true, showProduce = true, showConsume = true, showSoC = true, gapShapes = [], gapBuckets = [], gapUnit = 'day', onPlotReady }) => {
+        const measurePlotArea = onPlotReady;
         const hasSeries = series.length > 0;
         const sampleData = hasSeries ? series[0].data : data;
         const dataLen = Math.max(sampleData.length, 1);
@@ -1274,7 +1396,7 @@ export default function Report() {
         const layout = {
             autosize: true, height: hasSeries ? 500 : 400,
             margin: { l: 60, r: 20, t: 10, b: 50 },
-            xaxis: { tickfont: { size: 11, color: '#6b7280' }, gridcolor: '#e5e7eb', automargin: true, nticks: 7 },
+            xaxis: { tickfont: { size: 11, color: '#6b7280' }, gridcolor: '#e5e7eb', automargin: true, nticks: labels.length > 24 ? 7 : 12 },
             yaxis: {
                 title: { text: 'Energy (kWh)', font: { size: 12, color: '#6b7280' } },
                 tickfont: { size: 11, color: '#6b7280' }, gridcolor: '#e5e7eb',
@@ -1285,10 +1407,34 @@ export default function Report() {
             legend: { orientation: 'v', x: 1.02, y: 1, font: { size: 9 }, bgcolor: 'rgba(255,255,255,0.8)', bordercolor: '#e5e7eb', borderwidth: 1 },
             hovermode: 'x unified',
             hoverlabel: { font: { size: 11 } },
+            // In-plot gap shading on the daily bucket grid (same numbers as GapBar)
+            shapes: gapShapes,
         };
         if (yAxis2Traces.length > 0) {
             layout.yaxis2 = { title: { text: 'SoC (%)', font: { size: 12, color: '#f97316' } }, tickfont: { size: 11, color: '#f97316' }, overlaying: 'y', side: 'right', range: [0, 100] };
             layout.margin.r = 70;
+        }
+
+        // Gap hover — same idea as the dashboard's shaded columns, whose title
+        // reads "No log data in this hour/day". Shapes cannot be hovered in
+        // Plotly, so add an invisible marker per empty bucket: the x-unified
+        // hover box then names the gap for that bucket.
+        const gapBucketList = Array.isArray(gapBuckets) ? gapBuckets : [];
+        if (gapBucketList.length && labels.length) {
+            const gapX = gapBucketList.map((i) => labels[i]).filter((v) => v != null);
+            if (gapX.length) {
+                traces.push({
+                    x: gapX,
+                    y: gapX.map(() => 0),
+                    type: 'scatter',
+                    mode: 'markers',
+                    marker: { size: 1, color: 'rgba(0,0,0,0)' },
+                    opacity: 0,
+                    hovertemplate: `No log data in this ${gapUnit}<extra></extra>`,
+                    showlegend: false,
+                    name: '',
+                });
+            }
         }
 
         // Ensure at least one trace so Plotly renders the chart area
@@ -1297,7 +1443,8 @@ export default function Report() {
             traces.push({ x: safeLabels, y: safeLabels.map(() => 0), type: 'scatter', mode: 'lines', line: { color: 'transparent' }, showlegend: false });
         }
 
-        return <Plot data={traces} layout={layout} config={{ displayModeBar: false }} useResizeHandler style={{ width: '100%', height: 400 }} revision={chartRev} />;
+        return <Plot data={traces} layout={layout} config={{ displayModeBar: false }} useResizeHandler style={{ width: '100%', height: 400 }} revision={chartRev}
+            onInitialized={measurePlotArea} onUpdate={measurePlotArea} onRelayout={measurePlotArea} />;
     };
 
     return (
@@ -1353,6 +1500,16 @@ export default function Report() {
                             <p className="text-sm text-gray-600">Comparative trend analysis with Battery State of Charge (SoC)</p>
                         </div>
                         <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setTimeRange('1day')}
+                                className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
+                                    timeRange === '1day'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                }`}
+                            >
+                                1 Day
+                            </button>
                             <button
                                 onClick={() => setTimeRange('1week')}
                                 className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
@@ -1586,6 +1743,10 @@ export default function Report() {
                     <div className="w-full overflow-x-auto">
                         <EnergyChart
                             data={chartData}
+                            onPlotReady={mainPlotAreaMeasure}
+                            gapBuckets={emptyBuckets}
+                            gapUnit={gapBucketUnit}
+                            gapShapes={gapShapes}
                             series={selectedBuildings.length > 0
                                 ? selectedBuildings.map((name) => {
                                     const entry = perBuildingChart[name] || { data: buildEmptyChartData(getDaysForRange(timeRange, customStart, customEnd)), hasBattery: false, batterySoC: null };
@@ -1605,7 +1766,41 @@ export default function Report() {
                             showSoC={chartToggle.showSoC}
                         />
                     </div>
-                    <GapBar gaps={reportGaps} rangeStart={reportGapRange.start} rangeEnd={reportGapRange.end} />
+                    {(() => {
+                        // Plotly reserves side margins for the axes (l:60 / r:20,
+                        // r:70 when the SoC second y-axis is rendered) — the gap bar
+                        // must inset by the same amount to line up with the x-axis.
+                        const perBuildingSoCAxis = selectedBuildings.some((n) => {
+                            const e = perBuildingChart[n];
+                            return e?.hasBattery && chartToggle.showSoC;
+                        });
+                        // Prefer the measured plot box; the margin guess is only a
+                        // first-paint fallback before Plotly has laid out.
+                        const hasPlotBox = mainPlotArea && mainPlotArea.width > 0;
+                        const rightMargin = selectedBuildings.length > 0 && perBuildingSoCAxis ? 70 : 20;
+                        const boxProps = hasPlotBox
+                            ? { plotLeft: mainPlotArea.left, plotWidth: mainPlotArea.width }
+                            : { plotMargin: { left: 60, right: rightMargin } };
+                        // Segments come from the chart's own data, so the bar holds
+                        // the exact same numbers as the shading inside the chart.
+                        if (selectedBuildings.length === 0) {
+                            return (
+                                <GapBar segments={gapSegments} align="point" {...boxProps} />
+                            );
+                        }
+                        return selectedBuildings.map((name) => {
+                            const segs = perBuildingGapSegments[name];
+                            if (!segs || !segs.length) return null;
+                            return (
+                                <div key={`gap-${name}`} className="mt-2">
+                                    <div style={hasPlotBox ? { marginLeft: mainPlotArea.left, width: mainPlotArea.width } : { paddingLeft: 60, paddingRight: rightMargin }}>
+                                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">{name}</p>
+                                    </div>
+                                    <GapBar segments={segs} align="point" {...boxProps} />
+                                </div>
+                            );
+                        });
+                    })()}
                 </div>
 
                 {/* Energy Source Breakdown & Top Consumers */}

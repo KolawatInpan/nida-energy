@@ -13,6 +13,8 @@ import 'react-datepicker/dist/react-datepicker.css';
 
 import { getApiBase } from '../../core/data_connecter/apiBase';
 import GapBar from '../../components/charts/GapBar';
+import { gapsToPlotlyShapes } from '../../utils/gapShapes';
+import { usePlotArea } from '../../utils/usePlotArea';
 
 const slugify = (name) => {
     if (!name) return '';
@@ -297,6 +299,9 @@ export default function Meter() {
     const [customDateRange, setCustomDateRange] = useState([null, null]);
     const [meterGaps, setMeterGaps] = useState([]);
     const [meterGapRange, setMeterGapRange] = useState({ start: null, end: null });
+    // Real plot area of the trend chart, measured from Plotly — keeps the gap
+    // bar exactly under the chart columns instead of guessing the margins
+    const [plotArea, plotAreaMeasure] = usePlotArea();
     const [startDate, endDate] = customDateRange;
     const [hourlyTrend, setHourlyTrend] = useState({
         labels: Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`),
@@ -665,24 +670,30 @@ export default function Meter() {
         let mounted = true;
         const energyMeterId = String(meter?.raw?.snid || meter?.id || meterId || '');
 
-        const now = new Date();
+        // Anchor + range MUST match the chart exactly:
+        // - 'today' chart shows the LAST DAY WITH DATA (anchor = meter.raw.timestamp, 24 hourly buckets)
+        // - 'week'/'month' charts show N daily buckets ending on the anchor day
+        // - 'custom' chart shows one bucket per calendar day in the picked range
+        const rawAnchor = meter?.raw?.timestamp ? new Date(meter.raw.timestamp) : new Date();
+        const anchorDate = Number.isNaN(rawAnchor.getTime()) ? new Date() : rawAnchor;
         let rangeStart, rangeEnd;
 
-        if (trendMode === 'custom' && startDate && endDate) {
+        if (trendMode === 'custom') {
+            if (!(startDate && endDate)) {
+                if (mounted) { setMeterGaps([]); setMeterGapRange({ start: null, end: null }); }
+                return;
+            }
             rangeStart = new Date(startDate); rangeStart.setHours(0, 0, 0, 0);
-            rangeEnd = new Date(endDate); rangeEnd.setHours(23, 59, 59, 999);
-        } else if (trendMode === 'week') {
-            rangeEnd = new Date(now);
-            rangeStart = new Date(now); rangeStart.setDate(now.getDate() - 7);
-            rangeStart.setHours(0, 0, 0, 0);
-        } else if (trendMode === 'month') {
-            rangeEnd = new Date(now);
-            rangeStart = new Date(now); rangeStart.setDate(now.getDate() - 30);
+            rangeEnd = new Date(endDate); rangeEnd.setHours(24, 0, 0, 0); // exclusive end = last bucket's full day
+        } else if (trendMode === 'week' || trendMode === 'month') {
+            const daysBack = trendMode === 'week' ? 7 : 30;
+            rangeEnd = new Date(anchorDate); rangeEnd.setHours(24, 0, 0, 0); // exclusive end = anchor day full day
+            rangeStart = new Date(anchorDate); rangeStart.setDate(anchorDate.getDate() - (daysBack - 1));
             rangeStart.setHours(0, 0, 0, 0);
         } else {
-            // today
-            rangeStart = new Date(now); rangeStart.setHours(0, 0, 0, 0);
-            rangeEnd = new Date(now); rangeEnd.setHours(23, 59, 59, 999);
+            // today — same day the hourly chart is built from (last data day), 24 buckets
+            rangeStart = new Date(anchorDate); rangeStart.setHours(0, 0, 0, 0);
+            rangeEnd = new Date(anchorDate); rangeEnd.setHours(24, 0, 0, 0); // exclusive end
         }
 
         getGaps({ meterId: energyMeterId, from: rangeStart.toISOString(), to: rangeEnd.toISOString() })
@@ -695,7 +706,7 @@ export default function Meter() {
             .catch(() => {});
 
         return () => { mounted = false; };
-    }, [meter?.id, trendMode, startDate, endDate, meterId]);
+    }, [meter?.id, trendMode, startDate, endDate, meterId, meter?.raw?.timestamp]);
 
     const buildingOptions = useMemo(() => {
         const seen = new Set();
@@ -1198,14 +1209,24 @@ export default function Meter() {
                                 showlegend: false,
                                 hovermode: 'x unified',
                                 hoverlabel: { bgcolor: 'rgba(0,0,0,0.8)', font: { size: 11, color: '#fff' } },
+                                // In-plot gap shading — drawn on the same bucket grid as
+                                // the data, so it aligns with the columns by construction
+                                shapes: gapsToPlotlyShapes(meterGaps, trendChart.labels?.length, meterGapRange.start, meterGapRange.end),
                             }}
+                            onInitialized={plotAreaMeasure}
+                            onUpdate={plotAreaMeasure}
+                            onRelayout={plotAreaMeasure}
                             config={{ displayModeBar: false }}
                             useResizeHandler={true}
                             style={{ width: '100%', height: '100%' }}
                         />
                     </div>
 
-                    <GapBar gaps={meterGaps} rangeStart={meterGapRange.start} rangeEnd={meterGapRange.end} />
+                    <GapBar gaps={meterGaps} rangeStart={meterGapRange.start} rangeEnd={meterGapRange.end}
+                        bucketCount={trendChart.labels?.length || undefined}
+                        align="point"
+                        plotLeft={plotArea?.left} plotWidth={plotArea?.width}
+                        plotMargin={{ left: 55, right: 15 }} />
 
                     {/* Chart controls */}
                     <div className="text-right mt-3">

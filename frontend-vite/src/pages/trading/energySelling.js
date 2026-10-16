@@ -10,7 +10,7 @@ import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/reg
 import { updateBuilding as updateBuildingPolicy } from '../../core/data_connecter/building';
 import { searchBuildingEnergy } from '../../core/data_connecter/dashboard';
 import { getEnergyRates } from '../../core/data_connecter/rate';
-import { getWalletByEmail } from '../../core/data_connecter/wallet';
+import { getWalletByBuildingId } from '../../core/data_connecter/wallet';
 import { useTOR } from '../../global/TORContext';
 import { TradingOverlay } from './components';
 import Key from '../../global/key';
@@ -68,26 +68,18 @@ export default function EnergySelling() {
     const normalizeRoleName = (value) => String(value || '').trim().toUpperCase();
     const memberRoleName = normalizeRoleName(member?.role || member?.userRole || localStorage.getItem(Key.UserRole));
     const isAdmin = memberRoleName === 'ADMIN';
-    const memberEmail = String(member?.email || localStorage.getItem(Key.UserEmail) || '').trim().toLowerCase();
+    const userCredId = String(localStorage.getItem(Key.UserId) || member?.credId || '').trim().toLowerCase();
     const isManualMode = String(tradeMode || '').toUpperCase() === 'MANUAL';
 
     const isOwnedByCurrentUser = (building) => {
       if (isAdmin) return true;
-      const candidateEmails = [
-        building?.email,
-        building?.contact,
-        building?.contactEmail,
-        building?.ownerEmail,
-      ]
-        .map((value) => String(value || '').trim().toLowerCase())
-        .filter(Boolean);
-
-      return Boolean(memberEmail) && candidateEmails.includes(memberEmail);
+      if (!userCredId) return false;
+      return building?.assignedUsers?.some(au => au.user?.credId === userCredId) || false;
     };
 
     const selectedBuildingOwnedByUser = useMemo(
       () => isOwnedByCurrentUser(selectedBuilding),
-      [selectedBuilding, isAdmin, memberEmail]
+      [selectedBuilding, isAdmin, userCredId]
     );
 
     // Only sync tradeMode from selectedBuilding when opening a new building
@@ -113,7 +105,7 @@ export default function EnergySelling() {
         .filter((building) => isOwnedByCurrentUser(building))
         .map((building) => String(building?.name || ''))
         .filter(Boolean),
-      [overviewStats.availableBuildings, isAdmin, memberEmail]
+      [overviewStats.availableBuildings, isAdmin, userCredId]
     );
 
     const classifyMeterType = (meter = {}) => {
@@ -570,7 +562,7 @@ export default function EnergySelling() {
                 return;
             }
 
-            const walletRes = await getWalletByEmail(realBuilding.email);
+            const walletRes = await getWalletByBuildingId(realBuilding.id);
             const buyerWalletId = walletRes?.data?.id ? String(walletRes.data.id) : '';
             if (!buyerWalletId) { message.error('Wallet not found'); return; }
 
@@ -716,8 +708,8 @@ export default function EnergySelling() {
                 return;
             }
             
-            // Get wallet by building email
-            const walletRes = await getWalletByEmail(realBuilding.email);
+            // Get wallet by building id
+            const walletRes = await getWalletByBuildingId(realBuilding.id);
             sellerWalletId = walletRes?.data?.id ? String(walletRes.data.id) : '';
             
             if (!sellerWalletId) {

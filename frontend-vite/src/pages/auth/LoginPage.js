@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { Button, TextField } from "@material-ui/core";
 import { useHistory } from "react-router-dom";
 import { login, loginAdmin, validateAuth } from "../../store/auth/auth.action";
-import { adminQuickRegister, checkUser, getBuildings } from "../../core/data_connecter/register";
+import { checkUser } from "../../core/data_connecter/register";
 
 const featureItems = [
     ["Smart Energy Priority", "Automatically prioritize solar, battery, then grid power for maximum savings"],
@@ -20,18 +20,10 @@ const LoginPage = () => {
     const [password, setPassword] = useState("");
     const [isCompact, setIsCompact] = useState(() => window.innerWidth < 960);
     const [showAdminLogin, setShowAdminLogin] = useState(false);
-    const [quickCreateLoading, setQuickCreateLoading] = useState(null);
-    const [popupResult, setPopupResult] = useState(null);
     const [checkResult, setCheckResult] = useState(null); // { real, demo } | null
     const [checking, setChecking] = useState(false);
-    const [existingBuildings, setExistingBuildings] = useState([]);
     const checkTimerRef = useRef(null);
     const lastCheckedEmailRef = useRef('');
-
-    // Fetch existing buildings to highlight already-created ones
-    useEffect(() => {
-        getBuildings().then(b => setExistingBuildings(Array.isArray(b) ? b : [])).catch(() => {});
-    }, []);
 
     // Debounced email check against both DBs
     const doCheckUser = useCallback(async (emailVal) => {
@@ -59,44 +51,6 @@ const LoginPage = () => {
         setEmail(val);
         if (checkTimerRef.current) clearTimeout(checkTimerRef.current);
         checkTimerRef.current = setTimeout(() => doCheckUser(val), 500);
-    };
-
-    const BUILDING_PRESETS = [
-        { id: 'ratchaphruek', name: 'Ratchaphruek', role: 'producer', roleLabel: '⚡ Producer + Battery + Consume', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/TGTXyK34yCovJinC7' },
-        { id: 'malai', name: 'Malai', role: 'producer', roleLabel: '☀️ Producer (Produce + Consume)', address: 'สถาบันฯ นิด้า 118, อาคารมาลัยหุวะนันท์ ชั้น 1', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Z18Qw8KoDC6rZNcV6' },
-        { id: 'auditorium', name: 'Auditorium', role: 'producer', roleLabel: '🌓 Producer (demo) / Consumer (real)', address: '148 ถนนเสรีไทย แขวงคลองจั่น เขตบางกะปิ', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=13.771579509456485,100.65443996963269' },
-        { id: 'nidasumpan', name: 'Nidasumpan', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Fhtz7rWTBYtvmqZN9' },
-        { id: 'bunchana', name: 'Bunchana', role: 'consumer', roleLabel: '🔌 Consumer only', address: '148 Seri Thai Rd, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/x2F8LynSaXAy31Jt7' },
-        { id: 'chup', name: 'Chup', role: 'consumer', roleLabel: '🔌 Consumer only', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/giR2p4fUSkdVC3vaA' },
-        { id: 'narathip', name: 'Narathip', role: 'consumer', roleLabel: '🔌 Consumer only', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/Sz4gkVap4b37AujM8' },
-        { id: 'navamin', name: 'Navamin', role: 'consumer', roleLabel: '🔌 Consumer only', address: '118 Sukhaphiban 2 Alley, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/tV3JPGpz8qNTM4d18' },
-        { id: 'nidahouse', name: 'Nida house', role: 'consumer', roleLabel: '🔌 Consumer only', address: 'อาคารนันทนาการ Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.app.goo.gl/1YVnyjcwWCA3zgvK8' },
-        { id: 'serithai', name: 'Serithai', role: 'consumer', roleLabel: '🔌 Consumer only', address: 'Seri Thai Rd, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=Serithai+NIDA+Bangkok' },
-        { id: 'siam', name: 'Siam', role: 'consumer', roleLabel: '🔌 Consumer only', address: 'Siam, Khlong Chan, Bang Kapi', city: 'Bangkok', postalCode: '10240', mapUrl: 'https://maps.google.com/?q=Siam+NIDA+Bangkok' },
-    ];
-
-    const handleQuickCreate = async (preset, idx) => {
-        const emails = ['nida.ratcha@nida.com', 'nida.malai@nida.com', 'nida.audi@nida.com', 'nida.nidas@nida.com', 'nida.buncha@nida.com', 'nida.chup@nida.com', 'nida.nara@nida.com', 'nida.nava@nida.com', 'nida.nidah@nida.com', 'nida.seri@nida.com', 'nida.siam@nida.com'];
-        setQuickCreateLoading(preset.id);
-        try {
-            const res = await adminQuickRegister({
-                buildingName: preset.name,
-                email: emails[idx],
-                password: 'nida123',
-                address: preset.address,
-                city: preset.city,
-                postalCode: preset.postalCode,
-                mapUrl: preset.mapUrl,
-                buildingRole: preset.role,
-            });
-            const result = res?.data || res;
-            setPopupResult({ ok: true, preset, email: emails[idx], password: 'nida123', meters: result.meters || [] });
-            getBuildings().then(b => setExistingBuildings(Array.isArray(b) ? b : [])).catch(() => {});
-        } catch (err) {
-            setPopupResult({ ok: false, error: err?.response?.data?.error || err.message });
-        } finally {
-            setQuickCreateLoading(null);
-        }
     };
 
     useEffect(() => {
@@ -297,23 +251,11 @@ const LoginPage = () => {
                                         <span style={{
                                             padding: "3px 10px",
                                             borderRadius: 12,
-                                            background: checkResult.real ? "#dcfce7" : "#fee2e2",
-                                            color: checkResult.real ? "#16a34a" : "#dc2626",
+                                            background: checkResult.found ? "#dcfce7" : "#fee2e2",
+                                            color: checkResult.found ? "#16a34a" : "#dc2626",
                                             fontWeight: 600,
                                         }}>
-                                            {checkResult.real ? '✅ Real' : '❌ Real'}
-                                        </span>
-                                        <span style={{
-                                            padding: "3px 10px",
-                                            borderRadius: 12,
-                                            background: checkResult.demo ? "#dcfce7" : "#fee2e2",
-                                            color: checkResult.demo ? "#16a34a" : "#dc2626",
-                                            fontWeight: 600,
-                                        }}>
-                                            {checkResult.demo ? '✅ Demo' : '❌ Demo'}
-                                        </span>
-                                        <span style={{ fontSize: 10, color: "#9ca3af", alignSelf: "center" }}>
-                                            (User & Building shared · Wallet/Energy per mode)
+                                            {checkResult.found ? `✅ ${checkResult.users?.length || 0} user(s) found` : '❌ No users found'}
                                         </span>
                                     </>
                                 ) : null}
@@ -385,79 +327,32 @@ const LoginPage = () => {
                         borderRadius: 16,
                         border: "1px solid #e5e7eb",
                         background: "#f8fafc",
-                        padding: "20px 20px 24px",
+                        padding: "18px 20px 20px",
                     }}>
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 16 }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
                             <div style={{
                                 width: 40,
                                 height: 40,
+                                flex: "0 0 40px",
                                 borderRadius: 10,
                                 background: "#dcfce7",
                                 color: "#16a34a",
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
-                                fontWeight: 700,
+                                fontSize: 18,
                             }}>
-                                ⚡
+                                📝
                             </div>
                             <div>
                                 <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>
-                                    Quick Register Buildings
+                                    Register Buildings &amp; Users
                                 </div>
                                 <div style={{ marginTop: 4, fontSize: 13, lineHeight: 1.6, color: "#6b7280" }}>
-                                    One-click create user + building + meters + wallet
+                                    Register buildings, meters and users in bulk. Each user is linked to its building,
+                                    so the wallet and dashboard are ready right away.
                                 </div>
                             </div>
-                        </div>
-
-                        <div style={{ display: "grid", gap: 4 }}>
-                            {BUILDING_PRESETS.map((preset, idx) => {
-                                const exists = existingBuildings.some(b => String(b?.name || '').toLowerCase() === preset.name.toLowerCase());
-                                return (
-                                <div key={preset.id}>
-                                    {exists && <div style={{ fontSize: 10, color: "#16a34a", fontWeight: 600, marginBottom: 2 }}>✅ Already exists</div>}
-                                <button
-                                    key={preset.id}
-                                    type="button"
-                                    onClick={() => handleQuickCreate(preset, idx)}
-                                    disabled={quickCreateLoading === preset.id}
-                                    style={{
-                                        width: "100%",
-                                        padding: "10px 14px",
-                                        borderRadius: 10,
-                                        border: preset.role === 'producer' ? "2px solid #f59e0b" : "2px solid #3b82f6",
-                                        background: quickCreateLoading === preset.id ? "#f3f4f6" : "#ffffff",
-                                        color: "#1f2937",
-                                        fontSize: 13,
-                                        fontWeight: 600,
-                                        cursor: quickCreateLoading === preset.id ? "wait" : "pointer",
-                                        textAlign: "left",
-                                        display: "flex",
-                                        justifyContent: "space-between",
-                                        alignItems: "center",
-                                    }}
-                                >
-                                    <span>
-                                        {quickCreateLoading === preset.id ? "⏳" : "⚡"} {preset.name}
-                                        <span style={{
-                                            marginLeft: 8,
-                                            padding: "2px 8px",
-                                            borderRadius: 6,
-                                            fontSize: 11,
-                                            fontWeight: 700,
-                                            background: preset.role === 'producer' ? "#fef3c7" : "#dbeafe",
-                                            color: preset.role === 'producer' ? "#92400e" : "#1e40af",
-                                        }}>
-                                            {preset.roleLabel}
-                                        </span>
-                                    </span>
-                                    <span style={{ fontSize: 12, color: "#9ca3af" }}>
-                                        {['nida.ratcha@', 'nida.malai@', 'nida.audi@', 'nida.nidas@', 'nida.buncha@', 'nida.chup@', 'nida.nara@', 'nida.nava@', 'nida.nidah@', 'nida.seri@', 'nida.siam@'][idx]}
-                                    </span>
-                                </button>
-                                </div>
-                            )})}
                         </div>
 
                         <button
@@ -465,56 +360,24 @@ const LoginPage = () => {
                             onClick={() => history.push("/meter-registration")}
                             style={{
                                 width: "100%",
-                                marginTop: 18,
+                                marginTop: 16,
                                 height: 48,
                                 borderRadius: 12,
-                                border: "2px solid #2563eb",
-                                background: "#ffffff",
-                                color: "#2563eb",
+                                border: "none",
+                                background: "#2563eb",
+                                color: "#ffffff",
                                 fontSize: 15,
                                 fontWeight: 700,
                                 cursor: "pointer",
+                                boxShadow: "0 10px 24px rgba(37,99,235,0.22)",
                             }}
                         >
-                            REGISTER NEW BUILDING
+                            GO TO REGISTRATION  →
                         </button>
                     </div>
                 </div>
             </section>
 
-            {/* Quick Create Result Popup */}
-            {popupResult && (
-              <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }} onClick={() => setPopupResult(null)}>
-                <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', padding: 32, width: '100%', maxWidth: 360, borderTop: popupResult.ok ? '4px solid #16a34a' : '4px solid #dc2626' }}>
-                  <div style={{ textAlign: 'center', marginBottom: 20 }}>
-                    <div style={{ fontSize: 40, marginBottom: 8 }}>{popupResult.ok ? '✅' : '❌'}</div>
-                    <h2 style={{ fontSize: 18, fontWeight: 800, color: '#111827', margin: 0 }}>
-                      {popupResult.ok ? 'Quick Create Success' : 'Quick Create Failed'}
-                    </h2>
-                  </div>
-                  {popupResult.ok ? (
-                    <div style={{ fontSize: 14, color: '#374151', background: '#f9fafb', borderRadius: 12, padding: 16, marginBottom: 16, lineHeight: 1.8 }}>
-                      <div>🏢 <strong>{popupResult.preset?.name}</strong></div>
-                      <div>📋 <span style={{ color: '#6b7280' }}>{popupResult.preset?.roleLabel}</span></div>
-                      <div>📧 {popupResult.email}</div>
-                      <div>🔑 {popupResult.password}</div>
-                      <div>📟 {(popupResult.meters || []).join(', ') || 'none'}</div>
-                      <div>💰 10,000 tokens</div>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 14, color: '#dc2626', background: '#fef2f2', borderRadius: 12, padding: 16, marginBottom: 16 }}>
-                      {popupResult.error}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => setPopupResult(null)}
-                    style={{ width: '100%', padding: '10px 0', borderRadius: 12, border: 'none', fontSize: 14, fontWeight: 700, color: '#fff', background: popupResult.ok ? '#16a34a' : '#dc2626', cursor: 'pointer' }}
-                  >
-                    OK
-                  </button>
-                </div>
-              </div>
-            )}
         </div>
     );
 };

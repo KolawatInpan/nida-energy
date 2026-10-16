@@ -1,3 +1,7 @@
 /* Minimal fallback styles (previously App.less) - add styles as needed */
-html { font-size: 20px; }
+/* Root size drives every rem-based value in the app (Tailwind text sizes, spacing,
+   chart heights). 20px inflated all of them by 25% over the design baseline, so the UI
+   felt oversized and ate vertical space; 16px is the baseline Tailwind's scale assumes.
+   Tune this single value to rescale the whole app's density. */
+html { font-size: 16px; }
 body { margin: 0; font-family: 'Chulabhorn', sans-serif; }

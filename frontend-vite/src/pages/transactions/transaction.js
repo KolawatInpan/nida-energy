@@ -6,6 +6,7 @@ import { faArrowsRotate, faClock, faCoins, faHourglass, faTriangleExclamation } 
 import { getAllTransactions } from '../../core/data_connecter/api_caller';
 import { verifyTransaction } from '../../core/data_connecter/transactionDetail';
 import { useTOR } from '../../global/TORContext';
+import Key from '../../global/key';
 import { getBuildings } from '../../core/data_connecter/register';
 import { formatEntityId, formatToken, formatVerificationStatus, getSignedTokenAmount, getTransactionDisplayType } from '../../utils/formatters';
 import { buildTransactionCompareRows, buildTransactionCompareSummary } from '../../utils/transactionMappers';
@@ -112,10 +113,12 @@ export default function Transaction() {
   }, [memberStore]);
   const roleName = useMemo(() => normalizeRoleName(member), [member]);
   const isUserScope = roleName === 'USER' || roleName === 'CONSUMER';
-  const memberEmail = String(member?.email || '').toLowerCase();
+  const userCredId = String(localStorage.getItem(Key.UserId) || member?.credId || '').toLowerCase();
   const memberBuilding = useMemo(() => {
-    return buildingsData.find((item) => String(item?.email || '').toLowerCase() === memberEmail) || null;
-  }, [buildingsData, memberEmail]);
+    return buildingsData.find((item) =>
+      item?.assignedUsers?.some(au => au.user?.credId === userCredId)
+    ) || null;
+  }, [buildingsData, userCredId]);
 
   useEffect(() => {
     let mounted = true;

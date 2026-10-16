@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, message } from 'antd';
-import { deleteUser, getUsers, getBuildingsFromEmail, updateUser } from '../../core/data_connecter/user';
+import { deleteUser, getUsers, getBuildingsByUser, updateUser } from '../../core/data_connecter/user';
 import { formatEntityId } from '../../utils/formatters';
 
 const getSortIndicator = (key, sortConfig) => {
@@ -41,40 +41,22 @@ const Users = () => {
 
         const enriched = await Promise.all(userData.map(async (user) => {
           if (user.building) return user;
-          const email = (user.email || user.credEmail || user.username || user.mail || user.emailAddress || '').toString();
-          if (!email) return { ...user, building: '' };
+          const credId = user.credId || user.id;
+          if (!credId) return { ...user, building: '' };
 
           try {
-            const buildings = await getBuildingsFromEmail(email);
+            const buildings = await getBuildingsByUser(credId);
             let buildingName = '';
 
-            if (Array.isArray(buildings)) {
-              const match = buildings.find((item) => {
-                if (!item) return false;
-                const candidates = [];
-                if (item.email) candidates.push(item.email);
-                if (item.credEmail) candidates.push(item.credEmail);
-                if (item.contactEmail) candidates.push(item.contactEmail);
-                if (Array.isArray(item.emails)) candidates.push(...item.emails);
-                return candidates.some((candidate) => candidate && candidate.toLowerCase() === email.toLowerCase());
-              });
-              if (match) {
-                buildingName = match.name || match.building || '';
-              } else {
-                const names = buildings
-                  .map((item) => (item && (item.name || item.building)) ? (item.name || item.building) : null)
-                  .filter(Boolean);
-                buildingName = names.join(', ');
-              }
-            } else if (buildings && typeof buildings === 'object') {
-              buildingName = buildings.name || buildings.building || '';
-            } else {
-              buildingName = String(buildings || '');
+            if (Array.isArray(buildings) && buildings.length > 0) {
+              buildingName = buildings.map(b => b.name).filter(Boolean).join(', ');
+            } else if (buildings && typeof buildings === 'object' && buildings.name) {
+              buildingName = buildings.name;
             }
 
             return { ...user, building: buildingName };
           } catch (error) {
-            console.error('Error fetching building for user', email, error);
+            console.error('Error fetching building for user', credId, error);
             return { ...user, building: '' };
           }
         }));

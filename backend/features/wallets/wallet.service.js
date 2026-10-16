@@ -1,25 +1,21 @@
 const { prisma } = require('../../utils/prisma');
 const { randomUUID } = require('crypto');
 const Building = require('../building/building.model');
-const Transaction = require('../transactions/transaction.model');
 const Wallet = require('./wallet.model');
 const transactionVerificationService = require('../blockchain/transactionVerification.service');
 
 async function resolveWalletBalance(walletId) {
   let wallet = null;
 
-  if (typeof walletId === 'string' && walletId.includes('@')) {
-    wallet = await Wallet.getWalletByEmail(walletId);
-  } else {
-    wallet = await Wallet.getWalletById(walletId);
-    if (!wallet && typeof walletId === 'string' && walletId.includes('%40')) {
-      try {
-        const decoded = decodeURIComponent(walletId);
-        if (decoded.includes('@')) wallet = await Wallet.getWalletByEmail(decoded);
-      } catch (error) {
-        // ignore decode fallback errors
-      }
-    }
+  // If walletId is a number or numeric string, try buildingId lookup first
+  const asInt = parseInt(walletId, 10);
+  if (Number.isInteger(asInt) && asInt > 0) {
+    wallet = await Wallet.getWalletByBuildingId(asInt);
+  }
+
+  // Fallback: try wallet.id lookup
+  if (!wallet) {
+    wallet = await Wallet.getWalletById(String(walletId));
   }
 
   if (!wallet) {
@@ -28,7 +24,7 @@ async function resolveWalletBalance(walletId) {
     throw err;
   }
 
-  return { walletId: wallet.id, balance: wallet.tokenBalance };
+  return { walletId: wallet.id, balance: wallet.tokenBalance, buildingId: wallet.buildingId };
 }
 
 async function getWallets() {
@@ -39,55 +35,57 @@ async function getWalletById(id) {
   return Wallet.getWalletById(id);
 }
 
+async function getWalletByBuildingId(buildingId) {
+  return Wallet.getWalletByBuildingId(buildingId);
+}
+
 async function createWallet(input) {
   return Wallet.createWallet(input);
 }
 
-async function getWalletByEmail(email) {
-  return Wallet.getWalletByEmail(email);
-}
-
-async function addBalance(email, amount, rate) {
-  return Wallet.addBalance(email, amount, rate);
+async function addBalanceByWalletId(walletId, amount) {
+  return Wallet.addBalanceByWalletId(walletId, amount);
 }
 
 async function getWalletTransactions(walletId) {
-  return Transaction.getTransactionsByWallet(walletId);
+  const { getTransactionsByWallet } = require('../transactions/transaction.model');
+  return getTransactionsByWallet(walletId);
 }
 
 async function recalculateBalance(walletId) {
   return Wallet.recalculateBalance(walletId);
 }
 
-async function topupWalletByEmail(email, amount, snid) {
+/**
+ * Top-up wallet by buildingId (replaces topupWalletByEmail).
+ * @param {number} buildingId - Building ID
+ * @param {number} amount - Token amount to add
+ * @param {string} snid - Meter serial number (optional)
+ */
+async function topupWalletByBuildingId(buildingId, amount, snid) {
   const numericAmount = Number(amount || 0);
 
-  if (!email || !numericAmount || numericAmount <= 0) {
-    const err = new Error('email and positive amount are required');
+  if (!buildingId || !numericAmount || numericAmount <= 0) {
+    const err = new Error('buildingId and positive amount are required');
     err.status = 400;
     throw err;
   }
 
-  const wallet = await Wallet.getWalletByEmail(email);
+  const wallet = await Wallet.getWalletByBuildingId(buildingId);
   if (!wallet) {
-    const err = new Error('Wallet not found');
+    const err = new Error('Wallet not found for this building');
     err.status = 404;
     throw err;
   }
 
-  // Find building name: first by email, then by wallet's user relation
-  const buildings = await Building.getBuildingByEmail(email);
-  let buildingName = (Array.isArray(buildings) && buildings.length && buildings[0]?.name) || null;
+  // Get building name
+  let buildingName = wallet.building?.name || null;
   if (!buildingName) {
-    try {
-      const userWithBuildings = await prisma.user.findUnique({
-        where: { email },
-        include: { buildings: { select: { name: true } } },
-      });
-      if (userWithBuildings?.buildings?.length) {
-        buildingName = userWithBuildings.buildings[0].name;
-      }
-    } catch (e) { /* ignore */ }
+    const building = await prisma.building.findUnique({
+      where: { id: parseInt(buildingId) },
+      select: { name: true },
+    });
+    buildingName = building?.name || `Building-${buildingId}`;
   }
 
   // Use a transaction to create WalletTx + Invoice + Receipt atomically
@@ -114,7 +112,7 @@ async function topupWalletByEmail(email, amount, snid) {
     const invoice = await tx.invoice.create({
       data: {
         id: randomUUID(),
-        buildingName: buildingName || email,
+        buildingName: buildingName,
         fromWId: 'SYSTEM',
         toWId: String(wallet.id),
         timestamp: now,
@@ -172,11 +170,11 @@ async function topupWalletByEmail(email, amount, snid) {
 module.exports = {
   getWallets,
   getWalletById,
+  getWalletByBuildingId,
   createWallet,
-  getWalletByEmail,
-  addBalance,
+  addBalanceByWalletId,
   getWalletTransactions,
   recalculateBalance,
   resolveWalletBalance,
-  topupWalletByEmail,
+  topupWalletByBuildingId,
 };

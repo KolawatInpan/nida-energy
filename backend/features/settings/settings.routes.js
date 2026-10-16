@@ -23,9 +23,7 @@ const settings = require('./settings.controller');
  *           schema:
  *             type: object
  *             properties:
- *               telegramChatId: { type: string, nullable: true }
  *               notifyEmail: { type: boolean }
- *               notifyTelegram: { type: boolean }
  *     responses:
  *       '200':
  *         description: Updated notification preferences

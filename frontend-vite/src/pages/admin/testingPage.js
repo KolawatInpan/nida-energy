@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { Tabs } from 'antd';
 import { getApiBase } from '../../core/data_connecter/apiBase';
+import ApiTestPage from './apiTestPage';
 
 const API = getApiBase();
 
@@ -10,7 +12,7 @@ function LogLine({ log }) {
     return <div className={`${cls} font-mono text-xs py-0.5`}>{icon} {log.msg}</div>;
 }
 
-export default function TestingPage() {
+function TradingTestSuite() {
     const [logs, setLogs] = useState({});
     const [loading, setLoading] = useState(null);
     const [state, setState] = useState({ offers: 0, bids: 0, orders: 0, matches: 0 });
@@ -56,7 +58,7 @@ export default function TestingPage() {
         const { data: wallets } = await axios.get(`${API}/wallets`);
         const building = (Array.isArray(b.data) ? b.data : []).find(x => x.name === name);
         if (!building) throw new Error(`${name} not found`);
-        const wallet = wallets.find(w => w.email === building.email);
+        const wallet = wallets.find(w => w.buildingId === building.id);
         if (!wallet) throw new Error(`${name} wallet not found`);
         return wallet;
     };
@@ -220,8 +222,8 @@ export default function TestingPage() {
     const markets = [dayAhead, intraday, modeTesting];
 
     return (
-        <div className="min-h-screen bg-slate-100">
-            <div className="max-w-5xl mx-auto p-6 lg:p-10">
+        <div className="bg-transparent">
+            <div className="max-w-5xl mx-auto">
                 <div className="mb-8">
                     <h1 className="text-2xl font-bold text-slate-900">Trading Test Suite</h1>
                     <p className="text-sm text-slate-500 mt-1">Systematic trading flow testing</p>
@@ -285,6 +287,41 @@ export default function TestingPage() {
                         </div>
                     </div>
                 ))}
+            </div>
+        </div>
+    );
+}
+
+/**
+ * Admin → Testing.
+ *
+ * Two suites in one page (the sidebar item "Testing" points here):
+ *   1. End-to-End API — walks register → invoice payment against the live API.
+ *   2. Trading Suite  — the original manual trading/mode buttons + console.
+ */
+export default function TestingPage() {
+    return (
+        <div className="min-h-screen bg-slate-100">
+            <div className="max-w-6xl mx-auto p-6 lg:p-8">
+                <div className="mb-5">
+                    <h1 className="text-2xl font-bold text-slate-900">Testing</h1>
+                    <p className="text-sm text-slate-500 mt-1">ระบบทดสอบ API และตลาดพลังงานสำหรับผู้ดูแลระบบ</p>
+                </div>
+                <Tabs
+                    defaultActiveKey="e2e"
+                    items={[
+                        {
+                            key: 'e2e',
+                            label: '🧪 End-to-End API',
+                            children: <ApiTestPage />,
+                        },
+                        {
+                            key: 'trading',
+                            label: '📈 Trading Suite',
+                            children: <TradingTestSuite />,
+                        },
+                    ]}
+                />
             </div>
         </div>
     );

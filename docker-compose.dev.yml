@@ -114,7 +114,7 @@ services:
       - 8.8.4.4
     env_file:
       - .env.dev
-    command: sh -c "npm install --legacy-peer-deps --no-audit --no-fund && ./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma && sh /app/prisma/push-both-dbs.sh --accept-data-loss --schema ./prisma/schema.prisma && node tools/backfillBatterySource.js && ./node_modules/.bin/nodemon -L --watch . --ext js,json --exec 'node server.js'"
+    command: sh -c "npm install --legacy-peer-deps --no-audit --no-fund && ./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma && sh /app/prisma/push-both-dbs.sh --force-reset --accept-data-loss --schema ./prisma/schema.prisma && node tools/backfillBatterySource.js && ./node_modules/.bin/nodemon -L --watch . --ext js,json --exec 'node server.js'"
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

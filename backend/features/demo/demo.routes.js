@@ -37,7 +37,7 @@ router.post('/clearing', async (req, res) => {
     }
 });
 
-// POST /api/demo/test-meter-notify — Test meter inactive Telegram notification
+// POST /api/demo/test-meter-notify — Test meter inactive email notification
 router.post('/test-meter-notify', async (req, res) => {
     try {
         const result = await testMeterInactiveNotification();

@@ -151,36 +151,94 @@ async function getMonthlyEnergy(filter = {}) {
 }
 
 /**
- * Detect time gaps (>1h) in RunningMeter data for a given meter and date.
- * Returns periods where no meter logs were received.
+ * UTC offset (ms) of an IANA timezone at a given instant.
  */
-async function getGaps({ meterId, date, from, to }) {
-  const where = { snid: meterId };
-  
+function tzOffsetMs(date, tz) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const parts = Object.fromEntries(dtf.formatToParts(date).map((p) => [p.type, p.value]));
+  const asUTC = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour) % 24, Number(parts.minute), Number(parts.second),
+  );
+  return asUTC - date.getTime();
+}
+
+/**
+ * [start, end] (UTC Dates) of the local day `dateStr` (YYYY-MM-DD) in timezone `tz`.
+ * Two-pass offset so DST transitions land on the right boundary.
+ */
+function dayBoundsInTz(dateStr, tz) {
+  const naive = new Date(`${dateStr}T00:00:00Z`);
+  const off = tzOffsetMs(naive, tz);
+  let start = new Date(naive.getTime() - off);
+  start = new Date(naive.getTime() - tzOffsetMs(start, tz));
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+  return [start, end];
+}
+
+function formatGapLabel(diffHours) {
+  const totalMin = Math.round(diffHours * 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h <= 0) return `No logs for ${m}m`;
+  return `No logs for ${h}h${m > 0 ? ` ${m}m` : ''}`;
+}
+
+const MIN_GAP_MS = 60 * 60 * 1000; // silences > 1 hour are considered "no data" periods
+
+/**
+ * Detect time gaps (>1h) in RunningMeter data for one or several meters.
+ * With multiple meterIds the timestamps of ALL meters are UNION-ed — a moment
+ * counts as "has data" when ANY meter logs, so gaps mean "every meter was
+ * silent" (system-wide), not per-meter silence.
+ * Returns silence periods — including edges: before the first log and after
+ * the last log inside the requested range.
+ */
+async function getGaps({ meterId, meterIds, date, from, to, tz }) {
+  const ids = (Array.isArray(meterIds) && meterIds.length ? meterIds : (meterId ? [meterId] : []))
+    .map((v) => String(v))
+    .filter(Boolean);
+  if (!ids.length) return [];
+
+  const where = { snid: { in: ids } };
+
   if (date) {
-    const d = new Date(date);
-    const start = new Date(d); start.setHours(0, 0, 0, 0);
-    const end = new Date(d); end.setHours(23, 59, 59, 999);
-    where.timestamp = { gte: start, lte: end };
+    if (tz) {
+      const [start, end] = dayBoundsInTz(String(date), tz);
+      where.timestamp = { gte: start, lte: end };
+    } else {
+      const d = new Date(date);
+      const start = new Date(d); start.setHours(0, 0, 0, 0);
+      const end = new Date(d); end.setHours(23, 59, 59, 999);
+      where.timestamp = { gte: start, lte: end };
+    }
   } else if (from && to) {
     where.timestamp = { gte: new Date(from), lte: new Date(to) };
   }
 
-  const rows = await prisma.runningMeter.findMany({
+  const tsRows = await prisma.runningMeter.findMany({
     where,
     select: { timestamp: true },
     orderBy: { timestamp: 'asc' },
   });
+  const ts = tsRows.map((r) => new Date(r.timestamp).getTime());
 
-  if (rows.length < 2) {
+  const rangeStart = where.timestamp?.gte ? new Date(where.timestamp.gte) : null;
+  const rangeEnd = where.timestamp?.lte ? new Date(where.timestamp.lte) : null;
+
+  if (ts.length < 2) {
     // If no data at all, the whole period is a gap
-    if (rows.length === 0) {
-      const rangeStart = where.timestamp?.gte || new Date(date);
-      const rangeEnd = where.timestamp?.lte || new Date();
+    if (ts.length === 0) {
+      const start = rangeStart || new Date(date || Date.now());
+      const end = rangeEnd || new Date();
       return [{
-        from: rangeStart.toISOString(),
-        to: rangeEnd.toISOString(),
-        durationHours: Math.round((rangeEnd - rangeStart) / (1000 * 60 * 60)),
+        from: start.toISOString(),
+        to: end.toISOString(),
+        durationHours: Math.round((end - start) / (1000 * 60 * 60)),
         label: 'No data available for this period',
       }];
     }
@@ -188,19 +246,60 @@ async function getGaps({ meterId, date, from, to }) {
   }
 
   const gaps = [];
-  const MIN_GAP_HOURS = 1; // gaps > 1 hour are considered "no data" periods
 
-  for (let i = 1; i < rows.length; i++) {
-    const prev = rows[i - 1].timestamp;
-    const curr = rows[i].timestamp;
-    const diffHours = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60);
-
-    if (diffHours > MIN_GAP_HOURS) {
+  // Edge gap: silence between the range start (or the last log before the range,
+  // across all meters) and the first log inside the range.
+  if (rangeStart) {
+    const first = ts[0];
+    const prevRow = await prisma.runningMeter.findFirst({
+      where: { snid: { in: ids }, timestamp: { lt: rangeStart } },
+      orderBy: { timestamp: 'desc' },
+      select: { timestamp: true },
+    });
+    const gapFrom = prevRow ? new Date(prevRow.timestamp).getTime() : rangeStart.getTime();
+    if (first - gapFrom > MIN_GAP_MS) {
+      const diffHours = (first - gapFrom) / MIN_GAP_MS;
       gaps.push({
-        from: prev.toISOString(),
-        to: curr.toISOString(),
+        from: new Date(gapFrom).toISOString(),
+        to: new Date(first).toISOString(),
         durationHours: Math.round(diffHours * 10) / 10,
-        label: `No logs for ${Math.round(diffHours)}h ${Math.round((diffHours % 1) * 60)}m`,
+        label: formatGapLabel(diffHours),
+      });
+    }
+  }
+
+  for (let i = 1; i < ts.length; i++) {
+    const prev = ts[i - 1];
+    const curr = ts[i];
+    const diffHours = (curr - prev) / MIN_GAP_MS;
+
+    if (diffHours > 1) {
+      gaps.push({
+        from: new Date(prev).toISOString(),
+        to: new Date(curr).toISOString(),
+        durationHours: Math.round(diffHours * 10) / 10,
+        label: formatGapLabel(diffHours),
+      });
+    }
+  }
+
+  // Edge gap: silence between the last log inside the range and the range end
+  // (or the next log after the range, across all meters).
+  if (rangeEnd) {
+    const last = ts[ts.length - 1];
+    const nextRow = await prisma.runningMeter.findFirst({
+      where: { snid: { in: ids }, timestamp: { gt: rangeEnd } },
+      orderBy: { timestamp: 'asc' },
+      select: { timestamp: true },
+    });
+    const gapTo = nextRow ? new Date(nextRow.timestamp).getTime() : rangeEnd.getTime();
+    if (gapTo - last > MIN_GAP_MS) {
+      const diffHours = (gapTo - last) / MIN_GAP_MS;
+      gaps.push({
+        from: new Date(last).toISOString(),
+        to: new Date(gapTo).toISOString(),
+        durationHours: Math.round(diffHours * 10) / 10,
+        label: formatGapLabel(diffHours),
       });
     }
   }

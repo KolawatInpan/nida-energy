@@ -75,10 +75,12 @@ export default function Invoice() {
     return storedRole || 'USER';
   }, [member]);
   const isUserScope = roleName === 'USER' || roleName === 'CONSUMER';
-  const memberEmail = String(member?.email || localStorage.getItem(Key.UserEmail) || '').toLowerCase();
+  const userCredId = String(localStorage.getItem(Key.UserId) || member?.credId || '').toLowerCase();
   const memberBuilding = useMemo(() => {
-    return buildings.find((building) => String(building?.email || '').toLowerCase() === memberEmail) || null;
-  }, [buildings, memberEmail]);
+    return buildings.find((building) =>
+      building?.assignedUsers?.some(au => au.user?.credId === userCredId)
+    ) || null;
+  }, [buildings, userCredId]);
   const effectiveBuilding = isUserScope ? (memberBuilding?.name || undefined) : (selectedBuilding !== 'all' ? selectedBuilding : undefined);
 
   const yearOptions = useMemo(() => {

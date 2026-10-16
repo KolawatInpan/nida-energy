@@ -14,14 +14,14 @@ async function enrichTransactions(rows = []) {
     const buildingNames = [...new Set(rows.map((r) => String(r?.buildingName || '')).filter(Boolean))];
 
     const [wallets, buildingsById, buildingsByName] = await Promise.all([
-        walletIds.length ? prisma.wallet.findMany({ where: { id: { in: walletIds } }, select: { id: true, email: true } }) : [],
+        walletIds.length ? prisma.wallet.findMany({ where: { id: { in: walletIds } }, select: { id: true, buildingId: true } }) : [],
         walletIds.length ? prisma.building.findMany({
             where: { id: { in: walletIds.map((id) => Number(id)).filter((id) => Number.isInteger(id)) } },
-            select: { id: true, name: true, produceSN: true, consumeSN: true, batSN: true, email: true },
+            select: { id: true, name: true, produceSN: true, consumeSN: true, batSN: true },
         }) : [],
         buildingNames.length ? prisma.building.findMany({
             where: { name: { in: buildingNames } },
-            select: { id: true, name: true, produceSN: true, consumeSN: true, batSN: true, email: true },
+            select: { id: true, name: true, produceSN: true, consumeSN: true, batSN: true },
         }) : [],
     ]);
 
@@ -30,16 +30,17 @@ async function enrichTransactions(rows = []) {
     const buildingByName = new Map(buildingsByName.map((b) => [String(b.name), b]));
 
     if (wallets.length) {
-        const missingEmails = [...new Set(wallets.map((w) => String(w.email || '')).filter(Boolean))]
-            .filter((email) => !Array.from(buildingByWalletId.values()).some((b) => String(b.email || '') === email));
-        if (missingEmails.length) {
-            const buildingsByEmail = await prisma.building.findMany({
-                where: { email: { in: missingEmails } },
-                select: { id: true, name: true, produceSN: true, consumeSN: true, batSN: true, email: true },
+        // Resolve building from wallet.buildingId (replaces old email-based lookup)
+        const missingBuildingIds = wallets
+            .map((w) => w.buildingId)
+            .filter((bid) => bid && !buildingByWalletId.has(String(bid)));
+        if (missingBuildingIds.length) {
+            const buildingsFromWallets = await prisma.building.findMany({
+                where: { id: { in: missingBuildingIds } },
+                select: { id: true, name: true, produceSN: true, consumeSN: true, batSN: true },
             });
-            buildingsByEmail.forEach((b) => {
-                const email = String(b.email || '');
-                wallets.filter((w) => String(w.email || '') === email).forEach((w) => buildingByWalletId.set(String(w.id), b));
+            buildingsFromWallets.forEach((b) => {
+                wallets.filter((w) => w.buildingId === b.id).forEach((w) => buildingByWalletId.set(String(w.id), b));
                 buildingByName.set(String(b.name), b);
             });
         }

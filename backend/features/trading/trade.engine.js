@@ -28,7 +28,7 @@ async function autoPostBatterySurplusOffer(buildingName) {
     const building = await prisma.building.findUnique({
         where: { name: String(buildingName) },
         select: {
-            name: true, email: true, tradeMode: true,
+            name: true, id: true, tradeMode: true,
             solarTradeMode: true, batteryTradeMode: true,
             solarSelfPercent: true, batterySellThreshold: true,
             solarOfferPrice: true, batteryOfferPrice: true, batteryBidPrice: true,
@@ -50,7 +50,7 @@ async function autoPostBatterySurplusOffer(buildingName) {
     const batteryCurrent = batteryMeter ? Math.max(toNumber(batteryMeter.value), toNumber(batteryMeter.kWH)) : 0;
     const batteryCapacity = batteryMeter ? toNumber(batteryMeter.capacity) : 0;
 
-    const wallet = await prisma.wallet.findFirst({ where: { email: String(building.email || '') }, select: { id: true } });
+    const wallet = await prisma.wallet.findUnique({ where: { buildingId: building.id }, select: { id: true } });
     if (!wallet?.id) return { created: null, reason: 'seller-wallet-not-found', debug: { buildingName: building.name } };
 
     // ---- Track results from both solar and battery checks ----
@@ -213,7 +213,7 @@ async function autoExecuteTradingForBuilding(buildingName) {
     const solarMode = String(building.solarTradeMode || building.tradeMode || '').toUpperCase();
     const batteryMode = String(building.batteryTradeMode || building.tradeMode || '').toUpperCase();
 
-    const wallet = await prisma.wallet.findFirst({ where: { email: String(building.email || '') }, select: { id: true } });
+    const wallet = await prisma.wallet.findUnique({ where: { buildingId: building.id }, select: { id: true } });
     if (!wallet?.id) return { acted: false, reason: 'wallet-not-found' };
 
     const actions = [];

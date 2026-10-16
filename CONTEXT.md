@@ -67,6 +67,13 @@ Your PC (dev)          Compute3 (jump host)          VMs
 | **`pull_policy: always` in docker-compose** | Ensures VMs auto-pull latest image without manual `docker pull`. | Don't remove unless you want manual pull |
 | **compute3 as nginx reverse proxy** | VMs on 192.168.100.x aren't directly accessible from 10.10.161.x. compute3 bridges both networks. | If network changes, update `nginx` configs on compute3 |
 | **Gmail SMTP for OTP** | Simple, no extra infra. App password required (not regular password). | If Gmail blocks, switch to SendGrid or SES |
+| **credId (UUID) as User PK** | email不再是unique per user — 所有user共享同一个email。credId是system-generated UUID，更安全且不暴露信息。 | Never use email as PK or unique identifier for User |
+| **Shared email for all users** | 系统只用2个email (User email + Admin email)。Login通过password区分user，不靠email区分。 | Don't add email uniqueness constraint back |
+| **Wallet per Building** | 1 Building = 1 Wallet (buildingId FK)。Building是trading entity，Wallet是其token balance。User通过BuildingAssignment间接关联。 | Don't tie Wallet to User directly |
+| **BuildingAssignment M:N** | User↔Building通过join table连接，支持一个user管理多个building，一个building有多个user。删除了Building.email FK。 | Always use BuildingAssignment for user-building relationship |
+| **MarketOrder.participantId** | 使用UUID (User.credId) 替代participantEmail。因为email不再unique。 | Don't use email in MarketOrder |
+| **Login: email + password** | 虽然email shared，但password不同。Lookup所有匹配email的user，bcrypt.compare逐个匹配。 | Don't change to userId-only login without shared email fallback |
+| **OTP to shared email** | Registration OTP发送到shared email，user从共享inbox获取。 | Don't require separate email per user for OTP |
 
 ---
 
@@ -112,6 +119,14 @@ The proxy uses `AsyncLocalStorage` to switch between `real` and `demo` databases
 #### Field Name Rules (Common Pitfalls)
 | Table | Correct Field | Wrong Field |
 |-------|--------------|-------------|
+| User | `credId` (PK, UUID) | `email` (no longer PK) |
+| User | `email` (shared, not unique) | Don't use as unique identifier |
+| Building | `assignedContactEmail` | `email` (removed) |
+| Wallet | `buildingId` (FK→Building) | `email` (removed) |
+| MarketOrder | `participantId` (UUID) | `participantEmail` (removed) |
+| BuildingAssignment | `userId` (UUID) | `userEmail` (removed) |
+| Notification | `userId` (UUID) | `email` (removed) |
+| ActivityLog | `userId` (UUID) | `email` (removed) |
 | DailyEnergy, HourlyEnergy, WeeklyEnergy, MonthlyEnergy | `meterSnid` | `meterId` |
 | DailyEnergy, HourlyEnergy, WeeklyEnergy, MonthlyEnergy | `kwh` (lowercase) | `kWH` |
 | MeterInfo, RunningMeter | `kWH` (uppercase) | `kwh` |
@@ -1065,6 +1080,12 @@ If you add a new env var to `.env`, it **must** also be added to `docker-compose
 6. **❌ Use `kWH` (uppercase) on DailyEnergy/HourlyEnergy tables** — Field is `kwh` (lowercase)
 7. **❌ Use `meterId` on DailyEnergy/HourlyEnergy tables** — Field is `meterSnid`
 8. **❌ Mix real/demo database in same request** — The proxy handles this via middleware
+9. **❌ Use email as User PK or unique identifier** — PK is now `credId` (UUID), email is shared across all users
+10. **❌ Use `Building.email`** — Field was removed; use `assignedContactEmail` or `BuildingAssignment`
+11. **❌ Use `Wallet.email`** — Field was removed; use `buildingId` FK to Building
+12. **❌ Use `MarketOrder.participantEmail`** — Field was removed; use `participantId` (UUID → User.credId)
+13. **❌ Tie Wallet to User directly** — Wallet is per Building now (buildingId FK)
+14. **❌ Assume email is unique** — Multiple users can share the same email; always use `credId` for user identification
 
 ### ⚠️ Always Remember
 1. **✅ Circular deps?** → Use lazy `require()` inside function body, not top-level
@@ -1074,6 +1095,10 @@ If you add a new env var to `.env`, it **must** also be added to `docker-compose
 5. **✅ Building name query** → Use `buildingId` param to bypass name normalization
 6. **✅ New env var** → Add to both `.env` AND `docker-compose.yml` `environment:` block
 7. **✅ Network request from browser** → Must go through 10.10.161.x (can't reach 192.168.100.x directly)
+8. **✅ User identification** → Always use `credId` (UUID), never email
+9. **✅ User-building relationship** → Always use `BuildingAssignment` table, not Building.email
+10. **✅ Wallet lookup** → Use `buildingId`, not email
+11. **✅ Login with shared email** → Lookup all users with same email, bcrypt.compare password for each
 
 ---
 
@@ -1094,21 +1119,29 @@ If you add a new env var to `.env`, it **must** also be added to `docker-compose
 ## 7. 🧩 Database Schema (Quick Reference)
 
 ```sql
--- User: credId (UUID, unique), email (PK), role (USER|ADMIN)
--- Building: id (Int PK, autoincrement), name (unique), email (FK→User), tradeMode
+-- ⚠️ Email-Unification Refactor (2026-08-26)
+-- User PK changed from email to credId (UUID)
+-- All users share the same email address
+-- Wallet now per Building (buildingId FK) instead of per User (email FK)
+--
+-- User: credId (UUID PK), userId (Int, unique), email (shared), role (USER|ADMIN), status
+-- Building: id (Int PK), name (unique), assignedContactEmail, approvalStatus, tradeMode
+-- BuildingAssignment: id (Int PK), buildingId (FK→Building), userId (FK→User.credId), role
 -- MeterInfo: snid (PK), buildingName (FK→Building), type, kWH, approveStatus
--- Wallet: id (String PK), email (unique), tokenBalance (Float)
--- EnergyOffer: id (Int PK autoincrement), sellerWalletId, kWH, ratePerkWH, status (AVAILABLE|BOUGHT|CANCELLED|SOLD)
+-- Wallet: id (String PK), buildingId (Int, unique FK→Building), tokenBalance
+-- EnergyOffer: id (Int PK autoincrement), sellerWalletId, kWH, ratePerkWH, status
 -- ⚠️ Actual DB has UUID strings — not autoincrement Int
--- EnergyBid: id (Int PK autoincrement), buyerWalletId, kWH, ratePerkWH, status (OPEN|FULFILLED|CANCELLED)
--- Transaction: txid (UUID PK @map "id"), walletId, type, tokenAmount (@map "amount"), status, txHash
+-- EnergyBid: id (Int PK autoincrement), buyerWalletId, kWH, ratePerkWH, status
+-- Transaction: txid (UUID PK @map "id"), walletId, buildingId, type, tokenAmount (@map "amount"), status, txHash
 -- Invoice: id (UUID PK), buildingName, fromWId, toWId, kWH, status (paid|late|cancelled)
 -- Receipt: id (UUID PK), invoiceId (FK→Invoice, unique)
 -- BlockTransaction: id (UUID PK), txHash (unique), receiptId
--- Battery: snid (unique), capacitykWH, currentkWH, buildingId, ownerId
--- MarketOrder: id (UUID PK), side (BID|OFFER), marketType, quantity, filled, price, status
+-- Battery: snid (unique), capacitykWH, currentkWH, buildingId, ownerId (UUID)
+-- MarketOrder: id (UUID PK), side (BID|OFFER), participantId (UUID FK→User), buildingName, marketType, quantity, filled, price, status
 -- MarketMatch: id (UUID PK), buyerOrderId, sellerOrderId, quantity, price
 -- MarketRun: id (UUID PK), marketType, runTime, status
+-- ActivityLog: id (Int PK), userId (UUID FK→User), activitytype, detail
+-- Notification: id (Int PK), userId (UUID FK→User), title, body, read
 -- RunningMeter: snid, timestamp, kW, kWH — @@unique([snid, timestamp])
 -- HourlyEnergy: meterSnid+date (PK), h0-h23, kwh
 -- DailyEnergy: meterSnid+year+month (PK), d1-d31, kwh

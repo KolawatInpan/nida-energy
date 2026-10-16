@@ -242,11 +242,11 @@ export default function RegisterRequestDetail() {
                         } else {
                             await rejectBuilding(request.buildingId);
                         }
-                    } else if (requestType === 'user' && request?.userEmail) {
+                    } else if (requestType === 'user' && request?.credId) {
                         if (nextStatus === 'approved') {
-                            await approveUser(request.userEmail);
+                            await approveUser(request.credId);
                         } else {
-                            await rejectUser(request.userEmail);
+                            await rejectUser(request.credId);
                         }
                     } else if (request?.meterId) {
                         await updateMeter(request.meterId, { status: nextStatus });

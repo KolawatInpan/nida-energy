@@ -87,6 +87,9 @@ router.get('/building/:buildingName', UserController.getUserByBuildingName);
  */
 router.get('/building/id/:buildingId', UserController.getUserByBuildingId);
 
+// Get buildings assigned to a user (via BuildingAssignment)
+router.get('/:credId/buildings', UserController.getUserBuildings);
+
 /**
  * @openapi
  * /users/request-otp:
@@ -258,8 +261,8 @@ router.post('/admin-quick-register', UserController.adminQuickRegister);
  *                 token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiYWRtaW4iLCJyb2xlIjoiYWRtaW4iLCJhbGxvd3MiOiIqIn0.mHBLeBZ_UeSNvEdelf-5k8vo01hLh4RBF9F8GHJCS-k"
  */
 // User Approval (placed before /:id to avoid route conflict)
-router.put('/approve/:email', UserController.approveUser);
-router.put('/reject/:email', UserController.rejectUser);
+router.put('/approve/:id', UserController.approveUser);
+router.put('/reject/:id', UserController.rejectUser);
 router.get('/pending/list', UserController.getPendingUsers);
 
 router.put('/:id', auth, requireRole('ADMIN'), UserController.updateUser);

@@ -7,7 +7,7 @@ import { getBuildings, getMetersByBuilding } from '../../core/data_connecter/reg
 import { updateBuilding, assignUserToBuilding, removeUserFromBuilding } from '../../core/data_connecter/building';
 import { getUsers } from '../../core/data_connecter/user';
 import { searchBuildingEnergy } from '../../core/data_connecter/dashboard';
-import { getWalletByEmail, getWalletBalance } from '../../core/data_connecter/wallet';
+import { getWalletByBuildingId, getWalletBalance } from '../../core/data_connecter/wallet';
 import { normalizeRoleName } from '../../utils/authSession';
 import { ROUTE_PATHS } from '../../routes/routePaths';
 import Key from '../../global/key';
@@ -49,15 +49,13 @@ const extractTokenBalance = (response) => {
     return Math.round(toNumeric(raw));
 };
 
-const loadWalletBalanceSafe = async ({ email, walletId }) => {
-    const normalizedEmail = (email || '').toString().trim().toLowerCase();
-
-    if (normalizedEmail) {
+const loadWalletBalanceSafe = async ({ buildingId, walletId }) => {
+    if (buildingId) {
         try {
-            const wres = await getWalletByEmail(normalizedEmail);
+            const wres = await getWalletByBuildingId(buildingId);
             return extractTokenBalance(wres);
         } catch (err) {
-            console.warn('getWalletByEmail failed, fallback to walletId', err);
+            console.warn('getWalletByBuildingId failed, fallback to walletId', err);
         }
     }
 
@@ -190,7 +188,7 @@ export default function Building() {
     const [isEditing, setIsEditing] = useState(false);
     const [editForm, setEditForm] = useState({});
     const [assignModalOpen, setAssignModalOpen] = useState(false);
-    const [assignEmail, setAssignEmail] = useState('');
+    const [assignUserId, setAssignUserId] = useState('');
     const [userSearch, setUserSearch] = useState('');
     const [allUsers, setAllUsers] = useState([]);
     const [userBuildings, setUserBuildings] = useState({}); // email → [building names]
@@ -207,9 +205,9 @@ export default function Building() {
         return String(localStorage.getItem(Key.UserRole) || '').trim().toUpperCase() || 'USER';
     }, [member]);
 
-    const memberEmail = useMemo(() => {
-        return String(member?.email || localStorage.getItem(Key.UserEmail) || '').toLowerCase();
-    }, [member?.email]);
+    const userCredId = useMemo(() => {
+        return String(localStorage.getItem(Key.UserId) || member?.credId || '').toLowerCase();
+    }, [member?.credId]);
 
     const isUserRole = roleName === 'USER' || roleName === 'CONSUMER';
 
@@ -267,7 +265,9 @@ export default function Building() {
 
                 let data = null;
                 if (buildings && buildings.length) {
-                    const assignedBuilding = buildings.find((item) => String(item?.email || '').toLowerCase() === memberEmail) || null;
+                    const assignedBuilding = buildings.find((item) =>
+                        item?.assignedUsers?.some(au => au.user?.credId === userCredId)
+                    ) || null;
                     if (isUserRole && !assignedBuilding) {
                         history.replace(ROUTE_PATHS.noBuildingAssigned);
                         return;
@@ -278,12 +278,13 @@ export default function Building() {
                         const slug = (nameParam || '').toString().toLowerCase().replace(/\s+/g, '-');
                         return dbName === slug;
                     });
-                    if (isUserRole && assignedBuilding && found && String(found?.email || '').toLowerCase() !== memberEmail) {
+                    if (isUserRole && assignedBuilding && found && !found.assignedUsers?.some(au => au.user?.credId === userCredId)) {
                         history.replace(ROUTE_PATHS.noBuildingAssigned);
                         return;
                     }
 
                     if (found) {
+                        const assignedUser = found.assignedUsers?.[0]?.user || null;
                         data = {
                             dbId: found.id,
                             id: formatBuildingId(found.id),
@@ -293,9 +294,10 @@ export default function Building() {
                             status: found.status || 'Active',
                             address: found.address || found.mapURL || '',
                             location: found.province || '',
-                            email: found.owner?.email || found.email || '',
-                            phone: found.owner?.telNum || '',
-                            hasAssignedPerson: !!(found.owner?.email),
+                            contactName: assignedUser?.name || '',
+                            contactEmail: found.assignedContactEmail || assignedUser?.email || '',
+                            phone: assignedUser?.telNum || '',
+                            hasAssignedPerson: !!(assignedUser),
                             capacity: found.capacity || 'N/A',
                             registeredDate: found.createdAt ? fmtDate(new Date(found.createdAt)) : 'N/A',
                             serviceUnits: 0,
@@ -421,7 +423,7 @@ export default function Building() {
         };
 
         init();
-    }, [buildingId, history, isUserRole, memberEmail]);
+    }, [buildingId, history, isUserRole, userCredId]);
 
     const saveTradeSettings = async (nextMode, nextMeterType, nextThreshold) => {
         if (!building?.dbId) return;
@@ -476,14 +478,14 @@ export default function Building() {
     useEffect(() => {
         const loadWalletBalance = async () => {
             const balance = await loadWalletBalanceSafe({
-                email: building?.email,
+                contactEmail: building?.contactEmail || building?.assignedContactEmail || '',
                 walletId: building?.dbId,
             });
             setWalletBalance(balance);
         };
         
         loadWalletBalance();
-    }, [location.key, building?.email, building?.dbId]);
+    }, [location.key, building?.contactEmail, building?.dbId]);
 
     async function loadTodayEnergy(buildingName, dateParam, dbId) {
         try {
@@ -772,7 +774,7 @@ export default function Building() {
                                                 campus: building.campus,
                                                 address: building.address,
                                                 location: building.location,
-                                                email: building.email,
+                                                email: building.contactEmail || building.assignedContactEmail || '',
                                             });
                                             setIsEditing(true);
                                         }}
@@ -862,24 +864,29 @@ export default function Building() {
                                                         const users = Array.isArray(u?.data) ? u.data : Array.isArray(u) ? u : [];
                                                         const buildings = Array.isArray(blds?.data) ? blds.data : Array.isArray(blds) ? blds : [];
                                                         
-                                                        // Build user → building names map
+                                                        // Build user → building names map via BuildingAssignment
                                                         const ubMap = {};
                                                         buildings.forEach(b => {
-                                                            if (b.owner?.email) {
-                                                                if (!ubMap[b.owner.email]) ubMap[b.owner.email] = [];
-                                                                ubMap[b.owner.email].push(b.name);
+                                                            if (Array.isArray(b.assignedUsers)) {
+                                                                b.assignedUsers.forEach(au => {
+                                                                    const user = au.user;
+                                                                    if (user?.credId) {
+                                                                        if (!ubMap[user.credId]) ubMap[user.credId] = [];
+                                                                        ubMap[user.credId].push(b.name);
+                                                                    }
+                                                                });
                                                             }
                                                         });
                                                         setUserBuildings(ubMap);
                                                         
                                                         setAllUsers(users.filter(x => x.status === 'approved').map(x => ({
                                                             label: `${x.name || 'No Name'} (${x.email || ''})`,
-                                                            email: x.email,
+                                                            credId: x.credId,
                                                             name: x.name,
-                                                            buildings: ubMap[x.email] || [],
+                                                            buildings: ubMap[x.credId] || [],
                                                         })));
                                                     } catch { setAllUsers([]); setUserBuildings({}); }
-                                                    setAssignEmail(''); setUserSearch(''); setShowUnassignedOnly(false);
+                                                    setAssignUserId(''); setUserSearch(''); setShowUnassignedOnly(false);
                                                     setAssignModalOpen(true);
                                                 }}
                                                 className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-colors flex items-center gap-1"
@@ -897,8 +904,12 @@ export default function Building() {
                                                                     <p className="text-sm text-gray-600">Remove the assigned person from <strong>{building.name}</strong>?</p>
                                                                     <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
                                                                         <div className="flex items-center gap-2">
+                                                                            <span className="text-gray-500">👤</span>
+                                                                            <span className="font-semibold">{building.contactName || '—'}</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2">
                                                                             <span className="text-gray-500">📧</span>
-                                                                            <span className="font-semibold">{building.email || '—'}</span>
+                                                                            <span>{building.contactEmail || building.assignedContactEmail || '—'}</span>
                                                                         </div>
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="text-gray-500">📞</span>
@@ -911,7 +922,7 @@ export default function Building() {
                                                             okType: 'danger',
                                                             onOk: async () => {
                                                                 try {
-                                                                    await removeUserFromBuilding(building.dbId, building.email);
+                                                                    await removeUserFromBuilding(building.dbId, building.assignedUsers?.[0]?.user?.credId);
                                                                     message.success('Person removed');
                                                                     window.location.reload();
                                                                 } catch (e) {
@@ -930,33 +941,48 @@ export default function Building() {
                                     </div>
                                 </div>
 
-                                {/* Email and Phone Row */}
-                                <div className="relative">
+                                {/* Name, Email and Phone Row */}
+                                <div className="flex items-start gap-6">
+                                    {/* Name */}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-lg shrink-0">👤</span>
+                                            <div className="min-w-0">
+                                                <div className="text-xs text-gray-600 mb-1">Name</div>
+                                                <div className="font-bold text-gray-900 truncate">{building.hasAssignedPerson ? (building.contactName || '—') : '—'}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     {/* Email */}
-                                    <div className="flex items-start gap-3">
-                                        <span className="text-lg">📧</span>
-                                        <div className="flex-1">
-                                            <div className="text-xs text-gray-600 mb-1">Email</div>
-                                            {isEditing ? (
-                                                <input
-                                                    type="email"
-                                                    value={editForm.email || ''}
-                                                    onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
-                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm font-bold text-gray-900"
-                                                    placeholder="email@example.com"
-                                                />
-                                            ) : (
-                                                <div className="font-bold text-gray-900">{building.hasAssignedPerson ? building.email : '—'}</div>
-                                            )}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-lg shrink-0">📧</span>
+                                            <div className="min-w-0">
+                                                <div className="text-xs text-gray-600 mb-1">Email</div>
+                                                {isEditing ? (
+                                                    <input
+                                                        type="email"
+                                                        value={editForm.email || ''}
+                                                        onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
+                                                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm font-bold text-gray-900"
+                                                        placeholder="contact@example.com"
+                                                    />
+                                                ) : (
+                                                    <div className="font-bold text-gray-900 truncate">{building.hasAssignedPerson ? (building.contactEmail || building.assignedContactEmail || '—') : '—'}</div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 
                                     {/* Phone */}
-                                    <div className="absolute top-0 left-1/2 right-0 flex items-start gap-3">
-                                        <span className="text-lg">📞</span>
-                                        <div className="flex-1">
-                                            <div className="text-xs text-gray-600 mb-1">Phone</div>
-                                            <div className="font-bold text-gray-900">{building.hasAssignedPerson ? (building.phone || '—') : '—'}</div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-lg shrink-0">📞</span>
+                                            <div className="min-w-0">
+                                                <div className="text-xs text-gray-600 mb-1">Phone</div>
+                                                <div className="font-bold text-gray-900 truncate">{building.hasAssignedPerson ? (building.phone || '—') : '—'}</div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1344,9 +1370,9 @@ export default function Building() {
             {/* Assign Person Modal */}
             <Modal title={`Assign Person to ${building?.name || ''}`} open={assignModalOpen}
                 onOk={async () => {
-                    if (!assignEmail || !building) return;
+                    if (!assignUserId || !building) return;
                     try {
-                        await assignUserToBuilding(building.dbId, assignEmail, 'owner');
+                        await assignUserToBuilding(building.dbId, assignUserId, 'owner');
                         message.success('User assigned to building');
                         setAssignModalOpen(false);
                         window.location.reload();
@@ -1355,7 +1381,7 @@ export default function Building() {
                     }
                 }}
                 onCancel={() => setAssignModalOpen(false)}
-                okText="Assign" okButtonProps={{ className: '!bg-blue-600', disabled: !assignEmail }}>
+                okText="Assign" okButtonProps={{ className: '!bg-blue-600', disabled: !assignUserId }}>
                 <div className="py-2">
                     <label className="text-sm font-semibold text-gray-700 mb-2 block">Select User</label>
                     <div className="flex items-center gap-2 mb-2">
@@ -1377,9 +1403,9 @@ export default function Building() {
                             .filter(u => !userSearch || (u.label || '').toLowerCase().includes(userSearch.toLowerCase()))
                             .filter(u => !showUnassignedOnly || u.buildings.length === 0)
                             .map(u => (
-                            <div key={u.email}
-                                onClick={() => { setAssignEmail(u.email); setUserSearch(u.label); }}
-                                className={`px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm ${assignEmail === u.email ? 'bg-blue-100 font-semibold' : ''}`}>
+                            <div key={u.credId}
+                                onClick={() => { setAssignUserId(u.credId); setUserSearch(u.label); }}
+                                className={`px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm ${assignUserId === u.credId ? 'bg-blue-100 font-semibold' : ''}`}>
                                 <div className="flex items-center gap-2">
                                     <span>👤</span>
                                     <span>{u.label}</span>

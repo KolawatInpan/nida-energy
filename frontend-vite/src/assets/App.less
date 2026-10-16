@@ -49,13 +49,19 @@
 }
 
 html {
-    font-size: 20px;
+    /* Must stay in sync with App.css and @font-size-base in vite.config.mjs —
+       this one wins over App.css (App.js imports App.less, index.js imports App.css),
+       so leaving it at 20px silently kept every rem-based size 25% oversized. */
+    font-size: 16px;
     font-family: 'Chulabhorn', sans-serif;
 }
 
-.grid {
-    grid-template-columns: 1fr 300px !important;
-}
+/* NOTE: a legacy global rule `.grid { grid-template-columns: 1fr 300px !important }`
+   used to live here. tailwind.config.js sets `important: true`, so Tailwind's own
+   `grid-cols-*` utilities are also `!important`. With equal specificity the later rule
+   won, which silently forced every `className="grid grid-cols-*"` in the app into
+   "1fr + a 300px column" — including responsive variants such as sm:grid-cols-3.
+   Nothing referenced the bare `grid` class, so the rule was removed rather than scoped. */
 
 body {
     overflow: hidden;

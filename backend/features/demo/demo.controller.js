@@ -13,7 +13,7 @@ async function runDemoCycle(req, res) {
 
         // Step 1: Generate mock energy for all buildings
         const buildings = await prisma.building.findMany({
-            select: { name: true, email: true },
+            select: { name: true, id: true },
         });
 
         if (!buildings.length) {
@@ -79,7 +79,7 @@ async function runDemoCycle(req, res) {
 
         const buildingStates = await Promise.all(buildings.map(async (b) => {
             const meters = await prisma.meterInfo.findMany({ where: { buildingName: b.name } });
-            const wallet = await prisma.wallet.findUnique({ where: { email: b.email } });
+            const wallet = await prisma.wallet.findUnique({ where: { buildingId: b.id } });
             return {
                 name: b.name,
                 meters: meters.map(m => ({ snid: m.snid, type: m.type, value: Number(m.value || 0), kWH: Number(m.kWH || 0) })),

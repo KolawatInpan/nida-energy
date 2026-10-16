@@ -11,10 +11,12 @@ export async function checkUser(email) {
     return response.data;
 }
 
-export async function requestOtpEmail(email) {
+// OTP is keyed by email + name on the backend (shared-email model), so pass the
+// name when available. name is optional — legacy callers still work.
+export async function requestOtpEmail(email, name = '') {
     try {
         const base = getApiBase();
-        const response = await axios.post(`${base}/users/request-otp`, { email });
+        const response = await axios.post(`${base}/users/request-otp`, { email, name });
         return response.data;
     } catch (error) {
         console.error('Error requesting OTP:', error);
@@ -172,13 +174,25 @@ export async function getMonthlyEnergyByMeter(snid, year) {
     }
 }
 
-export async function getGaps({ meterId, date, from, to } = {}) {
+export async function getGaps({ meterId, meterIds, date, from, to, tz } = {}) {
     try {
         const base = getApiBase();
+        // Charts are drawn with the browser's local time — send that tz so the
+        // backend cuts day boundaries in the SAME timezone as the chart.
+        const tzParam = tz
+            || (typeof Intl !== 'undefined'
+                ? Intl.DateTimeFormat().resolvedOptions().timeZone
+                : undefined);
         const response = await axios.get(`${base}/dashboard/gaps`, {
-            params: { meterId, date, from, to },
+            // meterIds joined as CSV — axios would serialize arrays as repeated
+            // keys (`meterIds[]=a`) which the controller does not read.
+            params: { meterId, meterIds: Array.isArray(meterIds) ? meterIds.join(',') : meterIds, date, from, to, tz: tzParam },
         });
-        return response.data;
+        const body = response.data;
+        // Normalize: backend may return a bare array or { data: [...] }
+        if (Array.isArray(body)) return body;
+        if (Array.isArray(body?.data)) return body.data;
+        return [];
     } catch (error) {
         console.error('Error fetching gaps:', error);
         return [];
@@ -199,11 +213,13 @@ export async function insertRunningLog(snid, timestamp, kW, kWH, txid = null) {
         throw error;
     }
 }
-export async function registerBuilding(name, mapURL, addr, province, postalCode, email, dataMode) {
+export async function registerBuilding(name, mapURL, addr, province, postalCode, assignedContactEmail, dataMode) {
     try {
         const base = getApiBase();
         const config = dataMode ? { headers: { 'x-data-mode': dataMode } } : {};
-        const response = await axios.post(`${base}/buildings/register`, { name, mapURL, address: addr, province, postalCode, email }, config);
+        const payload = { name, mapURL, address: addr, province, postalCode };
+        if (assignedContactEmail) payload.assignedContactEmail = assignedContactEmail;
+        const response = await axios.post(`${base}/buildings/register`, payload, config);
         return response.data;
     } catch (error) {
         console.error('Error registering building:', error);
@@ -226,11 +242,11 @@ export async function registerMeter(buildingId, meterType, meterNumber, capacity
     }
 }
 
-export async function registerWallet(userId, email, dataMode) {
+export async function registerWallet(buildingId, dataMode) {
     try {
         const base = getApiBase();
         const config = dataMode ? { headers: { 'x-data-mode': dataMode } } : {};
-        const response = await axios.post(`${base}/wallets/register`, { userId, email }, config);
+        const response = await axios.post(`${base}/wallets/register`, { buildingId }, config);
         return response.data;
     } catch (error) {
         console.error('Error registering wallet:', error);

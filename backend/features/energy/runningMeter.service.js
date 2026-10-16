@@ -80,7 +80,7 @@ async function getBatteryChargeSources(req, res) {
 		// Get meter's building info
 		const meter = await prisma.meterInfo.findUnique({
 			where: { snid: String(snid) },
-			select: { buildingName: true, building: { select: { email: true } } },
+			select: { buildingName: true, building: { select: { id: true, name: true } } },
 		});
 		const buildingName = meter?.buildingName || 'Unknown';
 
@@ -125,7 +125,7 @@ async function getBatteryChargeSources(req, res) {
 		// How much energy is currently offered in marketplace from this building
 		let offeredKwh = 0;
 		try {
-			const wallet = await prisma.wallet.findFirst({ where: { email: meter?.building?.email || '' }, select: { id: true } });
+			const wallet = meter?.building?.id ? await prisma.wallet.findUnique({ where: { buildingId: meter.building.id }, select: { id: true } }) : null;
 			if (wallet?.id) {
 				const offers = await prisma.energyOffer.findMany({
 					where: { sellerWalletId: String(wallet.id), status: 'AVAILABLE' },
